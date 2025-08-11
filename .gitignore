@@ -1,0 +1,42 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Swift Package Manager
+.build/
+/.build/
+Package.resolved
+
+# Xcode
+*.xcworkspace
+*.xcuserstate
+*.xcuserdata/
+DerivedData/
+*.moved-aside
+*.xcuserdatad/
+*.xcscmblueprint
+
+# SwiftPM/Xcode
+.swiftpm/xcode/package.xcworkspace/
+
+# User-specific files
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+
+# Test output
+*.xctest
+
+# VSCode
+.vscode/
+
+# Other
+.idea/
+*.iml
+
+# App-specific
+WindowSnap/WindowSnapTests/DerivedData/
