@@ -249,3 +249,59 @@ Copyright © 2025 WindowSnap. All rights reserved.
 ---
 
 *Built with ❤️ using Swift and AppKit*
+
+## Distribution (Manual SwiftPM Bundle – Option 2)
+
+This project can produce a distributable `.app` bundle without Xcode by using the script at `WindowSnap/scripts/build_bundle.sh`.
+
+Outputs (after running):
+- `dist/WindowSnap.app`
+- `dist/WindowSnap.zip`
+- `dist/NOTARIZATION_STEPS.txt`
+
+### 1. Build the bundle
+```bash
+cd WindowSnap
+./scripts/build_bundle.sh
+```
+
+### 2. Codesign (recommended)
+Ad‑hoc signing is automatic. For distribution outside your machine:
+```bash
+CODESIGN_ID="Developer ID Application: Your Name (TEAMID)" ./scripts/build_bundle.sh
+```
+
+### 3. Notarize
+After a signed build (uses `notarytool`):
+```bash
+cd dist
+xcrun notarytool submit WindowSnap.zip \
+   --apple-id YOUR_APPLE_ID \
+   --team-id TEAMID \
+   --keychain-profile NOTARY_PROFILE \
+   --wait
+xcrun stapler staple WindowSnap.app
+spctl -a -v WindowSnap.app  # Verify
+```
+
+### 4. Publish
+Attach `WindowSnap.zip` to a GitHub Release. Users: download, unzip, move to Applications, grant Accessibility permission on first run.
+
+### Script Summary
+- `swift build -c release`
+- Assemble `.app` skeleton in `dist/`
+- Copy & tweak `Info.plist` version/build (timestamp build)
+- Compile asset catalog with `actool` if available (fallback safe)
+- Codesign (ad‑hoc or specified identity)
+- Zip archive for notarization/distribution
+
+### Optional Enhancements
+- Hardened runtime: add `--options runtime` & entitlements plist to codesign.
+- Auto-update: integrate Sparkle.
+- CI: GitHub Actions workflow to run script on tag push and upload artifact.
+
+## Future Improvements
+- Migrate deprecated `NSUserNotification` to `UNUserNotificationCenter` or custom HUD.
+- Add tests for coordinate conversion & multi-monitor snapping.
+- Provide localization for menu items.
+- Add preferences for custom grid sizes.

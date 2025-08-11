@@ -38,5 +38,14 @@ DerivedData/
 .idea/
 *.iml
 
+# Build artifacts and distribution
+dist/
+*.dmg
+*.zip
+*.app
+*_AssetBuild/
+NOTARIZATION_STEPS.txt
+*-rw.dmg
+
 # App-specific
 WindowSnap/WindowSnapTests/DerivedData/
