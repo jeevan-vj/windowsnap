@@ -18,7 +18,8 @@ let package = Package(
             name: "WindowSnap",
             dependencies: [],
             path: "WindowSnap",
-            exclude: ["App/Info.plist"],
+            // Exclude plist (handled by bundle in Xcode) and asset catalog which SPM CLI build cannot process.
+            exclude: ["App/Info.plist", "App/Assets.xcassets"],
             sources: [
                 "App/",
                 "Core/",

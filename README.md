@@ -195,6 +195,7 @@ swift test
 swift test_simple.swift
 
 # Test window detection
+
 swift -I .build/debug test_windows.swift
 ```
 

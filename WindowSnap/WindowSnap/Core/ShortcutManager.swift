@@ -114,6 +114,88 @@ class ShortcutManager {
         ]
     }
     
+    // SPECTACLE PRODUCTIVITY: Get undo/redo shortcuts
+    func getUndoRedoShortcuts() -> [String: () -> Void] {
+        return [
+            "cmd+option+z": {
+                let windowManager = WindowManager.shared
+                if windowManager.undoLastAction() {
+                    print("⏪ UNDO: Successfully undid last action")
+                } else {
+                    print("❌ UNDO: No actions to undo")
+                }
+            },
+            "cmd+option+shift+z": {
+                let windowManager = WindowManager.shared
+                if windowManager.redoLastAction() {
+                    print("⏩ REDO: Successfully redid last action")
+                } else {
+                    print("❌ REDO: No actions to redo")
+                }
+            }
+        ]
+    }
+    
+    // SPECTACLE PRODUCTIVITY: Get display switching shortcuts
+    func getDisplaySwitchingShortcuts() -> [String: () -> Void] {
+        return [
+            "ctrl+option+cmd+right": {
+                let windowManager = WindowManager.shared
+                guard let focusedWindow = windowManager.getFocusedWindow() else {
+                    print("❌ No active window to move")
+                    return
+                }
+                if windowManager.moveToNextDisplay(focusedWindow) {
+                    print("🖥️ Moved window to next display")
+                } else {
+                    print("❌ Failed to move window to next display")
+                }
+            },
+            "ctrl+option+cmd+left": {
+                let windowManager = WindowManager.shared
+                guard let focusedWindow = windowManager.getFocusedWindow() else {
+                    print("❌ No active window to move")
+                    return
+                }
+                if windowManager.moveToPreviousDisplay(focusedWindow) {
+                    print("🖥️ Moved window to previous display")
+                } else {
+                    print("❌ Failed to move window to previous display")
+                }
+            }
+        ]
+    }
+    
+    // SPECTACLE PRODUCTIVITY: Get incremental resizing shortcuts
+    func getIncrementalResizingShortcuts() -> [String: () -> Void] {
+        return [
+            "ctrl+option+shift+right": {
+                let windowManager = WindowManager.shared
+                guard let focusedWindow = windowManager.getFocusedWindow() else {
+                    print("❌ No active window to resize")
+                    return
+                }
+                if windowManager.makeWindowLarger(focusedWindow) {
+                    print("📏 Made window larger")
+                } else {
+                    print("❌ Failed to make window larger")
+                }
+            },
+            "ctrl+option+shift+left": {
+                let windowManager = WindowManager.shared
+                guard let focusedWindow = windowManager.getFocusedWindow() else {
+                    print("❌ No active window to resize")
+                    return
+                }
+                if windowManager.makeWindowSmaller(focusedWindow) {
+                    print("📏 Made window smaller")
+                } else {
+                    print("❌ Failed to make window smaller")
+                }
+            }
+        ]
+    }
+    
     private func parseShortcutString(_ shortcut: String) -> (keyCode: UInt32, modifiers: UInt32)? {
         let components = shortcut.lowercased().split(separator: "+").map(String.init)
         

@@ -35,6 +35,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupDefaultShortcuts() {
         guard let shortcutManager = shortcutManager else { return }
         
+        // Register window positioning shortcuts
         let defaultShortcuts = shortcutManager.getDefaultShortcuts()
         
         for (shortcut, position) in defaultShortcuts {
@@ -45,6 +46,44 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 print("Failed to register shortcut: \(shortcut)")
             }
         }
+        
+        // SPECTACLE PRODUCTIVITY: Register undo/redo shortcuts
+        let undoRedoShortcuts = shortcutManager.getUndoRedoShortcuts()
+        
+        for (shortcut, action) in undoRedoShortcuts {
+            let success = shortcutManager.registerGlobalShortcut(shortcut, action: action)
+            if !success {
+                print("Failed to register undo/redo shortcut: \(shortcut)")
+            }
+        }
+        
+        // SPECTACLE PRODUCTIVITY: Register display switching shortcuts
+        let displayShortcuts = shortcutManager.getDisplaySwitchingShortcuts()
+        
+        for (shortcut, action) in displayShortcuts {
+            let success = shortcutManager.registerGlobalShortcut(shortcut, action: action)
+            if !success {
+                print("Failed to register display switching shortcut: \(shortcut)")
+            }
+        }
+        
+        // SPECTACLE PRODUCTIVITY: Register incremental resizing shortcuts
+        let resizingShortcuts = shortcutManager.getIncrementalResizingShortcuts()
+        
+        for (shortcut, action) in resizingShortcuts {
+            let success = shortcutManager.registerGlobalShortcut(shortcut, action: action)
+            if !success {
+                print("Failed to register incremental resizing shortcut: \(shortcut)")
+            }
+        }
+        
+        print("🎯 PRODUCTIVITY SHORTCUTS REGISTERED:")
+        print("   ⏪ Undo: ⌘⌥Z")
+        print("   ⏩ Redo: ⌘⌥⇧Z")
+        print("   🖥️ Next Display: ⌃⌥⌘→")  
+        print("   🖥️ Previous Display: ⌃⌥⌘←")
+        print("   📏 Make Larger: ⌃⌥⇧→")
+        print("   📏 Make Smaller: ⌃⌥⇧←")
     }
     
     private func handleWindowSnap(to position: GridPosition) {

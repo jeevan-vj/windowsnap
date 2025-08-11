@@ -89,9 +89,20 @@ class WindowManager {
     }
     
     func snapWindow(_ window: WindowInfo, to position: GridPosition) {
-        print("=== WINDOW SNAP (SPECTACLE APPROACH) ===")
+        print("=== WINDOW SNAP (SPECTACLE APPROACH WITH CYCLING) ===")
         print("Window: '\(window.windowTitle)'")
         print("Current AX frame: \(window.frame)")
+        print("Requested position: \(position.displayName)")
+        
+        // 💾 SPECTACLE PRODUCTIVITY: Save current state for undo
+        WindowActionHistory.shared.saveState(before: position.displayName, window: window)
+        
+        // 🔄 SPECTACLE PRODUCTIVITY: Implement cycling behavior for repeated shortcuts
+        let actualPosition = WindowActionHistory.shared.getNextCyclePosition(for: position, window: window)
+        
+        if actualPosition != position {
+            print("📈 PRODUCTIVITY: Cycling from \(position.displayName) to \(actualPosition.displayName)")
+        }
         
         // Find screen containing this window (using AX coordinates)
         guard let containingScreen = getScreenContainingAXRect(window.frame) else {
@@ -106,18 +117,192 @@ class WindowManager {
         let axScreenFrame = convertNSScreenToAXCoordinates(containingScreen.visibleFrame)
         print("Screen visible frame (AX): \(axScreenFrame)")
         
-        // Calculate target frame directly in AX coordinate system
-        guard let targetAXFrame = calculateAXFrame(for: position, in: axScreenFrame) else {
-            print("ERROR: Could not calculate AX target frame for position: \(position)")
+        // Calculate target frame directly in AX coordinate system using actual position
+        guard let targetAXFrame = calculateAXFrame(for: actualPosition, in: axScreenFrame) else {
+            print("ERROR: Could not calculate AX target frame for position: \(actualPosition)")
             return
         }
         
         print("Target AX frame: \(targetAXFrame)")
+        print("Final position: \(actualPosition.displayName)")
         
         // Move window directly (already in correct AX coordinate system)
         moveWindowToAXFrame(window, frame: targetAXFrame)
         
         print("=== END DEBUG ===")
+    }
+    
+    // SPECTACLE PRODUCTIVITY: Undo/Redo functionality
+    func undoLastAction() -> Bool {
+        guard let lastState = WindowActionHistory.shared.undo() else {
+            print("❌ No actions to undo")
+            return false
+        }
+        
+        // Restore window to its previous state
+        moveWindowToAXFrame(lastState.windowInfo, frame: lastState.frame)
+        print("⏪ UNDO SUCCESS: Restored window to previous state")
+        return true
+    }
+    
+    func redoLastAction() -> Bool {
+        guard let nextState = WindowActionHistory.shared.redo() else {
+            print("❌ No actions to redo")
+            return false
+        }
+        
+        // Apply the redone state
+        moveWindowToAXFrame(nextState.windowInfo, frame: nextState.frame)
+        print("⏩ REDO SUCCESS: Applied next state")
+        return true
+    }
+    
+    func canUndo() -> Bool {
+        return WindowActionHistory.shared.canUndo()
+    }
+    
+    func canRedo() -> Bool {
+        return WindowActionHistory.shared.canRedo()
+    }
+    
+    // SPECTACLE PRODUCTIVITY: Display switching functionality
+    func moveToNextDisplay(_ window: WindowInfo) -> Bool {
+        let screens = NSScreen.screens
+        guard screens.count > 1 else {
+            print("📟 Only one display available - cannot switch")
+            return false
+        }
+        
+        guard let currentScreen = getScreenContainingAXRect(window.frame) else {
+            print("❌ Could not determine current screen for window")
+            return false
+        }
+        
+        guard let currentIndex = screens.firstIndex(of: currentScreen) else {
+            print("❌ Could not find current screen index")
+            return false
+        }
+        
+        let nextIndex = (currentIndex + 1) % screens.count
+        let nextScreen = screens[nextIndex]
+        
+        print("🖥️ DISPLAY SWITCH: Moving from display \(currentIndex + 1) to display \(nextIndex + 1)")
+        
+        return moveWindowToDisplay(window, targetScreen: nextScreen, sourceScreen: currentScreen)
+    }
+    
+    func moveToPreviousDisplay(_ window: WindowInfo) -> Bool {
+        let screens = NSScreen.screens
+        guard screens.count > 1 else {
+            print("📟 Only one display available - cannot switch")
+            return false
+        }
+        
+        guard let currentScreen = getScreenContainingAXRect(window.frame) else {
+            print("❌ Could not determine current screen for window")
+            return false
+        }
+        
+        guard let currentIndex = screens.firstIndex(of: currentScreen) else {
+            print("❌ Could not find current screen index")
+            return false
+        }
+        
+        let prevIndex = currentIndex == 0 ? screens.count - 1 : currentIndex - 1
+        let prevScreen = screens[prevIndex]
+        
+        print("🖥️ DISPLAY SWITCH: Moving from display \(currentIndex + 1) to display \(prevIndex + 1)")
+        
+        return moveWindowToDisplay(window, targetScreen: prevScreen, sourceScreen: currentScreen)
+    }
+    
+    private func moveWindowToDisplay(_ window: WindowInfo, targetScreen: NSScreen, sourceScreen: NSScreen) -> Bool {
+        // Save state for undo
+        WindowActionHistory.shared.saveState(before: "Move to \(getScreenDisplayName(targetScreen))", window: window)
+        
+        // Calculate relative position on source screen
+        let sourceAXFrame = convertNSScreenToAXCoordinates(sourceScreen.visibleFrame)
+        let relativeX = (window.frame.minX - sourceAXFrame.minX) / sourceAXFrame.width
+        let relativeY = (window.frame.minY - sourceAXFrame.minY) / sourceAXFrame.height
+        let relativeWidth = window.frame.width / sourceAXFrame.width
+        let relativeHeight = window.frame.height / sourceAXFrame.height
+        
+        print("🧮 RELATIVE POSITION: x=\(relativeX), y=\(relativeY), w=\(relativeWidth), h=\(relativeHeight)")
+        
+        // Calculate new position on target screen maintaining relative position
+        let targetAXFrame = convertNSScreenToAXCoordinates(targetScreen.visibleFrame)
+        let newFrame = CGRect(
+            x: targetAXFrame.minX + (relativeX * targetAXFrame.width),
+            y: targetAXFrame.minY + (relativeY * targetAXFrame.height),
+            width: min(relativeWidth * targetAXFrame.width, targetAXFrame.width),
+            height: min(relativeHeight * targetAXFrame.height, targetAXFrame.height)
+        )
+        
+        print("🎯 NEW FRAME: \(newFrame)")
+        
+        // Move window to target screen
+        moveWindowToAXFrame(window, frame: newFrame)
+        
+        print("✅ DISPLAY SWITCH SUCCESS: Window moved to \(getScreenDisplayName(targetScreen))")
+        return true
+    }
+    
+    // SPECTACLE PRODUCTIVITY: Incremental resizing functionality
+    func makeWindowLarger(_ window: WindowInfo) -> Bool {
+        guard let containingScreen = getScreenContainingAXRect(window.frame) else {
+            print("❌ Could not determine screen for incremental resize")
+            return false
+        }
+        
+        // Save state for undo
+        WindowActionHistory.shared.saveState(before: "Make Larger", window: window)
+        
+        let screenAXFrame = convertNSScreenToAXCoordinates(containingScreen.visibleFrame)
+        let increment: CGFloat = 50 // pixels
+        
+        let currentFrame = window.frame
+        let newSize = CGSize(
+            width: min(currentFrame.width + increment, screenAXFrame.width),
+            height: min(currentFrame.height + increment, screenAXFrame.height)
+        )
+        
+        // Center the resized window within the screen bounds
+        let newOrigin = CGPoint(
+            x: max(screenAXFrame.minX, min(currentFrame.midX - newSize.width / 2, screenAXFrame.maxX - newSize.width)),
+            y: max(screenAXFrame.minY, min(currentFrame.midY - newSize.height / 2, screenAXFrame.maxY - newSize.height))
+        )
+        
+        let newFrame = CGRect(origin: newOrigin, size: newSize)
+        
+        print("📏 MAKE LARGER: \(currentFrame.size) → \(newSize)")
+        moveWindowToAXFrame(window, frame: newFrame)
+        return true
+    }
+    
+    func makeWindowSmaller(_ window: WindowInfo) -> Bool {
+        // Save state for undo
+        WindowActionHistory.shared.saveState(before: "Make Smaller", window: window)
+        
+        let increment: CGFloat = 50 // pixels
+        let minSize: CGFloat = 200 // minimum window size
+        
+        let currentFrame = window.frame
+        let newSize = CGSize(
+            width: max(currentFrame.width - increment, minSize),
+            height: max(currentFrame.height - increment, minSize)
+        )
+        
+        // Center the resized window
+        let newOrigin = CGPoint(
+            x: currentFrame.midX - newSize.width / 2,
+            y: currentFrame.midY - newSize.height / 2
+        )
+        
+        let newFrame = CGRect(origin: newOrigin, size: newSize)
+        
+        print("📏 MAKE SMALLER: \(currentFrame.size) → \(newSize)")
+        moveWindowToAXFrame(window, frame: newFrame)
+        return true
     }
     
     // Convert NSScreen visible frame to AX coordinate system
