@@ -586,4 +586,29 @@ class WindowManager {
             return "Display \(screenIndex + 1) (\(displayName))"
         }
     }
+    
+    // MARK: - Wake/Sleep Handling
+    func resetAfterWake() {
+        print("🔄 Resetting WindowManager after system wake...")
+        // Nothing specific to reset in current implementation
+        // This method is here for future enhancements
+    }
+    
+    func isHealthy() -> Bool {
+        // Test if we can get the focused window - this tests accessibility
+        return getFocusedWindow() != nil || NSWorkspace.shared.frontmostApplication != nil
+    }
+    
+    func testAccessibility() -> Bool {
+        // Quick test to see if accessibility is working
+        guard let frontmostApp = NSWorkspace.shared.frontmostApplication else {
+            return false
+        }
+        
+        let appElement = AXUIElementCreateApplication(frontmostApp.processIdentifier)
+        var focusedWindow: CFTypeRef?
+        
+        let result = AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &focusedWindow)
+        return result == .success
+    }
 }

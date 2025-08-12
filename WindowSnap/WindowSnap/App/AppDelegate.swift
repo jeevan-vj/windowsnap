@@ -5,15 +5,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusBarController: StatusBarController?
     private var windowManager: WindowManager?
     private var shortcutManager: ShortcutManager?
+    private var healthCheckTimer: Timer?
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupMenuBarApp()
         requestAccessibilityPermissions()
         initializeManagers()
+        setupSleepWakeNotifications()
+        startHealthCheck()
     }
     
     func applicationWillTerminate(_ notification: Notification) {
         shortcutManager?.unregisterAllShortcuts()
+        removeSleepWakeNotifications()
+        stopHealthCheck()
     }
     
     private func setupMenuBarApp() {
@@ -97,5 +102,132 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         
         windowManager.snapWindow(focusedWindow, to: position)
+    }
+    
+    // MARK: - Sleep/Wake Handling
+    private func setupSleepWakeNotifications() {
+        // Register for sleep notifications
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(systemWillSleep),
+            name: NSWorkspace.willSleepNotification,
+            object: nil
+        )
+        
+        // Register for wake notifications
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(systemDidWake),
+            name: NSWorkspace.didWakeNotification,
+            object: nil
+        )
+        
+        // Register for screen wake notifications (additional safety)
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(screensDidWake),
+            name: NSWorkspace.screensDidWakeNotification,
+            object: nil
+        )
+        
+        print("🛌 Sleep/Wake notifications registered")
+    }
+    
+    private func removeSleepWakeNotifications() {
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
+    }
+    
+    @objc private func systemWillSleep() {
+        print("💤 System going to sleep - preparing WindowSnap...")
+        // Optionally pause operations or clean up resources
+    }
+    
+    @objc private func systemDidWake() {
+        print("☀️ System woke up - reinitializing WindowSnap...")
+        
+        // Small delay to allow system to fully wake up
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            self.reinitializeAfterWake()
+        }
+    }
+    
+    @objc private func screensDidWake() {
+        print("🖥️ Screens woke up - checking WindowSnap status...")
+        
+        // Additional delay for screen wake events
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            self.reinitializeAfterWake()
+        }
+    }
+    
+    private func reinitializeAfterWake() {
+        print("🔄 Reinitializing WindowSnap after wake...")
+        
+        // Check if accessibility permissions are still valid
+        if !AccessibilityPermissions.hasPermissions() {
+            print("⚠️ Accessibility permissions lost after wake - requesting again")
+            requestAccessibilityPermissions()
+            return
+        }
+        
+        // Test if WindowManager accessibility is working
+        if let windowManager = windowManager, !windowManager.testAccessibility() {
+            print("🔧 WindowManager accessibility lost after wake - resetting...")
+            windowManager.resetAfterWake()
+        }
+        
+        // Check if shortcut manager is healthy, if not reinitialize it
+        if let shortcutManager = shortcutManager, !shortcutManager.isHealthy() {
+            print("🔧 ShortcutManager unhealthy after wake - reinitializing...")
+            shortcutManager.reinitializeAfterWake()
+        } else {
+            // Re-register shortcuts (they may have been lost)
+            print("🔧 Re-registering shortcuts after wake...")
+            setupDefaultShortcuts()
+        }
+        
+        // Reset window manager state
+        windowManager = WindowManager.shared
+        
+        print("✅ WindowSnap reinitialized successfully after wake")
+    }
+    
+    // MARK: - Health Check
+    private func startHealthCheck() {
+        // Check app health every 30 seconds
+        healthCheckTimer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: true) { [weak self] _ in
+            self?.performHealthCheck()
+        }
+        print("💊 Health check timer started")
+    }
+    
+    private func stopHealthCheck() {
+        healthCheckTimer?.invalidate()
+        healthCheckTimer = nil
+    }
+    
+    @objc private func performHealthCheck() {
+        guard let shortcutManager = shortcutManager,
+              let windowManager = windowManager else { return }
+        
+        // Check if shortcuts are still working
+        if !shortcutManager.isHealthy() {
+            print("⚠️ Health check failed - ShortcutManager unhealthy - reinitializing...")
+            reinitializeAfterWake()
+            return
+        }
+        
+        // Check if window manager accessibility is still working
+        if !windowManager.testAccessibility() {
+            print("⚠️ Health check failed - WindowManager accessibility lost - reinitializing...")
+            reinitializeAfterWake()
+            return
+        }
+        
+        // Check if accessibility permissions are still valid
+        if !AccessibilityPermissions.hasPermissions() {
+            print("⚠️ Health check: Accessibility permissions lost")
+            // Don't auto-reinitialize here as it might be annoying, just log
+        }
     }
 }

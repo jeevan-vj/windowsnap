@@ -6,6 +6,8 @@
 	<string>WindowSnap</string>
 	<key>CFBundleExecutable</key>
 	<string>WindowSnap</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.windowsnap.app</string>
 	<key>CFBundleName</key>
@@ -15,7 +17,7 @@
 	<key>CFBundleShortVersionString</key>
 	<string>1.0</string>
 	<key>CFBundleVersion</key>
-	<string>20250813005045</string>
+	<string>20250813093234</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>12.0</string>
 	<key>LSUIElement</key>

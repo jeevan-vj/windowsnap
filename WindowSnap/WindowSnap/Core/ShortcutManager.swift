@@ -330,4 +330,46 @@ class ShortcutManager {
             return nil
         }
     }
+    
+    // MARK: - Wake/Sleep Handling
+    func reinitializeAfterWake() {
+        print("🔄 Reinitializing ShortcutManager after system wake...")
+        
+        // Store current shortcuts and actions before clearing
+        let currentShortcuts = registeredShortcuts
+        let currentActions = shortcutActions
+        
+        // Clear current state
+        registeredShortcuts.removeAll()
+        shortcutActions.removeAll()
+        
+        // Rebuild event handler to ensure it's still working
+        if let handler = eventHandler {
+            RemoveEventHandler(handler)
+            eventHandler = nil
+        }
+        setupEventHandler()
+        
+        // Re-register all shortcuts
+        var successCount = 0
+        var failureCount = 0
+        
+        for (shortcutString, _) in currentShortcuts {
+            if let action = currentActions.values.first {
+                if registerGlobalShortcut(shortcutString, action: action) {
+                    successCount += 1
+                } else {
+                    failureCount += 1
+                    print("❌ Failed to re-register shortcut after wake: \(shortcutString)")
+                }
+            }
+        }
+        
+        print("✅ Shortcut reinitialization complete: \(successCount) succeeded, \(failureCount) failed")
+    }
+    
+    func isHealthy() -> Bool {
+        // Basic health check - verify we have shortcuts registered and event handler is set
+        return !registeredShortcuts.isEmpty && eventHandler != nil
+    }
 }
