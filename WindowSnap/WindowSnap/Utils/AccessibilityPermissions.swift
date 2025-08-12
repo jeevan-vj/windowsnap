@@ -5,12 +5,17 @@ import AppKit
 class AccessibilityPermissions {
     
     static func hasPermissions() -> Bool {
-        return AXIsProcessTrusted()
+        let trusted = AXIsProcessTrusted()
+        print("🔍 Accessibility permission check: \(trusted)")
+        print("   Bundle ID: \(Bundle.main.bundleIdentifier ?? "unknown")")
+        return trusted
     }
     
     static func requestPermissionIfNeeded() {
+        // This method now only checks, doesn't automatically prompt
+        // Use showPermissionsAlert() for manual permission requests
         if !hasPermissions() {
-            requestPermissions()
+            print("Accessibility permissions not granted")
         }
     }
     

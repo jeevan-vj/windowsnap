@@ -21,7 +21,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     private func requestAccessibilityPermissions() {
-        AccessibilityPermissions.requestPermissionIfNeeded()
+        // Only check permissions, don't automatically prompt
+        if !AccessibilityPermissions.hasPermissions() {
+            print("⚠️ WindowSnap requires accessibility permissions to function properly.")
+            print("   You can grant permissions via the menu bar icon -> Preferences")
+        }
     }
     
     private func initializeManagers() {
