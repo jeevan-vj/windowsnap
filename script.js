@@ -14,6 +14,8 @@ class WindowSnapWebsite {
         this.setupParticles();
         this.setupKeyboardShortcuts();
         this.setupSmoothScrolling();
+        this.setupMouseEffects();
+        this.setupAdvancedAnimations();
     }
 
     // Loading Screen with Progress Animation
@@ -188,37 +190,240 @@ class WindowSnapWebsite {
     // Dynamic Particle System
     setupParticles() {
         const particleContainer = document.querySelector('.hero-particles');
-        const particleCount = 20;
+        const particleCount = 30;
 
+        // Clear existing particles
+        particleContainer.innerHTML = '';
+
+        // Create neural network nodes
         for (let i = 0; i < particleCount; i++) {
             const particle = document.createElement('div');
             particle.className = 'particle';
+            
+            const size = Math.random() * 6 + 2;
+            const x = Math.random() * 100;
+            const y = Math.random() * 100;
+            const hue = Math.random() * 60 + 220; // Blue to purple range
+            
             particle.style.cssText = `
                 position: absolute;
-                width: ${Math.random() * 4 + 1}px;
-                height: ${Math.random() * 4 + 1}px;
-                background: linear-gradient(45deg, #6366f1, #8b5cf6);
+                width: ${size}px;
+                height: ${size}px;
+                background: radial-gradient(circle, hsl(${hue}, 70%, 60%), transparent);
                 border-radius: 50%;
-                top: ${Math.random() * 100}%;
-                left: ${Math.random() * 100}%;
-                animation: particleFloat ${Math.random() * 10 + 5}s ease-in-out infinite;
+                top: ${y}%;
+                left: ${x}%;
+                animation: particleFloat ${Math.random() * 15 + 10}s ease-in-out infinite;
                 animation-delay: ${Math.random() * 5}s;
-                opacity: ${Math.random() * 0.5 + 0.3};
+                opacity: ${Math.random() * 0.8 + 0.2};
+                box-shadow: 0 0 ${size * 3}px hsla(${hue}, 70%, 60%, 0.5);
+                pointer-events: none;
+                z-index: 1;
             `;
+            
             particleContainer.appendChild(particle);
         }
 
-        // Add particle animation CSS
+        // Create neural connections
+        this.createNeuralConnections(particleContainer);
+
+        // Add advanced particle animation CSS
+        this.addParticleStyles();
+    }
+
+    createNeuralConnections(container) {
+        const connectionCount = 8;
+        
+        for (let i = 0; i < connectionCount; i++) {
+            const connection = document.createElement('div');
+            connection.className = 'neural-connection';
+            
+            const startX = Math.random() * 80 + 10;
+            const startY = Math.random() * 80 + 10;
+            const endX = Math.random() * 80 + 10;
+            const endY = Math.random() * 80 + 10;
+            
+            const length = Math.sqrt(Math.pow(endX - startX, 2) + Math.pow(endY - startY, 2));
+            const angle = Math.atan2(endY - startY, endX - startX) * 180 / Math.PI;
+            
+            connection.style.cssText = `
+                position: absolute;
+                left: ${startX}%;
+                top: ${startY}%;
+                width: ${length}%;
+                height: 2px;
+                background: linear-gradient(90deg, 
+                    rgba(99, 102, 241, 0.1) 0%,
+                    rgba(139, 92, 246, 0.6) 50%,
+                    rgba(99, 102, 241, 0.1) 100%);
+                transform-origin: left center;
+                transform: rotate(${angle}deg);
+                animation: connectionPulse ${Math.random() * 4 + 3}s ease-in-out infinite;
+                animation-delay: ${Math.random() * 2}s;
+                opacity: 0.7;
+                pointer-events: none;
+                z-index: 0;
+            `;
+            
+            container.appendChild(connection);
+        }
+    }
+
+    addParticleStyles() {
         const style = document.createElement('style');
         style.textContent = `
             @keyframes particleFloat {
-                0%, 100% { transform: translateY(0) rotate(0deg); }
-                25% { transform: translateY(-20px) rotate(90deg); }
-                50% { transform: translateY(-10px) rotate(180deg); }
-                75% { transform: translateY(-30px) rotate(270deg); }
+                0%, 100% { 
+                    transform: translateY(0) translateX(0) rotate(0deg) scale(1);
+                    opacity: 0.3;
+                }
+                25% { 
+                    transform: translateY(-30px) translateX(20px) rotate(90deg) scale(1.2);
+                    opacity: 0.8;
+                }
+                50% { 
+                    transform: translateY(-15px) translateX(-15px) rotate(180deg) scale(0.8);
+                    opacity: 1;
+                }
+                75% { 
+                    transform: translateY(-40px) translateX(10px) rotate(270deg) scale(1.1);
+                    opacity: 0.6;
+                }
+            }
+            
+            @keyframes connectionPulse {
+                0%, 100% {
+                    opacity: 0.2;
+                    background: linear-gradient(90deg, 
+                        rgba(99, 102, 241, 0.1) 0%,
+                        rgba(139, 92, 246, 0.3) 50%,
+                        rgba(99, 102, 241, 0.1) 100%);
+                }
+                50% {
+                    opacity: 0.8;
+                    background: linear-gradient(90deg, 
+                        rgba(99, 102, 241, 0.2) 0%,
+                        rgba(139, 92, 246, 0.9) 50%,
+                        rgba(99, 102, 241, 0.2) 100%);
+                    box-shadow: 0 0 10px rgba(139, 92, 246, 0.5);
+                }
             }
         `;
         document.head.appendChild(style);
+    }
+
+    // Advanced Mouse Effects
+    setupMouseEffects() {
+        const hero = document.querySelector('.hero');
+        const cursor = document.createElement('div');
+        cursor.className = 'futuristic-cursor';
+        cursor.style.cssText = `
+            position: fixed;
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(99, 102, 241, 0.8);
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 9999;
+            mix-blend-mode: difference;
+            transition: transform 0.1s ease;
+        `;
+        document.body.appendChild(cursor);
+
+        let mouseX = 0, mouseY = 0;
+        let cursorX = 0, cursorY = 0;
+
+        document.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+
+            // Magnetic effect for buttons
+            const buttons = document.querySelectorAll('.cta-button');
+            buttons.forEach(button => {
+                const rect = button.getBoundingClientRect();
+                const buttonCenterX = rect.left + rect.width / 2;
+                const buttonCenterY = rect.top + rect.height / 2;
+                const distance = Math.sqrt(
+                    Math.pow(mouseX - buttonCenterX, 2) + 
+                    Math.pow(mouseY - buttonCenterY, 2)
+                );
+
+                if (distance < 100) {
+                    const strength = (100 - distance) / 100;
+                    const deltaX = (mouseX - buttonCenterX) * strength * 0.1;
+                    const deltaY = (mouseY - buttonCenterY) * strength * 0.1;
+                    button.style.transform = `translate(${deltaX}px, ${deltaY}px) scale(${1 + strength * 0.05})`;
+                } else {
+                    button.style.transform = '';
+                }
+            });
+        });
+
+        // Smooth cursor animation
+        const animateCursor = () => {
+            cursorX += (mouseX - cursorX) * 0.1;
+            cursorY += (mouseY - cursorY) * 0.1;
+            cursor.style.left = cursorX + 'px';
+            cursor.style.top = cursorY + 'px';
+            requestAnimationFrame(animateCursor);
+        };
+        animateCursor();
+    }
+
+    // Advanced Animations Controller
+    setupAdvancedAnimations() {
+        // Parallax effect on hero background
+        window.addEventListener('scroll', this.throttle(() => {
+            const scrolled = window.pageYOffset;
+            const hero = document.querySelector('.hero-background');
+            const title = document.querySelector('.hero-title');
+            
+            if (hero) {
+                hero.style.transform = `translateY(${scrolled * 0.3}px)`;
+            }
+            
+            if (title && scrolled < window.innerHeight) {
+                const opacity = 1 - (scrolled / window.innerHeight);
+                title.style.opacity = Math.max(0.3, opacity);
+            }
+        }, 10));
+
+        // Interactive window demo on mouse move
+        const demoScreen = document.querySelector('.demo-screen');
+        const demoWindows = document.querySelectorAll('.demo-window');
+        
+        if (demoScreen) {
+            demoScreen.addEventListener('mousemove', (e) => {
+                const rect = demoScreen.getBoundingClientRect();
+                const x = (e.clientX - rect.left) / rect.width - 0.5;
+                const y = (e.clientY - rect.top) / rect.height - 0.5;
+                
+                demoScreen.style.transform = `
+                    perspective(1000px) 
+                    rotateX(${y * 10}deg) 
+                    rotateY(${x * 10}deg)
+                    translateZ(10px)
+                `;
+                
+                demoWindows.forEach((window, index) => {
+                    const delay = index * 0.1;
+                    setTimeout(() => {
+                        window.style.transform = `
+                            translateZ(${20 + index * 10}px)
+                            rotateX(${y * 5}deg)
+                            rotateY(${x * 5}deg)
+                        `;
+                    }, delay * 1000);
+                });
+            });
+
+            demoScreen.addEventListener('mouseleave', () => {
+                demoScreen.style.transform = '';
+                demoWindows.forEach(window => {
+                    window.style.transform = '';
+                });
+            });
+        }
     }
 
     // Keyboard Shortcuts for Demo
