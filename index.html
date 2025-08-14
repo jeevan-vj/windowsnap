@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WindowSnap - Revolutionary macOS Window Management</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <meta name="description" content="WindowSnap - The ultimate native macOS window management tool. Snap windows to perfect positions with lightning-fast keyboard shortcuts.">
+</head>
+<body>
+    <!-- Loading Screen -->
+    <div class="loading-screen" id="loadingScreen">
+        <div class="loading-content">
+            <div class="loading-logo">⊞</div>
+            <div class="loading-text">WindowSnap</div>
+            <div class="loading-bar">
+                <div class="loading-progress"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Navigation -->
+    <nav class="navbar" id="navbar">
+        <div class="nav-container">
+            <div class="nav-logo">
+                <span class="logo-icon">⊞</span>
+                <span class="logo-text">WindowSnap</span>
+            </div>
+            <div class="nav-menu">
+                <a href="#features" class="nav-link">Features</a>
+                <a href="#demo" class="nav-link">Demo</a>
+                <a href="#download" class="nav-link">Download</a>
+                <a href="#docs" class="nav-link">Docs</a>
+            </div>
+            <div class="nav-toggle" id="navToggle">
+                <span></span>
+                <span></span>
+                <span></span>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero" id="hero">
+        <div class="hero-background">
+            <div class="hero-grid"></div>
+            <div class="hero-particles"></div>
+        </div>
+        <div class="hero-content">
+            <div class="hero-badge">
+                <span class="badge-text">✨ Native macOS Application</span>
+            </div>
+            <h1 class="hero-title">
+                <span class="title-line">Revolutionize Your</span>
+                <span class="title-line gradient-text">Window Management</span>
+            </h1>
+            <p class="hero-description">
+                Experience lightning-fast window positioning with WindowSnap. 
+                The ultimate native macOS tool that transforms how you organize your workspace.
+            </p>
+            <div class="hero-actions">
+                <a href="https://github.com/jeevan-vj/windowsnap/releases" class="cta-button primary" target="_blank" rel="noopener">
+                    <span class="button-text">Download Free</span>
+                    <span class="button-icon">⬇</span>
+                </a>
+                <a href="#demo" class="cta-button secondary">
+                    <span class="button-text">Watch Demo</span>
+                    <span class="button-icon">▶</span>
+                </a>
+            </div>
+            <div class="hero-stats">
+                <div class="stat-item">
+                    <div class="stat-number">⚡</div>
+                    <div class="stat-label">Lightning Fast</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-number">🖥️</div>
+                    <div class="stat-label">Multi-Monitor</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-number">⌨️</div>
+                    <div class="stat-label">Keyboard Shortcuts</div>
+                </div>
+            </div>
+        </div>
+        <div class="hero-visual">
+            <div class="window-demo">
+                <div class="demo-screen">
+                    <div class="demo-window active" id="demoWindow1"></div>
+                    <div class="demo-window" id="demoWindow2"></div>
+                    <div class="demo-window" id="demoWindow3"></div>
+                </div>
+                <div class="keyboard-shortcuts">
+                    <div class="shortcut-key">⌘</div>
+                    <div class="shortcut-key">⇧</div>
+                    <div class="shortcut-key">←</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section class="features" id="features">
+        <div class="container">
+            <div class="section-header">
+                <h2 class="section-title">Powerful Features</h2>
+                <p class="section-description">Everything you need for perfect window management</p>
+            </div>
+            <div class="features-grid">
+                <div class="feature-card" data-reveal>
+                    <div class="feature-icon">⚡</div>
+                    <h3 class="feature-title">Lightning Fast</h3>
+                    <p class="feature-description">Snap windows instantly with optimized native performance. No lag, no delays.</p>
+                </div>
+                <div class="feature-card" data-reveal>
+                    <div class="feature-icon">🎯</div>
+                    <h3 class="feature-title">Precise Positioning</h3>
+                    <p class="feature-description">15+ predefined positions including halves, quarters, thirds, and custom arrangements.</p>
+                </div>
+                <div class="feature-card" data-reveal>
+                    <div class="feature-icon">🖥️</div>
+                    <h3 class="feature-title">Multi-Monitor Support</h3>
+                    <p class="feature-description">Seamlessly works across multiple displays with intelligent screen detection.</p>
+                </div>
+                <div class="feature-card" data-reveal>
+                    <div class="feature-icon">⌨️</div>
+                    <h3 class="feature-title">Global Shortcuts</h3>
+                    <p class="feature-description">System-wide keyboard shortcuts that work from any application.</p>
+                </div>
+                <div class="feature-card" data-reveal>
+                    <div class="feature-icon">🛡️</div>
+                    <h3 class="feature-title">Privacy Focused</h3>
+                    <p class="feature-description">Uses macOS Accessibility APIs responsibly. No data collection or tracking.</p>
+                </div>
+                <div class="feature-card" data-reveal>
+                    <div class="feature-icon">🎨</div>
+                    <h3 class="feature-title">Native Integration</h3>
+                    <p class="feature-description">Built with Swift and AppKit for perfect macOS integration and performance.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Demo Section -->
+    <section class="demo" id="demo">
+        <div class="container">
+            <div class="section-header">
+                <h2 class="section-title">See It In Action</h2>
+                <p class="section-description">Watch how WindowSnap transforms your workflow</p>
+            </div>
+            <div class="demo-container" data-reveal>
+                <div class="demo-screen-large">
+                    <div class="demo-windows">
+                        <div class="demo-window-large" id="demoWindowLeft"></div>
+                        <div class="demo-window-large" id="demoWindowRight"></div>
+                    </div>
+                    <div class="demo-controls">
+                        <button class="demo-btn" data-position="left">Left Half</button>
+                        <button class="demo-btn" data-position="right">Right Half</button>
+                        <button class="demo-btn" data-position="maximize">Maximize</button>
+                        <button class="demo-btn" data-position="quarter">Quarters</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Shortcuts Section -->
+    <section class="shortcuts" id="shortcuts">
+        <div class="container">
+            <div class="section-header">
+                <h2 class="section-title">Keyboard Shortcuts</h2>
+                <p class="section-description">Master window management with these powerful shortcuts</p>
+            </div>
+            <div class="shortcuts-grid">
+                <div class="shortcut-category" data-reveal>
+                    <h3 class="category-title">Halves</h3>
+                    <div class="shortcut-list">
+                        <div class="shortcut-item">
+                            <div class="shortcut-keys">
+                                <kbd>⌘</kbd><kbd>⇧</kbd><kbd>←</kbd>
+                            </div>
+                            <span class="shortcut-desc">Left Half</span>
+                        </div>
+                        <div class="shortcut-item">
+                            <div class="shortcut-keys">
+                                <kbd>⌘</kbd><kbd>⇧</kbd><kbd>→</kbd>
+                            </div>
+                            <span class="shortcut-desc">Right Half</span>
+                        </div>
+                        <div class="shortcut-item">
+                            <div class="shortcut-keys">
+                                <kbd>⌘</kbd><kbd>⇧</kbd><kbd>↑</kbd>
+                            </div>
+                            <span class="shortcut-desc">Top Half</span>
+                        </div>
+                        <div class="shortcut-item">
+                            <div class="shortcut-keys">
+                                <kbd>⌘</kbd><kbd>⇧</kbd><kbd>↓</kbd>
+                            </div>
+                            <span class="shortcut-desc">Bottom Half</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="shortcut-category" data-reveal>
+                    <h3 class="category-title">Quarters</h3>
+                    <div class="shortcut-list">
+                        <div class="shortcut-item">
+                            <div class="shortcut-keys">
+                                <kbd>⌘</kbd><kbd>⌥</kbd><kbd>1</kbd>
+                            </div>
+                            <span class="shortcut-desc">Top Left</span>
+                        </div>
+                        <div class="shortcut-item">
+                            <div class="shortcut-keys">
+                                <kbd>⌘</kbd><kbd>⌥</kbd><kbd>2</kbd>
+                            </div>
+                            <span class="shortcut-desc">Top Right</span>
+                        </div>
+                        <div class="shortcut-item">
+                            <div class="shortcut-keys">
+                                <kbd>⌘</kbd><kbd>⌥</kbd><kbd>3</kbd>
+                            </div>
+                            <span class="shortcut-desc">Bottom Left</span>
+                        </div>
+                        <div class="shortcut-item">
+                            <div class="shortcut-keys">
+                                <kbd>⌘</kbd><kbd>⌥</kbd><kbd>4</kbd>
+                            </div>
+                            <span class="shortcut-desc">Bottom Right</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="shortcut-category" data-reveal>
+                    <h3 class="category-title">Special</h3>
+                    <div class="shortcut-list">
+                        <div class="shortcut-item">
+                            <div class="shortcut-keys">
+                                <kbd>⌘</kbd><kbd>⇧</kbd><kbd>M</kbd>
+                            </div>
+                            <span class="shortcut-desc">Maximize</span>
+                        </div>
+                        <div class="shortcut-item">
+                            <div class="shortcut-keys">
+                                <kbd>⌘</kbd><kbd>⇧</kbd><kbd>C</kbd>
+                            </div>
+                            <span class="shortcut-desc">Center</span>
+                        </div>
+                        <div class="shortcut-item">
+                            <div class="shortcut-keys">
+                                <kbd>⌘</kbd><kbd>⌥</kbd><kbd>←</kbd>
+                            </div>
+                            <span class="shortcut-desc">Left Third</span>
+                        </div>
+                        <div class="shortcut-item">
+                            <div class="shortcut-keys">
+                                <kbd>⌘</kbd><kbd>⌥</kbd><kbd>→</kbd>
+                            </div>
+                            <span class="shortcut-desc">Right Third</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Download Section -->
+    <section class="download" id="download">
+        <div class="container">
+            <div class="download-content" data-reveal>
+                <div class="download-info">
+                    <h2 class="section-title">Ready to Transform Your Workflow?</h2>
+                    <p class="section-description">Download WindowSnap now and experience the future of window management</p>
+                    <div class="requirements">
+                        <h4>System Requirements</h4>
+                        <ul>
+                            <li>macOS 12.0 (Monterey) or later</li>
+                            <li>Intel x64 or Apple Silicon (ARM64)</li>
+                            <li>Accessibility permissions</li>
+                        </ul>
+                    </div>
+                </div>
+                <div class="download-actions">
+                    <a href="https://github.com/jeevan-vj/windowsnap/releases" class="download-button primary" target="_blank" rel="noopener">
+                        <div class="button-content">
+                            <span class="button-icon">⬇</span>
+                            <div class="button-text">
+                                <span class="button-title">Download WindowSnap</span>
+                                <span class="button-subtitle">Latest Release • Free</span>
+                            </div>
+                        </div>
+                    </a>
+                    <a href="https://github.com/jeevan-vj/windowsnap" class="download-button secondary" target="_blank" rel="noopener">
+                        <div class="button-content">
+                            <span class="button-icon">⭐</span>
+                            <div class="button-text">
+                                <span class="button-title">View on GitHub</span>
+                                <span class="button-subtitle">Source Code • Open Source</span>
+                            </div>
+                        </div>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-brand">
+                    <div class="footer-logo">
+                        <span class="logo-icon">⊞</span>
+                        <span class="logo-text">WindowSnap</span>
+                    </div>
+                    <p class="footer-description">Revolutionary window management for macOS</p>
+                </div>
+                <div class="footer-links">
+                    <div class="link-group">
+                        <h4>Product</h4>
+                        <a href="#features">Features</a>
+                        <a href="#demo">Demo</a>
+                        <a href="#download">Download</a>
+                    </div>
+                    <div class="link-group">
+                        <h4>Resources</h4>
+                        <a href="https://github.com/jeevan-vj/windowsnap" target="_blank" rel="noopener">GitHub</a>
+                        <a href="https://github.com/jeevan-vj/windowsnap/releases" target="_blank" rel="noopener">Releases</a>
+                        <a href="https://github.com/jeevan-vj/windowsnap/issues" target="_blank" rel="noopener">Support</a>
+                    </div>
+                    <div class="link-group">
+                        <h4>Community</h4>
+                        <a href="https://github.com/jeevan-vj/windowsnap/discussions" target="_blank" rel="noopener">Discussions</a>
+                        <a href="https://github.com/jeevan-vj/windowsnap/issues" target="_blank" rel="noopener">Issues</a>
+                        <a href="https://github.com/jeevan-vj/windowsnap/blob/main/README.md" target="_blank" rel="noopener">Documentation</a>
+                    </div>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; 2025 WindowSnap. Built with ❤️ using Swift and AppKit.</p>
+            </div>
+        </div>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+</html>

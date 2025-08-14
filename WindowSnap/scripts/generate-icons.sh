@@ -77,6 +77,32 @@ if [[ -f "$SVG_FILE" ]] && command -v rsvg-convert >/dev/null 2>&1; then
         echo "   Creating $filename (${size}x${size})"
         rsvg-convert -w "$size" -h "$size" "$SVG_FILE" -o "$output_file"
     done
+elif [[ -f "$SVG_FILE" ]] && command -v qlmanage >/dev/null 2>&1; then
+    echo "📁 Found SVG file, using qlmanage to convert..."
+    for icon_entry in "${ICON_FILES[@]}"; do
+        filename="${icon_entry%%:*}"
+        size="${icon_entry##*:}"
+        output_file="$ICON_SET_DIR/$filename"
+        echo "   Creating $filename (${size}x${size})"
+        
+        # Use qlmanage to convert SVG
+        temp_dir="/tmp/icon_gen_$$"
+        mkdir -p "$temp_dir"
+        cp "$SVG_FILE" "$temp_dir/temp.svg"
+        
+        if qlmanage -t -s "$size" -o "$temp_dir" "$temp_dir/temp.svg" >/dev/null 2>&1; then
+            if [[ -f "$temp_dir/temp.svg.png" ]]; then
+                mv "$temp_dir/temp.svg.png" "$output_file"
+            else
+                echo "   ⚠️  qlmanage failed for $filename, using fallback"
+                create_simple_icon "$size" "$output_file"
+            fi
+        else
+            create_simple_icon "$size" "$output_file"
+        fi
+        
+        rm -rf "$temp_dir"
+    done
 else
     echo "📦 Creating placeholder icons..."
     if [[ ! -f "$SVG_FILE" ]]; then
