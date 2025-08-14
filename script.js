@@ -16,6 +16,101 @@ class WindowSnapWebsite {
         this.setupSmoothScrolling();
         this.setupMouseEffects();
         this.setupAdvancedAnimations();
+        this.setupMobileOptimizations();
+        this.setupFloatingElements();
+        this.setupCharacterAnimations();
+    }
+
+    // Mobile-specific optimizations
+    setupMobileOptimizations() {
+        // Handle orientation change
+        window.addEventListener('orientationchange', () => {
+            setTimeout(() => {
+                this.setupParticles(); // Recreate particles for new dimensions
+                this.handleResize();
+            }, 100);
+        });
+
+        // Handle resize
+        window.addEventListener('resize', this.throttle(() => {
+            this.handleResize();
+        }, 250));
+
+        // Optimize scroll performance on mobile
+        if ('ontouchstart' in window) {
+            let ticking = false;
+            
+            const optimizedScroll = () => {
+                if (!ticking) {
+                    requestAnimationFrame(() => {
+                        // Mobile-optimized scroll effects
+                        this.updateScrollEffects();
+                        ticking = false;
+                    });
+                    ticking = true;
+                }
+            };
+
+            window.addEventListener('scroll', optimizedScroll, { passive: true });
+        }
+
+        // Prevent zoom on double tap
+        let lastTouchEnd = 0;
+        document.addEventListener('touchend', (event) => {
+            const now = (new Date()).getTime();
+            if (now - lastTouchEnd <= 300) {
+                event.preventDefault();
+            }
+            lastTouchEnd = now;
+        }, false);
+
+        // Add loading states for better perceived performance
+        this.setupLoadingStates();
+    }
+
+    handleResize() {
+        const isMobile = window.innerWidth <= 768;
+        
+        // Adjust particle system based on screen size
+        if (isMobile !== this.wasMobile) {
+            this.setupParticles();
+            this.wasMobile = isMobile;
+        }
+
+        // Update demo screen dimensions
+        const demoScreen = document.querySelector('.demo-screen');
+        if (demoScreen && isMobile) {
+            demoScreen.style.height = Math.min(250, window.innerHeight * 0.3) + 'px';
+        }
+    }
+
+    updateScrollEffects() {
+        // Simplified scroll effects for mobile
+        const scrolled = window.pageYOffset;
+        const hero = document.querySelector('.hero-background');
+        
+        if (hero && window.innerWidth > 768) {
+            hero.style.transform = `translateY(${scrolled * 0.1}px)`;
+        }
+    }
+
+    setupLoadingStates() {
+        // Add loading states to improve perceived performance
+        const heavyElements = document.querySelectorAll('.demo-screen, .feature-card');
+        
+        heavyElements.forEach(element => {
+            element.style.opacity = '0';
+            element.style.transition = 'opacity 0.3s ease';
+        });
+
+        // Reveal elements progressively
+        setTimeout(() => {
+            heavyElements.forEach((element, index) => {
+                setTimeout(() => {
+                    element.style.opacity = '1';
+                }, index * 100);
+            });
+        }, 500);
     }
 
     // Loading Screen with Progress Animation
@@ -190,7 +285,10 @@ class WindowSnapWebsite {
     // Dynamic Particle System
     setupParticles() {
         const particleContainer = document.querySelector('.hero-particles');
-        const particleCount = 30;
+        
+        // Detect mobile devices
+        const isMobile = window.innerWidth <= 768;
+        const particleCount = isMobile ? 15 : 30; // Fewer particles on mobile
 
         // Clear existing particles
         particleContainer.innerHTML = '';
@@ -200,10 +298,11 @@ class WindowSnapWebsite {
             const particle = document.createElement('div');
             particle.className = 'particle';
             
-            const size = Math.random() * 6 + 2;
+            const size = isMobile ? Math.random() * 4 + 2 : Math.random() * 6 + 2;
             const x = Math.random() * 100;
             const y = Math.random() * 100;
             const hue = Math.random() * 60 + 220; // Blue to purple range
+            const animationDuration = isMobile ? Math.random() * 20 + 15 : Math.random() * 15 + 10;
             
             particle.style.cssText = `
                 position: absolute;
@@ -213,9 +312,9 @@ class WindowSnapWebsite {
                 border-radius: 50%;
                 top: ${y}%;
                 left: ${x}%;
-                animation: particleFloat ${Math.random() * 15 + 10}s ease-in-out infinite;
+                animation: particleFloat ${animationDuration}s ease-in-out infinite;
                 animation-delay: ${Math.random() * 5}s;
-                opacity: ${Math.random() * 0.8 + 0.2};
+                opacity: ${isMobile ? Math.random() * 0.6 + 0.2 : Math.random() * 0.8 + 0.2};
                 box-shadow: 0 0 ${size * 3}px hsla(${hue}, 70%, 60%, 0.5);
                 pointer-events: none;
                 z-index: 1;
@@ -224,15 +323,15 @@ class WindowSnapWebsite {
             particleContainer.appendChild(particle);
         }
 
-        // Create neural connections
-        this.createNeuralConnections(particleContainer);
+        // Create neural connections (fewer on mobile)
+        this.createNeuralConnections(particleContainer, isMobile);
 
         // Add advanced particle animation CSS
         this.addParticleStyles();
     }
 
-    createNeuralConnections(container) {
-        const connectionCount = 8;
+    createNeuralConnections(container, isMobile = false) {
+        const connectionCount = isMobile ? 4 : 8; // Fewer connections on mobile
         
         for (let i = 0; i < connectionCount; i++) {
             const connection = document.createElement('div');
@@ -251,16 +350,16 @@ class WindowSnapWebsite {
                 left: ${startX}%;
                 top: ${startY}%;
                 width: ${length}%;
-                height: 2px;
+                height: ${isMobile ? 1 : 2}px;
                 background: linear-gradient(90deg, 
                     rgba(99, 102, 241, 0.1) 0%,
-                    rgba(139, 92, 246, 0.6) 50%,
+                    rgba(139, 92, 246, ${isMobile ? 0.4 : 0.6}) 50%,
                     rgba(99, 102, 241, 0.1) 100%);
                 transform-origin: left center;
                 transform: rotate(${angle}deg);
-                animation: connectionPulse ${Math.random() * 4 + 3}s ease-in-out infinite;
+                animation: connectionPulse ${Math.random() * 6 + 4}s ease-in-out infinite;
                 animation-delay: ${Math.random() * 2}s;
-                opacity: 0.7;
+                opacity: ${isMobile ? 0.5 : 0.7};
                 pointer-events: none;
                 z-index: 0;
             `;
@@ -314,6 +413,14 @@ class WindowSnapWebsite {
 
     // Advanced Mouse Effects
     setupMouseEffects() {
+        const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+        
+        // Skip mouse effects on touch devices
+        if (isMobile) {
+            this.setupTouchEffects();
+            return;
+        }
+
         const hero = document.querySelector('.hero');
         const cursor = document.createElement('div');
         cursor.className = 'futuristic-cursor';
@@ -337,7 +444,7 @@ class WindowSnapWebsite {
             mouseX = e.clientX;
             mouseY = e.clientY;
 
-            // Magnetic effect for buttons
+            // Magnetic effect for buttons (only on desktop)
             const buttons = document.querySelectorAll('.cta-button');
             buttons.forEach(button => {
                 const rect = button.getBoundingClientRect();
@@ -370,29 +477,92 @@ class WindowSnapWebsite {
         animateCursor();
     }
 
+    // Touch Effects for Mobile
+    setupTouchEffects() {
+        const buttons = document.querySelectorAll('.cta-button, .demo-btn');
+        
+        buttons.forEach(button => {
+            button.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                button.style.transform = 'scale(0.95)';
+                button.style.transition = 'transform 0.1s ease';
+                
+                // Create ripple effect
+                const ripple = document.createElement('div');
+                const rect = button.getBoundingClientRect();
+                const size = Math.max(rect.width, rect.height);
+                const x = e.touches[0].clientX - rect.left - size / 2;
+                const y = e.touches[0].clientY - rect.top - size / 2;
+                
+                ripple.style.cssText = `
+                    position: absolute;
+                    width: ${size}px;
+                    height: ${size}px;
+                    border-radius: 50%;
+                    background: rgba(99, 102, 241, 0.3);
+                    left: ${x}px;
+                    top: ${y}px;
+                    transform: scale(0);
+                    animation: ripple 0.6s ease-out;
+                    pointer-events: none;
+                `;
+                
+                button.style.position = 'relative';
+                button.style.overflow = 'hidden';
+                button.appendChild(ripple);
+                
+                setTimeout(() => {
+                    if (ripple.parentNode) {
+                        ripple.parentNode.removeChild(ripple);
+                    }
+                }, 600);
+            });
+            
+            button.addEventListener('touchend', () => {
+                button.style.transform = '';
+            });
+        });
+
+        // Add ripple animation CSS
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes ripple {
+                to {
+                    transform: scale(2);
+                    opacity: 0;
+                }
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
     // Advanced Animations Controller
     setupAdvancedAnimations() {
-        // Parallax effect on hero background
+        const isMobile = window.innerWidth <= 768;
+        
+        // Parallax effect on hero background (reduced on mobile)
         window.addEventListener('scroll', this.throttle(() => {
             const scrolled = window.pageYOffset;
             const hero = document.querySelector('.hero-background');
             const title = document.querySelector('.hero-title');
             
             if (hero) {
-                hero.style.transform = `translateY(${scrolled * 0.3}px)`;
+                const parallaxSpeed = isMobile ? 0.1 : 0.3; // Reduced parallax on mobile
+                hero.style.transform = `translateY(${scrolled * parallaxSpeed}px)`;
             }
             
             if (title && scrolled < window.innerHeight) {
                 const opacity = 1 - (scrolled / window.innerHeight);
                 title.style.opacity = Math.max(0.3, opacity);
             }
-        }, 10));
+        }, isMobile ? 16 : 10)); // Longer throttle on mobile for better performance
 
-        // Interactive window demo on mouse move
+        // Interactive window demo (simplified on mobile)
         const demoScreen = document.querySelector('.demo-screen');
         const demoWindows = document.querySelectorAll('.demo-window');
         
-        if (demoScreen) {
+        if (demoScreen && !isMobile) {
+            // Full 3D effects only on desktop
             demoScreen.addEventListener('mousemove', (e) => {
                 const rect = demoScreen.getBoundingClientRect();
                 const x = (e.clientX - rect.left) / rect.width - 0.5;
@@ -422,6 +592,38 @@ class WindowSnapWebsite {
                 demoWindows.forEach(window => {
                     window.style.transform = '';
                 });
+            });
+        } else if (demoScreen && isMobile) {
+            // Simple touch interactions for mobile
+            demoScreen.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                demoScreen.style.transform = 'scale(0.98)';
+                demoScreen.style.transition = 'transform 0.2s ease';
+            });
+            
+            demoScreen.addEventListener('touchend', () => {
+                demoScreen.style.transform = '';
+            });
+        }
+
+        // Mobile-specific optimizations
+        if (isMobile) {
+            // Reduce animation complexity on mobile
+            const morphingElements = document.querySelectorAll('.hero-background::before, .hero-background::after');
+            morphingElements.forEach(el => {
+                if (el.style) {
+                    el.style.animationDuration = '20s'; // Slower animations
+                }
+            });
+
+            // Pause expensive animations when page is not visible
+            document.addEventListener('visibilitychange', () => {
+                const particles = document.querySelectorAll('.particle, .neural-connection');
+                if (document.hidden) {
+                    particles.forEach(p => p.style.animationPlayState = 'paused');
+                } else {
+                    particles.forEach(p => p.style.animationPlayState = 'running');
+                }
             });
         }
     }
@@ -678,6 +880,126 @@ class AdvancedAnimations {
             clearTimeout(timeout);
             timeout = setTimeout(later, wait);
         };
+    }
+    
+    // Floating Elements Setup
+    setupFloatingElements() {
+        const floatingElements = document.querySelectorAll('.floating-terminal, .floating-code, .floating-stats, .floating-ui');
+        
+        floatingElements.forEach((element, index) => {
+            // Add random movement variations
+            const randomDelay = Math.random() * 2;
+            const randomDuration = 3 + Math.random() * 2;
+            
+            element.style.animationDelay = `${randomDelay}s`;
+            element.style.animationDuration = `${randomDuration}s`;
+            
+            // Add interactive hover effects
+            element.addEventListener('mouseenter', () => {
+                element.style.animationPlayState = 'paused';
+                element.style.transform = 'scale(1.1) translateY(-10px)';
+                element.style.transition = 'transform 0.3s ease-out';
+            });
+            
+            element.addEventListener('mouseleave', () => {
+                element.style.animationPlayState = 'running';
+                element.style.transform = '';
+                element.style.transition = 'transform 0.3s ease-out';
+            });
+        });
+        
+        // Add floating particle effects
+        this.createFloatingParticles();
+    }
+    
+    // Character Animation Setup
+    setupCharacterAnimations() {
+        const charElements = document.querySelectorAll('.char-animate');
+        
+        charElements.forEach((element, elementIndex) => {
+            const text = element.textContent;
+            element.innerHTML = '';
+            
+            // Split text into individual characters
+            text.split('').forEach((char, charIndex) => {
+                const span = document.createElement('span');
+                span.textContent = char === ' ' ? '\u00A0' : char; // Non-breaking space
+                span.style.display = 'inline-block';
+                span.style.opacity = '0';
+                span.style.transform = 'translateY(50px) rotateX(90deg)';
+                span.style.transition = `all 0.6s ease-out ${(charIndex * 0.05)}s`;
+                element.appendChild(span);
+            });
+            
+            // Trigger animation when in view
+            const observer = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        const spans = entry.target.querySelectorAll('span');
+                        spans.forEach((span, index) => {
+                            setTimeout(() => {
+                                span.style.opacity = '1';
+                                span.style.transform = 'translateY(0) rotateX(0deg)';
+                            }, index * 50);
+                        });
+                        observer.unobserve(entry.target);
+                    }
+                });
+            }, { threshold: 0.3 });
+            
+            observer.observe(element);
+        });
+    }
+    
+    // Create floating particles for enhanced visual effect
+    createFloatingParticles() {
+        const hero = document.querySelector('.hero');
+        const particleCount = window.innerWidth < 768 ? 15 : 30;
+        
+        for (let i = 0; i < particleCount; i++) {
+            const particle = document.createElement('div');
+            particle.className = 'floating-particle';
+            particle.style.cssText = `
+                position: absolute;
+                width: ${Math.random() * 6 + 2}px;
+                height: ${Math.random() * 6 + 2}px;
+                background: linear-gradient(45deg, #00ff88, #0088ff);
+                border-radius: 50%;
+                pointer-events: none;
+                left: ${Math.random() * 100}%;
+                top: ${Math.random() * 100}%;
+                opacity: ${Math.random() * 0.7 + 0.3};
+                animation: floatParticle ${Math.random() * 10 + 10}s linear infinite;
+                box-shadow: 0 0 ${Math.random() * 10 + 5}px rgba(0, 255, 136, 0.5);
+                z-index: 1;
+            `;
+            hero.appendChild(particle);
+        }
+        
+        // Add floating particle keyframes if not already added
+        if (!document.querySelector('#floating-particle-styles')) {
+            const style = document.createElement('style');
+            style.id = 'floating-particle-styles';
+            style.textContent = `
+                @keyframes floatParticle {
+                    0% {
+                        transform: translateY(0) translateX(0) rotate(0deg);
+                        opacity: 0;
+                    }
+                    10% {
+                        opacity: 1;
+                    }
+                    90% {
+                        opacity: 1;
+                    }
+                    100% {
+                        transform: translateY(-100vh) translateX(${Math.random() * 200 - 100}px) rotate(360deg);
+                        opacity: 0;
+                    }
+                }
+            `;
+            document.head.appendChild(style);
+        }
     }
 }
 
