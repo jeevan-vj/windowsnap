@@ -104,7 +104,7 @@ class StatusBarController {
         showNotification(title: "Window Snapped", message: "Window moved to \(position.displayName)")
     }
     
-    @objc private func showPreferences() {
+    @objc func showPreferences() {
         if preferencesWindow == nil {
             preferencesWindow = PreferencesWindow()
         }

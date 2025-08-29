@@ -69,7 +69,7 @@ We're excited to announce the first release of **WindowSnap** - a powerful, nati
 
 ## 📋 System Requirements
 
-- **macOS 12.0 (Monterey)** or later
+- **macOS 10.15 (Catalina)** or later
 - **Intel x64** or **Apple Silicon (ARM64)** architecture
 - **Accessibility permissions** (required for window management)
 

@@ -15,7 +15,9 @@ class PreferencesManager {
             "LaunchAtLogin": false,
             "EnableAnimations": true,
             "AnimationDuration": 0.3,
-            "DefaultMargin": 10.0
+            "DefaultMargin": 10.0,
+            "HasShownLaunchAtLoginPrompt": false,
+            "IsFirstRun": true
         ]
         
         userDefaults.register(defaults: defaults)
@@ -57,6 +59,21 @@ class PreferencesManager {
     
     func setCustomShortcuts(_ shortcuts: [String: String]) {
         userDefaults.set(shortcuts, forKey: "CustomShortcuts")
+    }
+    
+    // MARK: - First Run and Onboarding
+    var isFirstRun: Bool {
+        get { userDefaults.bool(forKey: "IsFirstRun") }
+        set { userDefaults.set(newValue, forKey: "IsFirstRun") }
+    }
+    
+    var hasShownLaunchAtLoginPrompt: Bool {
+        get { userDefaults.bool(forKey: "HasShownLaunchAtLoginPrompt") }
+        set { userDefaults.set(newValue, forKey: "HasShownLaunchAtLoginPrompt") }
+    }
+    
+    func markFirstRunComplete() {
+        isFirstRun = false
     }
     
     func resetToDefaults() {

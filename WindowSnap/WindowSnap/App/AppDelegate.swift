@@ -13,6 +13,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         initializeManagers()
         setupSleepWakeNotifications()
         startHealthCheck()
+        
+        // Initialize launch at login state
+        initializeLaunchAtLogin()
+        
+        // Show launch at login prompt if needed (first run)
+        showLaunchAtLoginPromptIfNeeded()
+        
+        // Set up notification observers
+        setupNotificationObservers()
     }
     
     func applicationWillTerminate(_ notification: Notification) {
@@ -229,5 +238,43 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             print("⚠️ Health check: Accessibility permissions lost")
             // Don't auto-reinitialize here as it might be annoying, just log
         }
+    }
+    
+    // MARK: - Launch at Login
+    private func initializeLaunchAtLogin() {
+        // Sync the actual system state with our preferences
+        let systemIsEnabled = LaunchAtLoginManager.shared.isEnabled
+        let preferencesState = PreferencesManager.shared.launchAtLogin
+        
+        // If there's a mismatch, use the system state as the source of truth
+        if systemIsEnabled != preferencesState {
+            PreferencesManager.shared.launchAtLogin = systemIsEnabled
+            print("🔄 Synced launch at login preference with system state: \(systemIsEnabled)")
+        }
+    }
+    
+    private func showLaunchAtLoginPromptIfNeeded() {
+        // Only show on first run or if the user hasn't been prompted yet
+        LaunchAtLoginPrompt.shared.showPromptIfNeeded()
+        
+        // Mark first run as complete
+        if PreferencesManager.shared.isFirstRun {
+            PreferencesManager.shared.markFirstRunComplete()
+        }
+    }
+    
+    // MARK: - Notification Observers
+    private func setupNotificationObservers() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(openPreferencesRequested),
+            name: .openPreferences,
+            object: nil
+        )
+    }
+    
+    @objc private func openPreferencesRequested() {
+        // Tell the status bar controller to open preferences
+        statusBarController?.showPreferences()
     }
 }

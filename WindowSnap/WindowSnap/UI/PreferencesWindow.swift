@@ -144,7 +144,21 @@ class PreferencesWindow: NSWindowController {
     
     @objc private func toggleLaunchAtLogin(_ sender: NSButton) {
         let enable = sender.state == .on
-        setLaunchAtLogin(enable)
+        
+        do {
+            try LaunchAtLoginManager.shared.setEnabled(enable)
+        } catch {
+            // Show error alert if setting failed
+            let alert = NSAlert()
+            alert.messageText = "Failed to update launch at login setting"
+            alert.informativeText = error.localizedDescription
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+            
+            // Revert checkbox state
+            sender.state = enable ? .off : .on
+        }
     }
     
     @objc private func toggleNotifications(_ sender: NSButton) {
@@ -157,16 +171,10 @@ class PreferencesWindow: NSWindowController {
     }
     
     private func getLaunchAtLoginState() -> NSControl.StateValue {
-        return UserDefaults.standard.bool(forKey: "LaunchAtLogin") ? .on : .off
+        return LaunchAtLoginManager.shared.isEnabled ? .on : .off
     }
     
     private func getNotificationsState() -> NSControl.StateValue {
         return UserDefaults.standard.bool(forKey: "ShowNotifications") ? .on : .off
-    }
-    
-    private func setLaunchAtLogin(_ enable: Bool) {
-        UserDefaults.standard.set(enable, forKey: "LaunchAtLogin")
-        // Note: Actual launch at login implementation would require additional setup
-        // This is a placeholder for the setting
     }
 }

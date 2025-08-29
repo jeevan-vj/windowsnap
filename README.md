@@ -39,7 +39,7 @@ A native macOS window management application that allows you to quickly arrange 
 
 ## Requirements
 
-- **macOS**: 12.0 (Monterey) or later
+- **macOS**: 10.15 (Catalina) or later
 - **Architecture**: Intel x64 or Apple Silicon (ARM64)
 - **Permissions**: Accessibility access (required)
 
