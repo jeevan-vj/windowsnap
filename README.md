@@ -5,6 +5,7 @@ A native macOS window management application that allows you to quickly arrange 
 ## Features
 
 - **Fast Window Positioning**: Snap windows to predefined grid positions using keyboard shortcuts
+- **Launch at Login**: Smart auto-start with first-run prompt and user choice respect
 - **Menu Bar Integration**: Lightweight status bar app with quick actions
 - **Multi-Monitor Support**: Works seamlessly across multiple displays
 - **Accessibility Compliant**: Uses macOS Accessibility APIs for reliable window management
@@ -39,7 +40,7 @@ A native macOS window management application that allows you to quickly arrange 
 
 ## Requirements
 
-- **macOS**: 10.15 (Catalina) or later
+- **macOS**: 12.0 (Monterey) or later
 - **Architecture**: Intel x64 or Apple Silicon (ARM64)
 - **Permissions**: Accessibility access (required)
 
@@ -244,6 +245,7 @@ Copyright © 2025 WindowSnap. All rights reserved.
 
 ## Version History
 
+- **v1.1.0** - Launch at Login feature with smart user prompting and system integration
 - **v1.0** - Initial release with core window management functionality
 
 ---
