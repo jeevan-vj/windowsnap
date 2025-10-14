@@ -5,6 +5,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusBarController: StatusBarController?
     private var windowManager: WindowManager?
     private var shortcutManager: ShortcutManager?
+    private var throwController: WindowThrowController?
+    private var workspaceManager: WorkspaceManager?
+    private var clipboardManager: ClipboardManager?
+    private var clipboardHistoryWindow: ClipboardHistoryWindow?
     private var healthCheckTimer: Timer?
     
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -26,6 +30,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     func applicationWillTerminate(_ notification: Notification) {
         shortcutManager?.unregisterAllShortcuts()
+        clipboardManager?.stopMonitoring()
         removeSleepWakeNotifications()
         stopHealthCheck()
     }
@@ -35,10 +40,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     private func requestAccessibilityPermissions() {
-        // Only check permissions, don't automatically prompt
+        // Check and prompt for permissions if needed
         if !AccessibilityPermissions.hasPermissions() {
             print("⚠️ WindowSnap requires accessibility permissions to function properly.")
-            print("   You can grant permissions via the menu bar icon -> Preferences")
+            print("   Prompting for permissions...")
+            
+            // This will show the system permission dialog
+            AccessibilityPermissions.requestPermissions()
+            
+            // Give user time to grant permissions, then check again
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                if !AccessibilityPermissions.hasPermissions() {
+                    print("   You can also grant permissions manually via System Preferences -> Security & Privacy -> Privacy -> Accessibility")
+                }
+            }
         }
     }
     
@@ -46,6 +61,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         windowManager = WindowManager.shared
         shortcutManager = ShortcutManager()
         statusBarController = StatusBarController()
+        throwController = WindowThrowController.shared
+        workspaceManager = WorkspaceManager.shared
+        clipboardManager = ClipboardManager.shared
         
         setupDefaultShortcuts()
     }
@@ -95,6 +113,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         
+        // RECTANGLE PRO FEATURE: Register window throw shortcut
+        throwController?.registerThrowShortcut(with: shortcutManager)
+        
+        // CLIPBOARD HISTORY FEATURE: Register clipboard history shortcut
+        let success = shortcutManager.registerGlobalShortcut("cmd+shift+v") { [weak self] in
+            self?.showClipboardHistory()
+        }
+        if !success {
+            print("Failed to register clipboard history shortcut: cmd+shift+v")
+        }
+        
+        // Start clipboard monitoring
+        clipboardManager?.startMonitoring()
+        
         print("🎯 PRODUCTIVITY SHORTCUTS REGISTERED:")
         print("   ⏪ Undo: ⌘⌥Z")
         print("   ⏩ Redo: ⌘⌥⇧Z")
@@ -102,6 +134,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         print("   🖥️ Previous Display: ⌃⌥⌘←")
         print("   📏 Make Larger: ⌃⌥⇧→")
         print("   📏 Make Smaller: ⌃⌥⇧←")
+        print("   🎯 Window Throw: ⌃⌥⌘Space")
+        print("   📋 Clipboard History: ⌘⇧V")
     }
     
     private func handleWindowSnap(to position: GridPosition) {
@@ -111,6 +145,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         
         windowManager.snapWindow(focusedWindow, to: position)
+    }
+    
+    private func showClipboardHistory() {
+        if clipboardHistoryWindow == nil {
+            clipboardHistoryWindow = ClipboardHistoryWindow()
+        }
+        clipboardHistoryWindow?.showWindow()
     }
     
     // MARK: - Sleep/Wake Handling

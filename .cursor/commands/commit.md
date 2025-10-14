@@ -1,0 +1,1 @@
+Create the Git commit in the current branch before committing so the changes we have done ask whether to include all the changes and give a descriptive commit message.

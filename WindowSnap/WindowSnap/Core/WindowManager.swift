@@ -587,6 +587,93 @@ class WindowManager {
         }
     }
     
+    // MARK: - Custom Position Support
+    
+    /// Move and resize a window to a specific frame (for custom positions)
+    func moveAndResizeWindow(_ window: WindowInfo, to targetFrame: CGRect) {
+        guard let axElement = window.axElement else {
+            print("ERROR: No AXUIElement reference available for window: \(window.windowTitle)")
+            return
+        }
+        
+        print("🎯 Moving window '\(window.windowTitle)' to custom frame: \(targetFrame)")
+        
+        // Find which screen the target frame should be on
+        guard let targetScreen = getScreenContainingFrame(targetFrame) else {
+            print("ERROR: Could not determine target screen for frame: \(targetFrame)")
+            return
+        }
+        
+        // Convert target frame to AX coordinates
+        let axTargetFrame = convertNSScreenFrameToAXFrame(targetFrame, on: targetScreen)
+        
+        print("AX target frame: \(axTargetFrame)")
+        
+        // Set position
+        var position = axTargetFrame.origin
+        let positionValue = AXValueCreate(AXValueType.cgPoint, &position)
+        let posResult = AXUIElementSetAttributeValue(axElement, kAXPositionAttribute as CFString, positionValue!)
+        
+        // Set size
+        var size = axTargetFrame.size
+        let sizeValue = AXValueCreate(AXValueType.cgSize, &size)
+        let sizeResult = AXUIElementSetAttributeValue(axElement, kAXSizeAttribute as CFString, sizeValue!)
+        
+        if posResult == .success && sizeResult == .success {
+            print("✅ Successfully moved and resized window to custom position")
+        } else {
+            print("❌ Failed to move/resize window - Position: \(posResult.rawValue), Size: \(sizeResult.rawValue)")
+        }
+    }
+    
+    /// Get the screen that contains or should contain the given frame
+    private func getScreenContainingFrame(_ frame: CGRect) -> NSScreen? {
+        let frameCenter = CGPoint(x: frame.midX, y: frame.midY)
+        
+        // First try to find a screen that contains the center point
+        for screen in NSScreen.screens {
+            if screen.frame.contains(frameCenter) {
+                return screen
+            }
+        }
+        
+        // If no screen contains the center, find the closest screen
+        var closestScreen: NSScreen?
+        var smallestDistance: CGFloat = CGFloat.greatestFiniteMagnitude
+        
+        for screen in NSScreen.screens {
+            let screenCenter = CGPoint(x: screen.frame.midX, y: screen.frame.midY)
+            let distance = sqrt(pow(frameCenter.x - screenCenter.x, 2) + pow(frameCenter.y - screenCenter.y, 2))
+            
+            if distance < smallestDistance {
+                smallestDistance = distance
+                closestScreen = screen
+            }
+        }
+        
+        return closestScreen ?? NSScreen.main
+    }
+    
+    /// Convert NSScreen frame coordinates to AX frame coordinates
+    private func convertNSScreenFrameToAXFrame(_ frame: CGRect, on screen: NSScreen) -> CGRect {
+        let screenVisibleFrame = screen.visibleFrame
+        let axScreenFrame = convertNSScreenToAXCoordinates(screenVisibleFrame)
+        
+        // Calculate relative position within the screen
+        let relativeX = (frame.minX - screenVisibleFrame.minX) / screenVisibleFrame.width
+        let relativeY = (frame.minY - screenVisibleFrame.minY) / screenVisibleFrame.height
+        let relativeWidth = frame.width / screenVisibleFrame.width
+        let relativeHeight = frame.height / screenVisibleFrame.height
+        
+        // Apply to AX coordinates
+        return CGRect(
+            x: axScreenFrame.minX + (axScreenFrame.width * relativeX),
+            y: axScreenFrame.minY + (axScreenFrame.height * relativeY),
+            width: axScreenFrame.width * relativeWidth,
+            height: axScreenFrame.height * relativeHeight
+        )
+    }
+
     // MARK: - Wake/Sleep Handling
     func resetAfterWake() {
         print("🔄 Resetting WindowManager after system wake...")

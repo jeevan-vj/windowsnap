@@ -58,6 +58,16 @@ class StatusBarController {
         
         menu.addItem(NSMenuItem.separator())
         
+        // RECTANGLE PRO FEATURE: Custom Positions
+        let customPositionsItem = NSMenuItem(title: "Custom Positions...", action: #selector(showCustomPositions), keyEquivalent: "")
+        customPositionsItem.target = self
+        menu.addItem(customPositionsItem)
+        
+        // RECTANGLE PRO FEATURE: Workspace Arrangements
+        let workspaceArrangementsItem = NSMenuItem(title: "Workspace Arrangements...", action: #selector(showWorkspaceArrangements), keyEquivalent: "")
+        workspaceArrangementsItem.target = self
+        menu.addItem(workspaceArrangementsItem)
+        
         // Settings and Info
         let preferencesItem = NSMenuItem(title: "Preferences...", action: #selector(showPreferences), keyEquivalent: ",")
         preferencesItem.target = self
@@ -110,6 +120,18 @@ class StatusBarController {
         }
         preferencesWindow?.showWindow(nil)
         preferencesWindow?.window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+    
+    @objc private func showCustomPositions() {
+        let customPositionsWindow = CustomPositionsWindow()
+        customPositionsWindow.showWindow(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+    
+    @objc private func showWorkspaceArrangements() {
+        let workspaceWindow = WorkspaceArrangementsWindow()
+        workspaceWindow.orderFrontRegardless()
         NSApp.activate(ignoringOtherApps: true)
     }
     
