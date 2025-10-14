@@ -6,7 +6,7 @@ set -euo pipefail
 
 APP_NAME="WindowSnap"
 BUNDLE_ID="com.windowsnap.app"
-VERSION="1.0"
+VERSION="1.2.0"
 BUILD="$(date +%Y%m%d%H%M%S)"
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
