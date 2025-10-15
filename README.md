@@ -46,7 +46,39 @@ A native macOS window management application that allows you to quickly arrange 
 
 ## Installation
 
-### Option 1: Build from Source
+### Download Pre-Built App
+
+**⚠️ Important: First-Time Opening on macOS**
+
+When you first open WindowSnap, macOS may show a security warning:
+> "WindowSnap.app" cannot be opened because Apple cannot verify it is free of malware.
+
+This happens because the app isn't notarized by Apple. **The app is safe** - it's just not signed with an Apple Developer certificate ($99/year).
+
+**To open the app, use ONE of these methods:**
+
+**Method 1 - Right-Click Open (Easiest):**
+1. Right-click (or Control+click) on `WindowSnap.app`
+2. Select **"Open"** from the menu
+3. Click **"Open"** in the confirmation dialog
+4. macOS will remember this choice
+
+**Method 2 - Remove Quarantine Flag:**
+```bash
+xattr -d com.apple.quarantine /Applications/WindowSnap.app
+```
+
+**Method 3 - System Settings (macOS Ventura+):**
+1. Try to open the app (it will be blocked)
+2. Go to **System Settings** → **Privacy & Security**
+3. Scroll to see "WindowSnap was blocked"
+4. Click **"Open Anyway"**
+
+---
+
+### Option 1: Build from Source (Recommended)
+
+Building from source ensures you trust the code:
 
 1. **Clone the repository:**
    ```bash
@@ -54,21 +86,26 @@ A native macOS window management application that allows you to quickly arrange 
    cd windowsnap
    ```
 
-2. **Build the project:**
+2. **Build the app bundle:**
    ```bash
    cd WindowSnap
-   swift build -c release
+   bash scripts/build_bundle.sh
    ```
 
-3. **Run the application:**
+3. **Install to Applications:**
    ```bash
-   ./.build/release/WindowSnap
+   cp -R dist/WindowSnap.app /Applications/
+   ```
+
+4. **Launch:**
+   ```bash
+   open /Applications/WindowSnap.app
    ```
 
 ### Option 2: Xcode
 
-1. Open the `WindowSnap` folder in Xcode
-2. Build and run the project
+1. Open `WindowSnap/Package.swift` in Xcode
+2. Build and run the project (⌘R)
 3. The app will appear in your menu bar
 
 ## Setup
@@ -252,55 +289,51 @@ Copyright © 2025 WindowSnap. All rights reserved.
 
 *Built with ❤️ using Swift and AppKit*
 
-## Distribution (Manual SwiftPM Bundle – Option 2)
+## Distribution
 
-This project can produce a distributable `.app` bundle without Xcode by using the script at `WindowSnap/scripts/build_bundle.sh`.
+### For Developers: Signing & Notarization
 
-Outputs (after running):
-- `dist/WindowSnap.app`
-- `dist/WindowSnap.zip`
-- `dist/NOTARIZATION_STEPS.txt`
+To eliminate the security warning for users, you need to **code sign** and **notarize** your app with Apple:
 
-### 1. Build the bundle
+**Quick Start:**
+```bash
+# 1. Set your Apple Developer credentials
+export CODESIGN_ID="Developer ID Application: Your Name (TEAMID)"
+export NOTARY_PROFILE="your-notary-profile"
+
+# 2. Build and sign
+cd WindowSnap
+bash scripts/build_bundle.sh
+
+# 3. Notarize (removes user warnings)
+bash scripts/sign-and-notarize.sh
+```
+
+**📖 For complete instructions, see:** [DISTRIBUTION_GUIDE.md](DISTRIBUTION_GUIDE.md)
+
+The guide covers:
+- Getting Apple Developer certificate
+- Setting up notarization
+- Automated signing with GitHub Actions
+- Cost-free alternatives (Homebrew, build from source)
+
+### Quick Distribution (Without Signing)
+
+For testing or personal use:
+
 ```bash
 cd WindowSnap
-./scripts/build_bundle.sh
+bash scripts/distribute.sh
 ```
 
-### 2. Codesign (recommended)
-Ad‑hoc signing is automatic. For distribution outside your machine:
-```bash
-CODESIGN_ID="Developer ID Application: Your Name (TEAMID)" ./scripts/build_bundle.sh
-```
+This creates:
+- `dist/WindowSnap.app` - Application bundle
+- `dist/WindowSnap.dmg` - Disk image
+- `dist/WindowSnap.zip` - Zip archive
+- `dist/install.sh` - Installation script
+- `dist/README.txt` - User instructions (includes workarounds)
 
-### 3. Notarize
-After a signed build (uses `notarytool`):
-```bash
-cd dist
-xcrun notarytool submit WindowSnap.zip \
-   --apple-id YOUR_APPLE_ID \
-   --team-id TEAMID \
-   --keychain-profile NOTARY_PROFILE \
-   --wait
-xcrun stapler staple WindowSnap.app
-spctl -a -v WindowSnap.app  # Verify
-```
-
-### 4. Publish
-Attach `WindowSnap.zip` to a GitHub Release. Users: download, unzip, move to Applications, grant Accessibility permission on first run.
-
-### Script Summary
-- `swift build -c release`
-- Assemble `.app` skeleton in `dist/`
-- Copy & tweak `Info.plist` version/build (timestamp build)
-- Compile asset catalog with `actool` if available (fallback safe)
-- Codesign (ad‑hoc or specified identity)
-- Zip archive for notarization/distribution
-
-### Optional Enhancements
-- Hardened runtime: add `--options runtime` & entitlements plist to codesign.
-- Auto-update: integrate Sparkle.
-- CI: GitHub Actions workflow to run script on tag push and upload artifact.
+**Note:** Users will need to use the right-click method to open the app.
 
 ## Future Improvements
 - Migrate deprecated `NSUserNotification` to `UNUserNotificationCenter` or custom HUD.
