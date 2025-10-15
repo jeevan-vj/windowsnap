@@ -131,9 +131,32 @@ Requirements:
 
 Troubleshooting:
 ===============
-- If macOS blocks the app: Right-click → Open, then click "Open" again
-- For accessibility: System Preferences → Security & Privacy → Accessibility
+
+Security Warning: "WindowSnap.app cannot be verified"
+-----------------------------------------------------
+If you see this warning when trying to open the app, use ONE of these methods:
+
+Method 1 - Right-Click Open (Easiest):
+  1. Right-click (or Control+click) WindowSnap.app
+  2. Select "Open" from the menu
+  3. Click "Open" in the confirmation dialog
+  4. The app will open and macOS will remember this choice
+
+Method 2 - Remove Quarantine Flag:
+  Open Terminal and run:
+    xattr -d com.apple.quarantine /Applications/WindowSnap.app
+
+Method 3 - System Settings (macOS Ventura+):
+  1. Try to open the app (it will be blocked)
+  2. Go to System Settings → Privacy & Security
+  3. Scroll down to see "WindowSnap was blocked"
+  4. Click "Open Anyway"
+
+Accessibility Permissions:
+-------------------------
+- System Preferences → Security & Privacy → Accessibility
 - Add WindowSnap to the list and enable it
+- This allows the app to move and resize windows
 
 Version: 1.0
 Build: $(date +%Y%m%d%H%M%S)
@@ -149,5 +172,30 @@ echo "   - ${APP_NAME}.zip (Zip archive)"
 echo "   - install.sh (Installation script)"
 echo "   - run.sh (Portable launcher)"
 echo "   - README.txt (User instructions)"
+echo ""
+
+# Check if app is properly signed
+if codesign --verify --verbose "$DIST_DIR/${APP_NAME}.app" 2>&1 | grep -q "Developer ID Application"; then
+  echo "✅ App is properly code signed"
+  if spctl -a -vv "$DIST_DIR/${APP_NAME}.app" 2>&1 | grep -q "accepted"; then
+    echo "✅ App is notarized - ready for distribution!"
+  else
+    echo "⚠️  App is signed but NOT notarized"
+    echo "   Users may see security warnings"
+    echo "   Run: bash scripts/sign-and-notarize.sh"
+  fi
+else
+  echo "⚠️  WARNING: App is NOT code signed!"
+  echo "   Users WILL see 'App cannot be verified' error"
+  echo ""
+  echo "   User workarounds (add to documentation):"
+  echo "   1. Right-click app → Open → Open"
+  echo "   2. xattr -d com.apple.quarantine WindowSnap.app"
+  echo ""
+  echo "   To fix properly:"
+  echo "   - Get Apple Developer account (\$99/year)"
+  echo "   - Run: bash scripts/sign-and-notarize.sh"
+  echo "   - See: DISTRIBUTION_GUIDE.md for details"
+fi
 echo ""
 echo "🚀 Ready for distribution!"

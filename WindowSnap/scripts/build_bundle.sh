@@ -101,13 +101,28 @@ fi
 echo "[4/6] Creating PkgInfo..."
 echo -n "APPL????" > "$CONTENTS_DIR/PkgInfo"
 
-# (Optional) Codesign placeholder
-if security find-identity -v -p codesigning >/dev/null 2>&1; then
-  echo "[5/6] Attempting ad-hoc codesign (override with CODESIGN_ID if desired)..."
-  CODESIGN_ID="${CODESIGN_ID:--}" # '-' means ad-hoc
-  codesign --force --sign "$CODESIGN_ID" --timestamp=none "$APP_DIR" || echo "Codesign failed; continuing unsigned."
+# Code signing
+if [[ -n "${CODESIGN_ID:-}" ]]; then
+  echo "[5/6] Code signing with identity: $CODESIGN_ID..."
+  # Sign with hardened runtime and timestamp server
+  codesign --force --sign "$CODESIGN_ID" \
+    --options runtime \
+    --timestamp \
+    --deep \
+    "$APP_DIR" || {
+      echo "❌ Codesign failed!"
+      exit 1
+    }
+  echo "✅ Code signing successful"
+  
+  # Verify the signature
+  codesign --verify --verbose "$APP_DIR"
 else
-  echo "[5/6] Skipping codesign (no identities)."
+  echo "[5/6] ⚠️  WARNING: App is not code-signed (set CODESIGN_ID environment variable)"
+  echo "   Users will see 'App cannot be verified' warning"
+  echo "   For distribution, you need a valid Developer ID certificate"
+  # Ad-hoc signing for local testing only
+  codesign --force --sign "-" "$APP_DIR" 2>/dev/null || true
 fi
 
 # Zip archive

@@ -17,8 +17,6 @@ class WindowSnapWebsite {
         this.setupMouseEffects();
         this.setupAdvancedAnimations();
         this.setupMobileOptimizations();
-        this.setupFloatingElements();
-        this.setupCharacterAnimations();
     }
 
     // Mobile-specific optimizations
@@ -817,6 +815,8 @@ class AdvancedAnimations {
         this.setupStaggeredAnimations();
         this.setupParallaxEffects();
         this.setupMorphingEffects();
+        this.setupFloatingElements();
+        this.setupCharacterAnimations();
     }
 
     setupStaggeredAnimations() {
@@ -914,40 +914,50 @@ class AdvancedAnimations {
     
     // Character Animation Setup
     setupCharacterAnimations() {
-        const charElements = document.querySelectorAll('.char-animate');
+        const titleLines = document.querySelectorAll('.hero-title .title-line');
         
-        charElements.forEach((element, elementIndex) => {
-            const text = element.textContent;
-            element.innerHTML = '';
+        titleLines.forEach((line, lineIndex) => {
+            const text = line.textContent.trim();
+            line.innerHTML = '';
             
-            // Split text into individual characters
-            text.split('').forEach((char, charIndex) => {
-                const span = document.createElement('span');
-                span.textContent = char === ' ' ? '\u00A0' : char; // Non-breaking space
-                span.style.display = 'inline-block';
-                span.style.opacity = '0';
-                span.style.transform = 'translateY(50px) rotateX(90deg)';
-                span.style.transition = `all 0.6s ease-out ${(charIndex * 0.05)}s`;
-                element.appendChild(span);
+            // Split text into words first to respect boundaries
+            const words = text.split(' ');
+            let charCount = 0;
+            
+            words.forEach((word, wordIndex) => {
+                // Create word container to keep spacing
+                const wordSpan = document.createElement('span');
+                wordSpan.style.display = 'inline-block';
+                wordSpan.style.marginRight = '0.3em';
+                
+                // Split word into characters
+                word.split('').forEach((char, charIndex) => {
+                    const span = document.createElement('span');
+                    span.textContent = char;
+                    span.className = 'char-animate';
+                    span.style.display = 'inline-block';
+                    wordSpan.appendChild(span);
+                    charCount++;
+                });
+                
+                line.appendChild(wordSpan);
             });
             
             // Trigger animation when in view
             const observer = new IntersectionObserver((entries) => {
                 entries.forEach(entry => {
                     if (entry.isIntersecting) {
-                        const spans = entry.target.querySelectorAll('span');
-                        spans.forEach((span, index) => {
-                            setTimeout(() => {
-                                span.style.opacity = '1';
-                                span.style.transform = 'translateY(0) rotateX(0deg)';
-                            }, index * 50);
+                        const chars = entry.target.querySelectorAll('.char-animate');
+                        chars.forEach((char, index) => {
+                            // Animation is now handled by CSS with proper delays
+                            char.style.animationDelay = `${0.3 + (lineIndex * 1.2) + (index * 0.08)}s`;
                         });
                         observer.unobserve(entry.target);
                     }
                 });
-            }, { threshold: 0.3 });
+            }, { threshold: 0.1 });
             
-            observer.observe(element);
+            observer.observe(line);
         });
     }
     
