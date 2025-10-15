@@ -148,6 +148,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     private func showClipboardHistory() {
+        // Ensure we have a window instance and it's retained
         if clipboardHistoryWindow == nil {
             clipboardHistoryWindow = ClipboardHistoryWindow()
         }

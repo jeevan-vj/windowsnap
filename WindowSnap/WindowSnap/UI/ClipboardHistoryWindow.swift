@@ -36,6 +36,10 @@ class ClipboardHistoryWindow: NSWindow {
         isMovableByWindowBackground = true
         backgroundColor = NSColor.controlBackgroundColor
         
+        // CRITICAL: Prevent window from being deallocated when closed
+        // This allows us to reuse the window on subsequent shortcut presses
+        isReleasedWhenClosed = false
+        
         // Create content view
         let contentView = NSView(frame: NSRect(x: 0, y: 0, width: windowWidth, height: windowHeight))
         self.contentView = contentView
@@ -211,9 +215,6 @@ class ClipboardHistoryWindow: NSWindow {
         ClipboardManager.shared.copyToClipboard(selectedItem)
         print("📋 Copied: \(selectedItem.preview)")
         
-        // Close window immediately
-        hideWindow()
-        
         // Restore focus to previous app and simulate paste
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             // Restore focus to the previous application
@@ -223,12 +224,15 @@ class ClipboardHistoryWindow: NSWindow {
             
             // Wait a bit more for focus to settle, then simulate paste
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                self.simulatePaste()
+                Self.simulatePaste()
             }
         }
+        
+        // Close window after scheduling the paste operation
+        hideWindow()
     }
     
-    private func simulatePaste() {
+    private static func simulatePaste() {
         // Simulate Cmd+V keypress using CGEvent
         let source = CGEventSource(stateID: .hidSystemState)
         
