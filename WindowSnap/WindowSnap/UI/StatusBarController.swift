@@ -67,7 +67,14 @@ class StatusBarController {
         let workspaceArrangementsItem = NSMenuItem(title: "Workspace Arrangements...", action: #selector(showWorkspaceArrangements), keyEquivalent: "")
         workspaceArrangementsItem.target = self
         menu.addItem(workspaceArrangementsItem)
-        
+
+        // APP AUTO-POSITIONING FEATURE
+        let appPositioningItem = NSMenuItem(title: "App Auto-Positioning...", action: #selector(showAppPositioningRules), keyEquivalent: "")
+        appPositioningItem.target = self
+        menu.addItem(appPositioningItem)
+
+        menu.addItem(NSMenuItem.separator())
+
         // Settings and Info
         let preferencesItem = NSMenuItem(title: "Preferences...", action: #selector(showPreferences), keyEquivalent: ",")
         preferencesItem.target = self
@@ -134,7 +141,13 @@ class StatusBarController {
         workspaceWindow.orderFrontRegardless()
         NSApp.activate(ignoringOtherApps: true)
     }
-    
+
+    @objc private func showAppPositioningRules() {
+        let appPositioningWindow = AppPositioningRulesWindow()
+        appPositioningWindow.showWindow(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
     @objc private func showAbout() {
         let alert = NSAlert()
         alert.messageText = "WindowSnap"

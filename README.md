@@ -5,6 +5,7 @@ A native macOS window management application that allows you to quickly arrange 
 ## Features
 
 - **Fast Window Positioning**: Snap windows to predefined grid positions using keyboard shortcuts
+- **App Auto-Positioning**: Automatically position windows based on the application that opens
 - **Launch at Login**: Smart auto-start with first-run prompt and user choice respect
 - **Menu Bar Integration**: Lightweight status bar app with quick actions
 - **Multi-Monitor Support**: Works seamlessly across multiple displays
@@ -145,6 +146,43 @@ WindowSnap requires accessibility permissions to manage windows:
 - Shortcuts work consistently across all connected displays
 - Each monitor's visible area (excluding dock/menu bar) is calculated correctly
 
+### App Auto-Positioning
+
+Automatically position windows when applications launch or activate:
+
+#### Setting Up Rules
+
+1. **Right-click** the WindowSnap menu bar icon
+2. Select **"App Auto-Positioning..."**
+3. Click **"Add Current App"** to create a rule for the focused window's application
+   - Or click **"Add Custom"** to select from running applications
+4. Configure the rule:
+   - **Position**: Choose where windows should snap (Left Half, Right Half, Maximize, etc.)
+   - **Screen**: Select which monitor the window should appear on
+   - **Apply to**: Choose whether to position the first window only or all windows
+   - **Enable**: Toggle the rule on/off
+5. Click **"Save"**
+
+#### Using Rules
+
+- **Automatic**: Rules apply automatically when apps launch (if monitoring is enabled)
+- **Manual**: Click **"Apply Now"** to position all currently running apps
+- **Import Presets**: Click **"Import Presets"** to add common productivity app rules (Terminal, VS Code, browsers, etc.)
+
+#### Example Use Cases
+
+- **Development Setup**: Always open Terminal in bottom half, VS Code in left two-thirds
+- **Browser Workflow**: Maximize Safari on main screen automatically
+- **Communication**: Position Slack in right third for side-by-side work
+- **Multi-Monitor**: Open specific apps on secondary displays automatically
+
+#### Managing Rules
+
+- **Edit**: Select a rule and click "Edit" to modify settings
+- **Delete**: Remove rules you no longer need
+- **Toggle**: Click the checkbox to temporarily enable/disable a rule
+- **Export/Import**: Rules are saved automatically and persist across app restarts
+
 ## Project Structure
 
 ```
@@ -282,6 +320,8 @@ Copyright © 2025 WindowSnap. All rights reserved.
 
 ## Version History
 
+- **v1.3.0** - App Auto-Positioning: Automatically position windows based on application rules
+- **v1.2.0** - Clipboard History and enhanced window management features
 - **v1.1.0** - Launch at Login feature with smart user prompting and system integration
 - **v1.0** - Initial release with core window management functionality
 

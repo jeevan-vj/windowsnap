@@ -9,6 +9,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var workspaceManager: WorkspaceManager?
     private var clipboardManager: ClipboardManager?
     private var clipboardHistoryWindow: ClipboardHistoryWindow?
+    private var appPositioningRuleManager: AppPositioningRuleManager?
     private var healthCheckTimer: Timer?
     
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -31,6 +32,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         shortcutManager?.unregisterAllShortcuts()
         clipboardManager?.stopMonitoring()
+        appPositioningRuleManager?.stopMonitoring()
         removeSleepWakeNotifications()
         stopHealthCheck()
     }
@@ -64,8 +66,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         throwController = WindowThrowController.shared
         workspaceManager = WorkspaceManager.shared
         clipboardManager = ClipboardManager.shared
-        
+        appPositioningRuleManager = AppPositioningRuleManager.shared
+
         setupDefaultShortcuts()
+
+        // Start app auto-positioning monitoring
+        appPositioningRuleManager?.startMonitoring()
+        print("📏 App auto-positioning enabled")
     }
     
     private func setupDefaultShortcuts() {
