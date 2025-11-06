@@ -13,7 +13,7 @@ class StatusBarController {
         guard let button = statusItem.button else { return }
         
         // Set the status bar icon
-        let image = NSImage(systemSymbolName: "rectangle.grid.1x2", accessibilityDescription: "WindowSnap")
+        let image = NSImage(named: "MenuBarIcon")
         image?.isTemplate = true
         button.image = image
         button.imageScaling = .scaleProportionallyDown
