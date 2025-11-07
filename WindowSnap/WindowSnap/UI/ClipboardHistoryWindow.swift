@@ -7,6 +7,9 @@ class ClipboardHistoryWindow: NSWindow {
     private var searchField: NSSearchField!
     private var emptyLabel: NSTextField!
     private var clearButton: NSButton!
+    private var clearButtonContainer: NSVisualEffectView!
+    private var titleLabel: NSTextField!
+    private var visualEffectView: NSVisualEffectView!
     
     private var history: [ClipboardHistoryItem] = []
     private var filteredHistory: [ClipboardHistoryItem] = []
@@ -15,7 +18,8 @@ class ClipboardHistoryWindow: NSWindow {
     
     private let windowWidth: CGFloat = 400
     private let windowHeight: CGFloat = 500
-    private let rowHeight: CGFloat = 60
+    private let rowHeight: CGFloat = 72
+    private let cornerRadius: CGFloat = 14
     
     override init(contentRect: NSRect, styleMask style: NSWindow.StyleMask, backing backingStoreType: NSWindow.BackingStoreType, defer flag: Bool) {
         super.init(contentRect: contentRect, styleMask: style, backing: backingStoreType, defer: flag)
@@ -24,25 +28,42 @@ class ClipboardHistoryWindow: NSWindow {
     
     convenience init() {
         let contentRect = NSRect(x: 0, y: 0, width: 400, height: 500)
-        let styleMask: NSWindow.StyleMask = [.titled, .closable, .resizable]
+        let styleMask: NSWindow.StyleMask = [.titled, .closable, .resizable, .fullSizeContentView]
         self.init(contentRect: contentRect, styleMask: styleMask, backing: .buffered, defer: false)
     }
     
     private func setupWindow() {
-        title = "Clipboard History"
+        // Hide default title bar for cleaner look
+        title = ""
+        titlebarAppearsTransparent = true
         
         // Configure window behavior
         level = .floating
         isMovableByWindowBackground = true
-        backgroundColor = NSColor.controlBackgroundColor
+        backgroundColor = .clear
         
         // CRITICAL: Prevent window from being deallocated when closed
         // This allows us to reuse the window on subsequent shortcut presses
         isReleasedWhenClosed = false
         
-        // Create content view
-        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: windowWidth, height: windowHeight))
-        self.contentView = contentView
+        // Setup visual effect view for glass effect
+        visualEffectView = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: windowWidth, height: windowHeight))
+        visualEffectView.material = .hudWindow
+        visualEffectView.blendingMode = .behindWindow
+        visualEffectView.state = .active
+        visualEffectView.wantsLayer = true
+        visualEffectView.layer?.cornerRadius = cornerRadius
+        // Don't mask to bounds so shadow is visible
+        visualEffectView.layer?.masksToBounds = false
+        
+        // Add shadow using layer properties on the visual effect view
+        visualEffectView.layer?.shadowColor = NSColor.black.cgColor
+        visualEffectView.layer?.shadowOpacity = 0.3
+        visualEffectView.layer?.shadowOffset = CGSize(width: 0, height: -4)
+        visualEffectView.layer?.shadowRadius = 20
+        
+        self.contentView = visualEffectView
+        hasShadow = true
         
         setupUI()
         setupKeyboardHandling()
@@ -50,97 +71,200 @@ class ClipboardHistoryWindow: NSWindow {
     }
     
     private func setupUI() {
-        guard let contentView = contentView else { return }
+        guard let contentView = visualEffectView else { return }
         
-        // Search field at the top
-        searchField = NSSearchField(frame: NSRect(x: 20, y: windowHeight - 60, width: windowWidth - 40, height: 30))
-        searchField.placeholderString = "Search clipboard history..."
+        // Custom title label
+        titleLabel = NSTextField(labelWithString: "Clipboard History")
+        titleLabel.font = NSFont.systemFont(ofSize: 20, weight: .semibold)
+        titleLabel.textColor = .labelColor
+        titleLabel.alignment = .left
+        contentView.addSubview(titleLabel)
+        
+        // Search field - no container, integrated directly
+        searchField = NSSearchField()
+        searchField.placeholderString = "Search..."
         searchField.target = self
         searchField.action = #selector(searchFieldChanged(_:))
+        searchField.focusRingType = .none
+        searchField.wantsLayer = true
+        searchField.font = NSFont.systemFont(ofSize: 13)
+        searchField.backgroundColor = .clear
+        searchField.isBordered = false
+        searchField.isBezeled = false
+        searchField.isEditable = true
+        searchField.isSelectable = true
+        searchField.isEnabled = true
+        
+        // Use a custom cell subclass to fix text rect positioning
+        // Create cell first, then assign to search field
+        let customCell = CustomSearchFieldCell(textCell: "")
+        customCell.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.3)
+        customCell.isBezeled = false
+        customCell.isBordered = false
+        customCell.placeholderString = "Search..."
+        customCell.target = self
+        customCell.action = #selector(searchFieldChanged(_:))
+        customCell.isEditable = true
+        customCell.isSelectable = true
+        customCell.isEnabled = true
+        
+        // Assign cell to search field - this must happen before other setup
+        searchField.cell = customCell
+        
+        // Force the cell to recalculate its layout
+        searchField.needsLayout = true
+        
+        // Add glowing border effect
+        searchField.layer?.cornerRadius = 8
+        searchField.layer?.borderWidth = 1.5
+        searchField.layer?.borderColor = NSColor.controlAccentColor.withAlphaComponent(0.4).cgColor
+        searchField.layer?.shadowColor = NSColor.controlAccentColor.cgColor
+        searchField.layer?.shadowOpacity = 0.3
+        searchField.layer?.shadowOffset = CGSize(width: 0, height: 0)
+        searchField.layer?.shadowRadius = 4
+        
+        // Monitor focus to enhance glow
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(searchFieldDidBecomeFirstResponder),
+            name: NSControl.textDidBeginEditingNotification,
+            object: searchField
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(searchFieldDidResignFirstResponder),
+            name: NSControl.textDidEndEditingNotification,
+            object: searchField
+        )
+        
         contentView.addSubview(searchField)
         
-        // Clear button
-        clearButton = NSButton(frame: NSRect(x: windowWidth - 100, y: windowHeight - 100, width: 80, height: 25))
+        // Clear button container with glass effect
+        clearButtonContainer = NSVisualEffectView()
+        clearButtonContainer.material = .sidebar
+        clearButtonContainer.blendingMode = .withinWindow
+        clearButtonContainer.state = .active
+        clearButtonContainer.wantsLayer = true
+        clearButtonContainer.layer?.cornerRadius = 8
+        clearButtonContainer.layer?.masksToBounds = true
+        contentView.addSubview(clearButtonContainer)
+        
+        // Clear button with modern styling
+        clearButton = NSButton()
         clearButton.title = "Clear All"
-        clearButton.bezelStyle = .rounded
+        clearButton.bezelStyle = .texturedRounded
         clearButton.target = self
         clearButton.action = #selector(clearHistory(_:))
-        contentView.addSubview(clearButton)
+        clearButton.wantsLayer = true
+        clearButton.contentTintColor = .controlAccentColor
+        clearButton.font = NSFont.systemFont(ofSize: 12, weight: .medium)
+        clearButton.isBordered = false
+        clearButtonContainer.addSubview(clearButton)
         
         // Table view for history
-        let tableFrame = NSRect(x: 20, y: 20, width: windowWidth - 40, height: windowHeight - 120)
-        
-        scrollView = NSScrollView(frame: tableFrame)
+        scrollView = NSScrollView()
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
-        scrollView.borderType = .bezelBorder
+        scrollView.borderType = .noBorder
+        scrollView.backgroundColor = .clear
+        scrollView.drawsBackground = false
+        scrollView.wantsLayer = true
         
-        tableView = NSTableView(frame: scrollView.bounds)
+        tableView = NSTableView()
         tableView.delegate = self
         tableView.dataSource = self
         tableView.rowHeight = rowHeight
-        tableView.intercellSpacing = NSSize(width: 0, height: 1)
-        tableView.selectionHighlightStyle = .regular
+        tableView.intercellSpacing = NSSize(width: 0, height: 8)
+        tableView.selectionHighlightStyle = .none
         tableView.allowsEmptySelection = false
+        tableView.backgroundColor = .clear
+        tableView.enclosingScrollView?.drawsBackground = false
         tableView.target = self
         tableView.doubleAction = #selector(handleDoubleClick(_:))
+        tableView.wantsLayer = true
         
-        // Create table column
+        // Create table column - width will be set dynamically
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("ClipboardItem"))
         column.title = ""
-        column.width = tableFrame.width - 20
+        column.resizingMask = .autoresizingMask
+        column.minWidth = 200
         tableView.addTableColumn(column)
         
+        // Update column width when scroll view resizes
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(updateColumnWidth),
+            name: NSView.frameDidChangeNotification,
+            object: scrollView
+        )
+        
         scrollView.documentView = tableView
-        contentView.addSubview(scrollView)
+        visualEffectView.addSubview(scrollView)
         
         // Empty state label
-        emptyLabel = NSTextField(frame: NSRect(x: 50, y: windowHeight/2 - 20, width: windowWidth - 100, height: 40))
-        emptyLabel.stringValue = "No clipboard history\n\nCopy some text to get started!"
+        emptyLabel = NSTextField(labelWithString: "No clipboard history\n\nCopy some text to get started!")
         emptyLabel.alignment = .center
         emptyLabel.textColor = .secondaryLabelColor
-        emptyLabel.font = NSFont.systemFont(ofSize: 14)
+        emptyLabel.font = NSFont.systemFont(ofSize: 14, weight: .regular)
         emptyLabel.isBezeled = false
         emptyLabel.isEditable = false
         emptyLabel.backgroundColor = .clear
         contentView.addSubview(emptyLabel)
         
         // Auto-layout setup for resizing
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
         searchField.translatesAutoresizingMaskIntoConstraints = false
+        clearButtonContainer.translatesAutoresizingMaskIntoConstraints = false
         clearButton.translatesAutoresizingMaskIntoConstraints = false
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         emptyLabel.translatesAutoresizingMaskIntoConstraints = false
         
         NSLayoutConstraint.activate([
-            // Search field
-            searchField.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 20),
-            searchField.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20),
-            searchField.trailingAnchor.constraint(equalTo: clearButton.leadingAnchor, constant: -10),
-            searchField.heightAnchor.constraint(equalToConstant: 30),
+            // Title label - consistent 20px margins
+            titleLabel.topAnchor.constraint(equalTo: visualEffectView.topAnchor, constant: 20),
+            titleLabel.leadingAnchor.constraint(equalTo: visualEffectView.leadingAnchor, constant: 20),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: clearButtonContainer.leadingAnchor, constant: -16),
             
-            // Clear button
-            clearButton.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 20),
-            clearButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -20),
+            // Search field - directly positioned with consistent alignment
+            searchField.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 16),
+            searchField.leadingAnchor.constraint(equalTo: visualEffectView.leadingAnchor, constant: 20),
+            searchField.trailingAnchor.constraint(equalTo: clearButtonContainer.leadingAnchor, constant: -12),
+            searchField.heightAnchor.constraint(equalToConstant: 36),
+            
+            // Clear button container - align with search field
+            clearButtonContainer.centerYAnchor.constraint(equalTo: searchField.centerYAnchor),
+            clearButtonContainer.trailingAnchor.constraint(equalTo: visualEffectView.trailingAnchor, constant: -20),
+            clearButtonContainer.widthAnchor.constraint(equalToConstant: 90),
+            clearButtonContainer.heightAnchor.constraint(equalToConstant: 40),
+            
+            // Clear button inside container
+            clearButton.centerXAnchor.constraint(equalTo: clearButtonContainer.centerXAnchor),
+            clearButton.centerYAnchor.constraint(equalTo: clearButtonContainer.centerYAnchor),
             clearButton.widthAnchor.constraint(equalToConstant: 80),
-            clearButton.heightAnchor.constraint(equalToConstant: 25),
+            clearButton.heightAnchor.constraint(equalToConstant: 28),
             
-            // Scroll view
-            scrollView.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 20),
-            scrollView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20),
-            scrollView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -20),
-            scrollView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -20),
+            // Scroll view - consistent 20px margins, aligned with title and search
+            scrollView.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 16),
+            scrollView.leadingAnchor.constraint(equalTo: visualEffectView.leadingAnchor, constant: 20),
+            scrollView.trailingAnchor.constraint(equalTo: visualEffectView.trailingAnchor, constant: -20),
+            scrollView.bottomAnchor.constraint(equalTo: visualEffectView.bottomAnchor, constant: -20),
             
             // Empty label
-            emptyLabel.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
-            emptyLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor)
+            emptyLabel.centerXAnchor.constraint(equalTo: visualEffectView.centerXAnchor),
+            emptyLabel.centerYAnchor.constraint(equalTo: visualEffectView.centerYAnchor)
         ])
+        
+        // Set initial column width
+        DispatchQueue.main.async {
+            self.updateColumnWidth()
+        }
     }
     
     private func setupKeyboardHandling() {
         // Handle keyboard events for navigation and selection
         acceptsMouseMovedEvents = true
-        makeFirstResponder(tableView)
+        // Don't make table view first responder - let search field be focusable
     }
     
     // MARK: - Public Methods
@@ -152,8 +276,19 @@ class ClipboardHistoryWindow: NSWindow {
         loadHistory()
         center()
         makeKeyAndOrderFront(nil)
-        searchField.becomeFirstResponder()
         NSApp.activate(ignoringOtherApps: true)
+        
+        // Focus search field after window is shown
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            // Ensure window is key first
+            self.makeKey()
+            // Then make search field first responder
+            self.makeFirstResponder(self.searchField)
+            // Also try selecting all text to ensure it's active
+            if let editor = self.searchField.currentEditor() {
+                editor.selectAll(nil)
+            }
+        }
     }
     
     func hideWindow() {
@@ -251,6 +386,38 @@ class ClipboardHistoryWindow: NSWindow {
         print("📋 Simulated paste command")
     }
     
+    @objc private func updateColumnWidth() {
+        if let column = tableView.tableColumns.first {
+            let scrollViewWidth = scrollView.bounds.width
+            // Account for scrollbar width (typically 15px) and increased padding (28px total)
+            // Scrollbar: 15px, right padding: 8px, cell trailing margin: 4px, extra buffer: 1px
+            let scrollbarAndPadding: CGFloat = 28
+            column.width = max(scrollViewWidth - scrollbarAndPadding, 200)
+        }
+    }
+    
+    @objc private func searchFieldDidBecomeFirstResponder() {
+        // Enhance glow when focused
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.2
+            context.allowsImplicitAnimation = true
+            searchField.layer?.borderColor = NSColor.controlAccentColor.cgColor
+            searchField.layer?.shadowOpacity = 0.5
+            searchField.layer?.shadowRadius = 6
+        }
+    }
+    
+    @objc private func searchFieldDidResignFirstResponder() {
+        // Reduce glow when not focused
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.2
+            context.allowsImplicitAnimation = true
+            searchField.layer?.borderColor = NSColor.controlAccentColor.withAlphaComponent(0.4).cgColor
+            searchField.layer?.shadowOpacity = 0.3
+            searchField.layer?.shadowRadius = 4
+        }
+    }
+    
     // MARK: - Actions
     
     @objc private func handleDoubleClick(_ sender: NSTableView) {
@@ -329,12 +496,22 @@ extension ClipboardHistoryWindow: NSTableViewDelegate {
         let item = filteredHistory[row]
         let cellView = ClipboardHistoryCellView()
         cellView.configure(with: item)
+        cellView.isSelected = (row == selectedIndex)
         
         return cellView
     }
     
+    func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
+        return ModernTableRowView()
+    }
+    
     func tableViewSelectionDidChange(_ notification: Notification) {
         selectedIndex = tableView.selectedRow
+        tableView.enumerateAvailableRowViews { rowView, row in
+            if let cellView = rowView.view(atColumn: 0) as? ClipboardHistoryCellView {
+                cellView.isSelected = (row == selectedIndex)
+            }
+        }
     }
     
     func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
@@ -343,13 +520,50 @@ extension ClipboardHistoryWindow: NSTableViewDelegate {
     }
 }
 
+// MARK: - Modern Table Row View
+
+class ModernTableRowView: NSTableRowView {
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setupView()
+    }
+    
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setupView()
+    }
+    
+    private func setupView() {
+        wantsLayer = true
+        backgroundColor = .clear
+    }
+    
+    override var isSelected: Bool {
+        didSet {
+            if isSelected {
+                layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.15).cgColor
+            } else {
+                layer?.backgroundColor = NSColor.clear.cgColor
+            }
+        }
+    }
+}
+
 // MARK: - Custom Cell View
 
 class ClipboardHistoryCellView: NSView {
+    private var visualEffectView: NSVisualEffectView!
     private var iconImageView: NSImageView!
     private var typeLabel: NSTextField!
     private var previewLabel: NSTextField!
     private var timestampLabel: NSTextField!
+    private var hoverTrackingArea: NSTrackingArea?
+    
+    var isSelected: Bool = false {
+        didSet {
+            updateAppearance()
+        }
+    }
     
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -362,71 +576,164 @@ class ClipboardHistoryCellView: NSView {
     }
     
     private func setupView() {
+        wantsLayer = true
+        layer?.cornerRadius = 10
+        layer?.masksToBounds = true
+        
+        // Visual effect view for glass effect
+        visualEffectView = NSVisualEffectView()
+        visualEffectView.material = .sidebar
+        visualEffectView.blendingMode = .withinWindow
+        visualEffectView.state = .active
+        visualEffectView.wantsLayer = true
+        visualEffectView.layer?.cornerRadius = 10
+        visualEffectView.layer?.masksToBounds = true
+        
+        // Add subtle shadow using layer properties
+        visualEffectView.layer?.shadowColor = NSColor.black.cgColor
+        visualEffectView.layer?.shadowOpacity = 0.1
+        visualEffectView.layer?.shadowOffset = CGSize(width: 0, height: -2)
+        visualEffectView.layer?.shadowRadius = 8
+        
+        addSubview(visualEffectView)
+        
+        // Icon container
+        let iconContainer = NSView()
+        iconContainer.wantsLayer = true
+        iconContainer.layer?.cornerRadius = 8
+        iconContainer.layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.15).cgColor
+        visualEffectView.addSubview(iconContainer)
+        
         // Icon
-        iconImageView = NSImageView(frame: NSRect(x: 10, y: 20, width: 20, height: 20))
-        addSubview(iconImageView)
+        iconImageView = NSImageView()
+        iconImageView.imageScaling = .scaleProportionallyUpOrDown
+        iconContainer.addSubview(iconImageView)
         
         // Type label
-        typeLabel = NSTextField(frame: NSRect(x: 40, y: 35, width: 100, height: 16))
-        typeLabel.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        typeLabel = NSTextField(labelWithString: "")
+        typeLabel.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
         typeLabel.textColor = .secondaryLabelColor
-        typeLabel.isBezeled = false
-        typeLabel.isEditable = false
-        typeLabel.backgroundColor = .clear
-        addSubview(typeLabel)
+        visualEffectView.addSubview(typeLabel)
         
         // Preview label
-        previewLabel = NSTextField(frame: NSRect(x: 40, y: 15, width: 300, height: 18))
-        previewLabel.font = NSFont.systemFont(ofSize: 13)
+        previewLabel = NSTextField(labelWithString: "")
+        previewLabel.font = NSFont.systemFont(ofSize: 14, weight: .regular)
         previewLabel.textColor = .labelColor
-        previewLabel.isBezeled = false
-        previewLabel.isEditable = false
-        previewLabel.backgroundColor = .clear
         previewLabel.lineBreakMode = .byTruncatingTail
-        addSubview(previewLabel)
+        visualEffectView.addSubview(previewLabel)
         
         // Timestamp label
-        timestampLabel = NSTextField(frame: NSRect(x: 40, y: 2, width: 200, height: 12))
-        timestampLabel.font = NSFont.systemFont(ofSize: 9)
+        timestampLabel = NSTextField(labelWithString: "")
+        timestampLabel.font = NSFont.systemFont(ofSize: 10, weight: .regular)
         timestampLabel.textColor = .tertiaryLabelColor
-        timestampLabel.isBezeled = false
-        timestampLabel.isEditable = false
-        timestampLabel.backgroundColor = .clear
-        addSubview(timestampLabel)
+        visualEffectView.addSubview(timestampLabel)
         
         // Auto-layout
+        visualEffectView.translatesAutoresizingMaskIntoConstraints = false
+        iconContainer.translatesAutoresizingMaskIntoConstraints = false
         iconImageView.translatesAutoresizingMaskIntoConstraints = false
         typeLabel.translatesAutoresizingMaskIntoConstraints = false
         previewLabel.translatesAutoresizingMaskIntoConstraints = false
         timestampLabel.translatesAutoresizingMaskIntoConstraints = false
         
         NSLayoutConstraint.activate([
-            iconImageView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
-            iconImageView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            // Visual effect view fills the cell with proper margins
+            visualEffectView.topAnchor.constraint(equalTo: topAnchor, constant: 4),
+            visualEffectView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 0),
+            visualEffectView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            visualEffectView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
+            
+            // Icon container
+            iconContainer.leadingAnchor.constraint(equalTo: visualEffectView.leadingAnchor, constant: 16),
+            iconContainer.centerYAnchor.constraint(equalTo: visualEffectView.centerYAnchor),
+            iconContainer.widthAnchor.constraint(equalToConstant: 40),
+            iconContainer.heightAnchor.constraint(equalToConstant: 40),
+            
+            // Icon inside container
+            iconImageView.centerXAnchor.constraint(equalTo: iconContainer.centerXAnchor),
+            iconImageView.centerYAnchor.constraint(equalTo: iconContainer.centerYAnchor),
             iconImageView.widthAnchor.constraint(equalToConstant: 20),
             iconImageView.heightAnchor.constraint(equalToConstant: 20),
             
-            typeLabel.leadingAnchor.constraint(equalTo: iconImageView.trailingAnchor, constant: 10),
-            typeLabel.topAnchor.constraint(equalTo: topAnchor, constant: 8),
-            typeLabel.widthAnchor.constraint(equalToConstant: 100),
+            // Type label - increased right padding for consistency
+            typeLabel.leadingAnchor.constraint(equalTo: iconContainer.trailingAnchor, constant: 12),
+            typeLabel.topAnchor.constraint(equalTo: visualEffectView.topAnchor, constant: 12),
+            typeLabel.trailingAnchor.constraint(lessThanOrEqualTo: visualEffectView.trailingAnchor, constant: -28),
             
-            previewLabel.leadingAnchor.constraint(equalTo: iconImageView.trailingAnchor, constant: 10),
-            previewLabel.topAnchor.constraint(equalTo: typeLabel.bottomAnchor, constant: 2),
-            previewLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            // Preview label - ensure proper spacing from scrollbar (increased padding)
+            previewLabel.leadingAnchor.constraint(equalTo: iconContainer.trailingAnchor, constant: 12),
+            previewLabel.topAnchor.constraint(equalTo: typeLabel.bottomAnchor, constant: 4),
+            previewLabel.trailingAnchor.constraint(equalTo: visualEffectView.trailingAnchor, constant: -28),
             
-            timestampLabel.leadingAnchor.constraint(equalTo: iconImageView.trailingAnchor, constant: 10),
-            timestampLabel.topAnchor.constraint(equalTo: previewLabel.bottomAnchor, constant: 2),
-            timestampLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10)
+            // Timestamp label - increased right padding
+            timestampLabel.leadingAnchor.constraint(equalTo: iconContainer.trailingAnchor, constant: 12),
+            timestampLabel.topAnchor.constraint(equalTo: previewLabel.bottomAnchor, constant: 4),
+            timestampLabel.trailingAnchor.constraint(lessThanOrEqualTo: visualEffectView.trailingAnchor, constant: -28)
         ])
+        
+        // Setup hover tracking
+        setupHoverTracking()
+    }
+    
+    private func setupHoverTracking() {
+        let options: NSTrackingArea.Options = [.activeInKeyWindow, .mouseEnteredAndExited, .inVisibleRect]
+        hoverTrackingArea = NSTrackingArea(rect: bounds, options: options, owner: self, userInfo: nil)
+        addTrackingArea(hoverTrackingArea!)
+    }
+    
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingArea = hoverTrackingArea {
+            removeTrackingArea(trackingArea)
+        }
+        setupHoverTracking()
+    }
+    
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        animateHover(entered: true)
+    }
+    
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        animateHover(entered: false)
+    }
+    
+    private func animateHover(entered: Bool) {
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.2
+            context.allowsImplicitAnimation = true
+            if entered {
+                visualEffectView.layer?.transform = CATransform3DMakeScale(1.02, 1.02, 1.0)
+                visualEffectView.layer?.shadowOpacity = 0.1
+            } else {
+                visualEffectView.layer?.transform = CATransform3DIdentity
+                visualEffectView.layer?.shadowOpacity = 0.0
+            }
+        }
+    }
+    
+    private func updateAppearance() {
+        if isSelected {
+            visualEffectView.layer?.borderWidth = 1.5
+            visualEffectView.layer?.borderColor = NSColor.controlAccentColor.cgColor
+            visualEffectView.material = .selection
+        } else {
+            visualEffectView.layer?.borderWidth = 0
+            visualEffectView.layer?.borderColor = nil
+            visualEffectView.material = .sidebar
+        }
     }
     
     func configure(with item: ClipboardHistoryItem) {
         // Set icon
-        iconImageView.image = NSImage(systemSymbolName: item.type.icon, accessibilityDescription: item.type.displayName)
-        iconImageView.contentTintColor = .controlAccentColor
+        if let iconImage = NSImage(systemSymbolName: item.type.icon, accessibilityDescription: item.type.displayName) {
+            iconImageView.image = iconImage
+            iconImageView.contentTintColor = .controlAccentColor
+        }
         
         // Set labels
-        typeLabel.stringValue = item.type.displayName
+        typeLabel.stringValue = item.type.displayName.uppercased()
         previewLabel.stringValue = item.preview
         
         // Format timestamp
@@ -447,6 +754,117 @@ class ClipboardHistoryCellView: NSView {
             formatter.timeStyle = .short
             timestampLabel.stringValue = formatter.string(from: item.timestamp)
         }
+        
+        updateAppearance()
+    }
+}
+
+// MARK: - Custom Search Field Cell
+
+class CustomSearchFieldCell: NSSearchFieldCell {
+    override init(textCell string: String) {
+        super.init(textCell: string)
+        setupCell()
+        setupSearchButton()
+    }
+    
+    required init(coder: NSCoder) {
+        super.init(coder: coder)
+        setupCell()
+        setupSearchButton()
+    }
+    
+    private func setupCell() {
+        isEditable = true
+        isSelectable = true
+        isEnabled = true
+        isBezeled = false
+        isBordered = false
+    }
+    
+    private func setupSearchButton() {
+        // Configure search button cell for consistent styling
+        if let searchButton = searchButtonCell {
+            searchButton.imagePosition = .imageOnly
+            searchButton.bezelStyle = .shadowlessSquare
+            // Use system symbol if available
+            if let magnifyingGlass = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: "Search") {
+                searchButton.image = magnifyingGlass
+            }
+        }
+    }
+    
+    override func searchTextRect(forBounds rect: NSRect) -> NSRect {
+        // Calculate text rect with proper spacing
+        let iconStart: CGFloat = 18
+        let iconWidth: CGFloat = 20
+        let iconTextSpacing: CGFloat = 14
+        let textStartX = iconStart + iconWidth + iconTextSpacing  // 52px
+        
+        let rightPadding: CGFloat = 16
+        let cancelButtonWidth: CGFloat = cancelButtonCell != nil ? 28 : 0
+        
+        // Get the default rect to preserve vertical centering
+        let defaultRect = super.searchTextRect(forBounds: rect)
+        
+        // Create new rect with custom horizontal values but preserve vertical positioning
+        var textRect = NSRect.zero
+        textRect.origin.x = textStartX
+        textRect.origin.y = defaultRect.origin.y  // Preserve vertical center from super
+        textRect.size.width = rect.width - textStartX - rightPadding - cancelButtonWidth
+        textRect.size.height = defaultRect.size.height  // Preserve height from super
+        
+        return textRect
+    }
+    
+    override func searchButtonRect(forBounds rect: NSRect) -> NSRect {
+        var buttonRect = super.searchButtonRect(forBounds: rect)
+        buttonRect.origin.x = 18
+        buttonRect.size.width = 20
+        buttonRect.size.height = 20
+        buttonRect.origin.y = rect.midY - buttonRect.size.height / 2
+        return buttonRect
+    }
+    
+    override func cancelButtonRect(forBounds rect: NSRect) -> NSRect {
+        // Ensure cancel button maintains 12px padding from right edge
+        var buttonRect = super.cancelButtonRect(forBounds: rect)
+        if cancelButtonCell != nil {
+            buttonRect.origin.x = rect.width - 28 - 12  // Button width (28) + right padding (12)
+            buttonRect.size.width = 28
+            buttonRect.size.height = 20
+            buttonRect.origin.y = (rect.height - buttonRect.height) / 2
+        }
+        return buttonRect
+    }
+    
+    override var isEditable: Bool {
+        get { return super.isEditable }
+        set { super.isEditable = newValue }
+    }
+    
+    override var isSelectable: Bool {
+        get { return super.isSelectable }
+        set { super.isSelectable = newValue }
+    }
+    
+    override func drawingRect(forBounds rect: NSRect) -> NSRect {
+        return searchTextRect(forBounds: rect)
+    }
+    
+    override func select(withFrame rect: NSRect, in controlView: NSView, editor: NSText, delegate: Any?, start selStart: Int, length selLength: Int) {
+        let textRect = searchTextRect(forBounds: rect)
+        super.select(withFrame: textRect, in: controlView, editor: editor, delegate: delegate, start: selStart, length: selLength)
+    }
+    
+    override func edit(withFrame rect: NSRect, in controlView: NSView, editor: NSText, delegate: Any?, event: NSEvent?) {
+        let textRect = searchTextRect(forBounds: rect)
+        super.edit(withFrame: textRect, in: controlView, editor: editor, delegate: delegate, event: event)
+    }
+    
+    override func drawInterior(withFrame cellFrame: NSRect, in controlView: NSView) {
+        let rect = searchTextRect(forBounds: cellFrame)
+        super.drawInterior(withFrame: rect, in: controlView)
     }
 }
 
