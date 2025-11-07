@@ -129,10 +129,11 @@ class ClipboardHistoryWindow: NSWindow {
         // Force the cell to recalculate its layout
         searchField.needsLayout = true
         
-        // Add glowing border effect
+        // Add visual styling for better clarity
         searchField.layer?.cornerRadius = 8
         searchField.layer?.borderWidth = 1.5
         searchField.layer?.borderColor = NSColor.controlAccentColor.withAlphaComponent(0.4).cgColor
+        searchField.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.2).cgColor
         searchField.layer?.shadowColor = NSColor.controlAccentColor.cgColor
         searchField.layer?.shadowOpacity = 0.3
         searchField.layer?.shadowOffset = CGSize(width: 0, height: 0)
@@ -242,8 +243,8 @@ class ClipboardHistoryWindow: NSWindow {
         emptyLabel.translatesAutoresizingMaskIntoConstraints = false
         
         NSLayoutConstraint.activate([
-            // Title label - consistent 20px margins
-            titleLabel.topAnchor.constraint(equalTo: visualEffectView.topAnchor, constant: 20),
+            // Title label - add more top padding for better visual balance
+            titleLabel.topAnchor.constraint(equalTo: visualEffectView.topAnchor, constant: 28),
             titleLabel.leadingAnchor.constraint(equalTo: visualEffectView.leadingAnchor, constant: 20),
             titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: clearButtonContainer.leadingAnchor, constant: -16),
             
@@ -915,20 +916,24 @@ class CustomSearchFieldCell: NSSearchFieldCell {
         let iconWidth: CGFloat = 20
         let iconTextSpacing: CGFloat = 14
         let textStartX = iconStart + iconWidth + iconTextSpacing  // 52px
-        
+
         let rightPadding: CGFloat = 16
         let cancelButtonWidth: CGFloat = cancelButtonCell != nil ? 28 : 0
-        
-        // Get the default rect to preserve vertical centering
-        let defaultRect = super.searchTextRect(forBounds: rect)
-        
-        // Create new rect with custom horizontal values but preserve vertical positioning
+
+        // Calculate text height based on font
+        let textHeight: CGFloat = 22  // Standard single-line text height
+
+        // Manually calculate vertical centering for better alignment
+        let verticalPadding: CGFloat = 7  // Top and bottom padding
+        let textY = verticalPadding
+
+        // Create properly centered text rect
         var textRect = NSRect.zero
         textRect.origin.x = textStartX
-        textRect.origin.y = defaultRect.origin.y  // Preserve vertical center from super
+        textRect.origin.y = textY
         textRect.size.width = rect.width - textStartX - rightPadding - cancelButtonWidth
-        textRect.size.height = defaultRect.size.height  // Preserve height from super
-        
+        textRect.size.height = textHeight
+
         return textRect
     }
     
