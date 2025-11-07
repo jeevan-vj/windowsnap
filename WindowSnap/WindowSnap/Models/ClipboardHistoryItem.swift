@@ -7,13 +7,15 @@ struct ClipboardHistoryItem {
     let type: ClipboardItemType
     let timestamp: Date
     let preview: String
-    
-    init(content: String, type: ClipboardItemType) {
+    let thumbnail: String? // Base64 encoded thumbnail for images
+
+    init(content: String, type: ClipboardItemType, thumbnail: String? = nil) {
         self.id = UUID()
         self.content = content
         self.type = type
         self.timestamp = Date()
         self.preview = Self.generatePreview(from: content, type: type)
+        self.thumbnail = thumbnail
     }
     
     private static func generatePreview(from content: String, type: ClipboardItemType) -> String {

@@ -15,6 +15,10 @@ class ClipboardHistoryWindow: NSWindow {
     private var filteredHistory: [ClipboardHistoryItem] = []
     private var selectedIndex: Int = 0
     private var previousApp: NSRunningApplication?
+
+    // Search debouncing
+    private var searchWorkItem: DispatchWorkItem?
+    private let searchDebounceInterval: TimeInterval = 0.3
     
     private let windowWidth: CGFloat = 400
     private let windowHeight: CGFloat = 500
@@ -31,7 +35,13 @@ class ClipboardHistoryWindow: NSWindow {
         let styleMask: NSWindow.StyleMask = [.titled, .closable, .resizable, .fullSizeContentView]
         self.init(contentRect: contentRect, styleMask: styleMask, backing: .buffered, defer: false)
     }
-    
+
+    deinit {
+        // Remove all NotificationCenter observers
+        NotificationCenter.default.removeObserver(self)
+        print("📋 ClipboardHistoryWindow deallocated")
+    }
+
     private func setupWindow() {
         // Hide default title bar for cleaner look
         title = ""
@@ -78,6 +88,8 @@ class ClipboardHistoryWindow: NSWindow {
         titleLabel.font = NSFont.systemFont(ofSize: 20, weight: .semibold)
         titleLabel.textColor = .labelColor
         titleLabel.alignment = .left
+        titleLabel.setAccessibilityLabel("Clipboard History")
+        titleLabel.setAccessibilityRole(.staticText)
         contentView.addSubview(titleLabel)
         
         // Search field - no container, integrated directly
@@ -94,6 +106,9 @@ class ClipboardHistoryWindow: NSWindow {
         searchField.isEditable = true
         searchField.isSelectable = true
         searchField.isEnabled = true
+        searchField.setAccessibilityLabel("Search clipboard history")
+        searchField.setAccessibilityRole(.textField)
+        searchField.setAccessibilityPlaceholderValue("Search...")
         
         // Use a custom cell subclass to fix text rect positioning
         // Create cell first, then assign to search field
@@ -159,6 +174,9 @@ class ClipboardHistoryWindow: NSWindow {
         clearButton.contentTintColor = .controlAccentColor
         clearButton.font = NSFont.systemFont(ofSize: 12, weight: .medium)
         clearButton.isBordered = false
+        clearButton.setAccessibilityLabel("Clear all clipboard history")
+        clearButton.setAccessibilityRole(.button)
+        clearButton.setAccessibilityHelp("Press Cmd+Backspace or click to clear all clipboard history")
         clearButtonContainer.addSubview(clearButton)
         
         // Table view for history
@@ -183,6 +201,9 @@ class ClipboardHistoryWindow: NSWindow {
         tableView.target = self
         tableView.doubleAction = #selector(handleDoubleClick(_:))
         tableView.wantsLayer = true
+        tableView.setAccessibilityLabel("Clipboard history items")
+        tableView.setAccessibilityRole(.list)
+        tableView.setAccessibilityHelp("Use arrow keys to navigate, Enter to paste selected item")
         
         // Create table column - width will be set dynamically
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("ClipboardItem"))
@@ -342,29 +363,63 @@ class ClipboardHistoryWindow: NSWindow {
     
     private func copySelectedItem() {
         guard selectedIndex >= 0 && selectedIndex < filteredHistory.count else { return }
-        
+
         let selectedItem = filteredHistory[selectedIndex]
         let previousAppToRestore = previousApp
-        
+
         // Copy to clipboard
         ClipboardManager.shared.copyToClipboard(selectedItem)
-        print("📋 Copied: \(selectedItem.preview)")
-        
-        // Restore focus to previous app and simulate paste
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            // Restore focus to the previous application
-            if let app = previousAppToRestore {
-                app.activate(options: .activateIgnoringOtherApps)
+
+        // Verify clipboard was updated successfully
+        let pasteboard = NSPasteboard.general
+        let initialChangeCount = pasteboard.changeCount
+
+        // Wait for clipboard to update (with retry)
+        var attempts = 0
+        let maxAttempts = 3
+
+        func verifyAndPaste() {
+            attempts += 1
+            let currentChangeCount = pasteboard.changeCount
+
+            if currentChangeCount != initialChangeCount {
+                print("📋 Clipboard updated successfully: \(selectedItem.preview)")
+                performPasteSequence(previousApp: previousAppToRestore)
+            } else if attempts < maxAttempts {
+                // Retry after a short delay
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    verifyAndPaste()
+                }
+            } else {
+                print("⚠️ Clipboard update verification failed, proceeding anyway")
+                performPasteSequence(previousApp: previousAppToRestore)
             }
-            
-            // Wait a bit more for focus to settle, then simulate paste
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+        }
+
+        // Start verification
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            verifyAndPaste()
+        }
+
+        // Close window immediately for better UX
+        hideWindow()
+    }
+
+    private func performPasteSequence(previousApp: NSRunningApplication?) {
+        // Restore focus to the previous application
+        if let app = previousApp {
+            app.activate(options: .activateIgnoringOtherApps)
+
+            // Wait for app activation, then paste
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                Self.simulatePaste()
+            }
+        } else {
+            // No previous app, just simulate paste immediately
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                 Self.simulatePaste()
             }
         }
-        
-        // Close window after scheduling the paste operation
-        hideWindow()
     }
     
     private static func simulatePaste() {
@@ -429,7 +484,18 @@ class ClipboardHistoryWindow: NSWindow {
     }
     
     @objc private func searchFieldChanged(_ sender: NSSearchField) {
-        applySearchFilter()
+        // Cancel any pending search
+        searchWorkItem?.cancel()
+
+        // Create a new work item for the search
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.applySearchFilter()
+        }
+
+        searchWorkItem = workItem
+
+        // Execute the search after the debounce interval
+        DispatchQueue.main.asyncAfter(deadline: .now() + searchDebounceInterval, execute: workItem)
     }
     
     @objc private func clearHistory(_ sender: NSButton) {
@@ -451,28 +517,62 @@ class ClipboardHistoryWindow: NSWindow {
     
     override func keyDown(with event: NSEvent) {
         let key = event.keyCode
-        
+        let modifierFlags = event.modifierFlags
+
+        // Handle keyboard shortcuts with modifiers
+        if modifierFlags.contains(.command) {
+            switch key {
+            case 3: // Cmd+F - Focus search field
+                searchField.becomeFirstResponder()
+                return
+
+            case 51: // Cmd+Backspace/Delete - Clear history
+                if !history.isEmpty {
+                    clearHistory(clearButton)
+                }
+                return
+
+            default:
+                break
+            }
+        }
+
+        // Handle regular key presses
         switch key {
         case 36, 76: // Enter or Return
             copySelectedItem()
-            
+
         case 53: // Escape
-            hideWindow()
-            
+            // If search field is focused and has text, clear it first
+            if searchField.stringValue.isEmpty == false && searchField.currentEditor() != nil {
+                searchField.stringValue = ""
+                applySearchFilter()
+            } else {
+                hideWindow()
+            }
+
         case 125: // Down arrow
             if selectedIndex < filteredHistory.count - 1 {
                 selectedIndex += 1
                 tableView.selectRowIndexes(IndexSet(integer: selectedIndex), byExtendingSelection: false)
                 tableView.scrollRowToVisible(selectedIndex)
             }
-            
+
         case 126: // Up arrow
             if selectedIndex > 0 {
                 selectedIndex -= 1
                 tableView.selectRowIndexes(IndexSet(integer: selectedIndex), byExtendingSelection: false)
                 tableView.scrollRowToVisible(selectedIndex)
             }
-            
+
+        case 48: // Tab key
+            // Cycle focus between search field and table
+            if searchField.currentEditor() != nil {
+                makeFirstResponder(tableView)
+            } else {
+                searchField.becomeFirstResponder()
+            }
+
         default:
             super.keyDown(with: event)
         }
@@ -726,15 +826,30 @@ class ClipboardHistoryCellView: NSView {
     }
     
     func configure(with item: ClipboardHistoryItem) {
-        // Set icon
-        if let iconImage = NSImage(systemSymbolName: item.type.icon, accessibilityDescription: item.type.displayName) {
+        // Set icon or thumbnail
+        if item.type == .image, let thumbnailString = item.thumbnail,
+           let thumbnailData = Data(base64Encoded: thumbnailString),
+           let thumbnailImage = NSImage(data: thumbnailData) {
+            // Display thumbnail for images
+            iconImageView.image = thumbnailImage
+            iconImageView.contentTintColor = nil
+            iconImageView.imageScaling = .scaleProportionallyUpOrDown
+        } else if let iconImage = NSImage(systemSymbolName: item.type.icon, accessibilityDescription: item.type.displayName) {
+            // Display icon for other types
             iconImageView.image = iconImage
             iconImageView.contentTintColor = .controlAccentColor
+            iconImageView.imageScaling = .scaleProportionallyDown
         }
-        
+
         // Set labels
         typeLabel.stringValue = item.type.displayName.uppercased()
-        previewLabel.stringValue = item.preview
+
+        // For images with thumbnails, show dimensions or file info instead of "[Image]"
+        if item.type == .image && item.thumbnail != nil {
+            previewLabel.stringValue = "Image content"
+        } else {
+            previewLabel.stringValue = item.preview
+        }
         
         // Format timestamp
         let formatter = DateFormatter()
