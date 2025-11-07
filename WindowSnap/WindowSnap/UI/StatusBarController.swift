@@ -17,6 +17,7 @@ class StatusBarController {
         image?.isTemplate = true
         button.image = image
         button.imageScaling = .scaleProportionallyDown
+        button.contentTintColor = NSColor.labelColor
         
         // Create the menu
         statusItem.menu = createContextMenu()
