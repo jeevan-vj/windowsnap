@@ -1,5 +1,42 @@
 import AppKit
 import Foundation
+import QuartzCore
+
+// MARK: - Design Constants
+
+private struct DesignConstants {
+    // Colors - Purple gradient theme
+    static let accentPrimary = NSColor(red: 0.388, green: 0.404, blue: 0.945, alpha: 1.0) // #6366f1
+    static let accentSecondary = NSColor(red: 0.545, green: 0.361, blue: 0.965, alpha: 1.0) // #8b5cf6
+    
+    // Animation durations
+    static let animationFast: TimeInterval = 0.15
+    static let animationNormal: TimeInterval = 0.2
+    static let animationSlow: TimeInterval = 0.3
+    
+    // Corner radius
+    static let cardCornerRadius: CGFloat = 12
+    static let buttonCornerRadius: CGFloat = 8
+    static let iconCornerRadius: CGFloat = 8
+}
+
+// MARK: - Gradient Utilities
+
+extension NSColor {
+    static var accentGradientColors: [CGColor] {
+        return [DesignConstants.accentPrimary.cgColor, DesignConstants.accentSecondary.cgColor]
+    }
+    
+    static func createGradientLayer(colors: [CGColor], frame: CGRect, cornerRadius: CGFloat = 0) -> CAGradientLayer {
+        let gradient = CAGradientLayer()
+        gradient.colors = colors
+        gradient.startPoint = CGPoint(x: 0, y: 0.5)
+        gradient.endPoint = CGPoint(x: 1, y: 0.5)
+        gradient.frame = frame
+        gradient.cornerRadius = cornerRadius
+        return gradient
+    }
+}
 
 class ClipboardHistoryWindow: NSWindow {
     private var tableView: NSTableView!
@@ -22,7 +59,7 @@ class ClipboardHistoryWindow: NSWindow {
     
     private let windowWidth: CGFloat = 400
     private let windowHeight: CGFloat = 500
-    private let rowHeight: CGFloat = 72
+    private let rowHeight: CGFloat = 76 // Slightly increased for better spacing
     private let cornerRadius: CGFloat = 14
     
     override init(contentRect: NSRect, styleMask style: NSWindow.StyleMask, backing backingStoreType: NSWindow.BackingStoreType, defer flag: Bool) {
@@ -66,11 +103,21 @@ class ClipboardHistoryWindow: NSWindow {
         // Don't mask to bounds so shadow is visible
         visualEffectView.layer?.masksToBounds = false
         
-        // Add shadow using layer properties on the visual effect view
+        // Enhanced shadow system with multi-layer depth and colored glow
         visualEffectView.layer?.shadowColor = NSColor.black.cgColor
-        visualEffectView.layer?.shadowOpacity = 0.3
-        visualEffectView.layer?.shadowOffset = CGSize(width: 0, height: -4)
-        visualEffectView.layer?.shadowRadius = 20
+        visualEffectView.layer?.shadowOpacity = 0.35
+        visualEffectView.layer?.shadowOffset = CGSize(width: 0, height: -6)
+        visualEffectView.layer?.shadowRadius = 24
+        
+        // Add colored shadow layer for depth
+        let shadowLayer = CALayer()
+        shadowLayer.frame = visualEffectView.bounds
+        shadowLayer.shadowColor = DesignConstants.accentPrimary.withAlphaComponent(0.2).cgColor
+        shadowLayer.shadowOpacity = 0.3
+        shadowLayer.shadowOffset = CGSize(width: 0, height: -2)
+        shadowLayer.shadowRadius = 16
+        shadowLayer.shadowPath = CGPath(roundedRect: visualEffectView.bounds, cornerWidth: cornerRadius, cornerHeight: cornerRadius, transform: nil)
+        visualEffectView.layer?.insertSublayer(shadowLayer, at: 0)
         
         self.contentView = visualEffectView
         hasShadow = true
@@ -83,9 +130,9 @@ class ClipboardHistoryWindow: NSWindow {
     private func setupUI() {
         guard let contentView = visualEffectView else { return }
         
-        // Custom title label
+        // Custom title label with improved typography
         titleLabel = NSTextField(labelWithString: "Clipboard History")
-        titleLabel.font = NSFont.systemFont(ofSize: 20, weight: .semibold)
+        titleLabel.font = NSFont.systemFont(ofSize: 22, weight: .bold)
         titleLabel.textColor = .labelColor
         titleLabel.alignment = .left
         titleLabel.setAccessibilityLabel("Clipboard History")
@@ -129,11 +176,11 @@ class ClipboardHistoryWindow: NSWindow {
         // Force the cell to recalculate its layout
         searchField.needsLayout = true
         
-        // Add visual styling for better clarity
-        searchField.layer?.cornerRadius = 8
+        // Enhanced visual styling with improved clarity
+        searchField.layer?.cornerRadius = DesignConstants.buttonCornerRadius
         searchField.layer?.borderWidth = 1.5
         searchField.layer?.borderColor = NSColor.controlAccentColor.withAlphaComponent(0.4).cgColor
-        searchField.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.2).cgColor
+        searchField.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.25).cgColor
         searchField.layer?.shadowColor = NSColor.controlAccentColor.cgColor
         searchField.layer?.shadowOpacity = 0.3
         searchField.layer?.shadowOffset = CGSize(width: 0, height: 0)
@@ -165,7 +212,7 @@ class ClipboardHistoryWindow: NSWindow {
         clearButtonContainer.layer?.masksToBounds = true
         contentView.addSubview(clearButtonContainer)
         
-        // Clear button with modern styling
+        // Clear button with enhanced modern styling
         clearButton = NSButton()
         clearButton.title = "Clear All"
         clearButton.bezelStyle = .texturedRounded
@@ -173,7 +220,7 @@ class ClipboardHistoryWindow: NSWindow {
         clearButton.action = #selector(clearHistory(_:))
         clearButton.wantsLayer = true
         clearButton.contentTintColor = .controlAccentColor
-        clearButton.font = NSFont.systemFont(ofSize: 12, weight: .medium)
+        clearButton.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
         clearButton.isBordered = false
         clearButton.setAccessibilityLabel("Clear all clipboard history")
         clearButton.setAccessibilityRole(.button)
@@ -224,14 +271,19 @@ class ClipboardHistoryWindow: NSWindow {
         scrollView.documentView = tableView
         visualEffectView.addSubview(scrollView)
         
-        // Empty state label
+        // Enhanced empty state label with better typography
         emptyLabel = NSTextField(labelWithString: "No clipboard history\n\nCopy some text to get started!")
         emptyLabel.alignment = .center
         emptyLabel.textColor = .secondaryLabelColor
-        emptyLabel.font = NSFont.systemFont(ofSize: 14, weight: .regular)
+        emptyLabel.font = NSFont.systemFont(ofSize: 15, weight: .medium)
         emptyLabel.isBezeled = false
         emptyLabel.isEditable = false
         emptyLabel.backgroundColor = .clear
+        emptyLabel.maximumNumberOfLines = 0
+        emptyLabel.lineBreakMode = .byWordWrapping
+        
+        // Add subtle animation to empty state
+        emptyLabel.wantsLayer = true
         contentView.addSubview(emptyLabel)
         
         // Auto-layout setup for resizing
@@ -349,7 +401,24 @@ class ClipboardHistoryWindow: NSWindow {
     private func updateUI() {
         let hasItems = !filteredHistory.isEmpty
         
-        emptyLabel.isHidden = hasItems
+        // Animate empty state appearance
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = DesignConstants.animationNormal
+            context.allowsImplicitAnimation = true
+            emptyLabel.alphaValue = hasItems ? 0 : 1
+            emptyLabel.isHidden = hasItems
+            
+            // Add subtle fade animation to empty state
+            if !hasItems && emptyLabel.alphaValue < 1 {
+                let fadeAnimation = CABasicAnimation(keyPath: "opacity")
+                fadeAnimation.fromValue = 0
+                fadeAnimation.toValue = 1
+                fadeAnimation.duration = DesignConstants.animationSlow
+                fadeAnimation.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                emptyLabel.layer?.add(fadeAnimation, forKey: "fadeIn")
+            }
+        }
+        
         tableView.isHidden = !hasItems
         scrollView.isHidden = !hasItems
         clearButton.isEnabled = !history.isEmpty
@@ -453,24 +522,85 @@ class ClipboardHistoryWindow: NSWindow {
     }
     
     @objc private func searchFieldDidBecomeFirstResponder() {
-        // Enhance glow when focused
+        // Enhanced gradient glow when focused
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.2
+            context.duration = DesignConstants.animationNormal
             context.allowsImplicitAnimation = true
-            searchField.layer?.borderColor = NSColor.controlAccentColor.cgColor
-            searchField.layer?.shadowOpacity = 0.5
-            searchField.layer?.shadowRadius = 6
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            
+            // Create gradient border effect
+            if let layer = searchField.layer {
+                // Remove existing gradient border if any
+                layer.sublayers?.filter { $0.name == "gradientBorder" }.forEach { $0.removeFromSuperlayer() }
+                
+                // Add gradient border
+                let gradientBorder = CAGradientLayer()
+                gradientBorder.name = "gradientBorder"
+                gradientBorder.colors = NSColor.accentGradientColors
+                gradientBorder.startPoint = CGPoint(x: 0, y: 0.5)
+                gradientBorder.endPoint = CGPoint(x: 1, y: 0.5)
+                gradientBorder.frame = layer.bounds
+                let cornerRadius = DesignConstants.buttonCornerRadius
+                gradientBorder.cornerRadius = cornerRadius
+                
+                let borderMask = CAShapeLayer()
+                let borderPath = CGMutablePath()
+                let rect = layer.bounds
+                let borderWidth: CGFloat = 1.5
+                
+                // Validate rect dimensions before creating rounded rect
+                guard rect.width > 0 && rect.height > 0,
+                      rect.width >= 2 * cornerRadius,
+                      rect.height >= 2 * cornerRadius else {
+                    // If rect is too small, skip gradient border for now
+                    return
+                }
+                
+                // Outer path
+                borderPath.addRoundedRect(in: rect, cornerWidth: cornerRadius, cornerHeight: cornerRadius)
+                // Inner path
+                let innerRect = rect.insetBy(dx: borderWidth, dy: borderWidth)
+                let innerCornerRadius = max(0, cornerRadius - borderWidth)
+                
+                // Validate inner rect as well
+                if innerRect.width > 0 && innerRect.height > 0 &&
+                   innerRect.width >= 2 * innerCornerRadius &&
+                   innerRect.height >= 2 * innerCornerRadius {
+                    borderPath.addRoundedRect(in: innerRect, cornerWidth: innerCornerRadius, cornerHeight: innerCornerRadius)
+                }
+                
+                borderMask.path = borderPath
+                borderMask.fillRule = .evenOdd
+                gradientBorder.mask = borderMask
+                
+                layer.insertSublayer(gradientBorder, at: 0)
+                
+                // Enhanced shadow with colored glow
+                layer.shadowColor = DesignConstants.accentPrimary.cgColor
+                layer.shadowOpacity = 0.6
+                layer.shadowRadius = 8
+                layer.shadowOffset = CGSize(width: 0, height: 0)
+            }
         }
     }
     
     @objc private func searchFieldDidResignFirstResponder() {
         // Reduce glow when not focused
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.2
+            context.duration = DesignConstants.animationNormal
             context.allowsImplicitAnimation = true
-            searchField.layer?.borderColor = NSColor.controlAccentColor.withAlphaComponent(0.4).cgColor
-            searchField.layer?.shadowOpacity = 0.3
-            searchField.layer?.shadowRadius = 4
+            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            
+            if let layer = searchField.layer {
+                // Remove gradient border
+                layer.sublayers?.filter { $0.name == "gradientBorder" }.forEach { $0.removeFromSuperlayer() }
+                
+                // Restore normal border
+                layer.borderColor = NSColor.controlAccentColor.withAlphaComponent(0.4).cgColor
+                layer.shadowColor = NSColor.controlAccentColor.cgColor
+                layer.shadowOpacity = 0.3
+                layer.shadowRadius = 4
+            }
         }
     }
     
@@ -659,6 +789,8 @@ class ClipboardHistoryCellView: NSView {
     private var previewLabel: NSTextField!
     private var timestampLabel: NSTextField!
     private var hoverTrackingArea: NSTrackingArea?
+    private var gradientBorderLayer: CAGradientLayer?
+    private var iconContainer: NSView!
     
     var isSelected: Bool = false {
         didSet {
@@ -678,31 +810,50 @@ class ClipboardHistoryCellView: NSView {
     
     private func setupView() {
         wantsLayer = true
-        layer?.cornerRadius = 10
-        layer?.masksToBounds = true
+        layer?.cornerRadius = DesignConstants.cardCornerRadius
+        layer?.masksToBounds = false // Allow shadow to be visible
         
-        // Visual effect view for glass effect
+        // Visual effect view for glass effect with enhanced styling
         visualEffectView = NSVisualEffectView()
         visualEffectView.material = .sidebar
         visualEffectView.blendingMode = .withinWindow
         visualEffectView.state = .active
         visualEffectView.wantsLayer = true
-        visualEffectView.layer?.cornerRadius = 10
-        visualEffectView.layer?.masksToBounds = true
+        visualEffectView.layer?.cornerRadius = DesignConstants.cardCornerRadius
+        visualEffectView.layer?.masksToBounds = false // Allow gradient border to be visible
         
-        // Add subtle shadow using layer properties
+        // Enhanced shadow system with colored glow
         visualEffectView.layer?.shadowColor = NSColor.black.cgColor
-        visualEffectView.layer?.shadowOpacity = 0.1
+        visualEffectView.layer?.shadowOpacity = 0.12
         visualEffectView.layer?.shadowOffset = CGSize(width: 0, height: -2)
-        visualEffectView.layer?.shadowRadius = 8
+        visualEffectView.layer?.shadowRadius = 10
+        
+        // Add colored shadow for depth
+        let coloredShadow = CALayer()
+        coloredShadow.shadowColor = DesignConstants.accentPrimary.withAlphaComponent(0.15).cgColor
+        coloredShadow.shadowOpacity = 0.2
+        coloredShadow.shadowOffset = CGSize(width: 0, height: -1)
+        coloredShadow.shadowRadius = 6
+        visualEffectView.layer?.insertSublayer(coloredShadow, at: 0)
         
         addSubview(visualEffectView)
         
-        // Icon container
-        let iconContainer = NSView()
+        // Icon container with gradient background
+        iconContainer = NSView()
         iconContainer.wantsLayer = true
-        iconContainer.layer?.cornerRadius = 8
-        iconContainer.layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.15).cgColor
+        iconContainer.layer?.cornerRadius = DesignConstants.iconCornerRadius
+        
+        // Create gradient background for icon container
+        let iconGradient = CAGradientLayer()
+        iconGradient.colors = [
+            DesignConstants.accentPrimary.withAlphaComponent(0.2).cgColor,
+            DesignConstants.accentSecondary.withAlphaComponent(0.15).cgColor
+        ]
+        iconGradient.startPoint = CGPoint(x: 0, y: 0)
+        iconGradient.endPoint = CGPoint(x: 1, y: 1)
+        iconGradient.cornerRadius = DesignConstants.iconCornerRadius
+        iconContainer.layer?.insertSublayer(iconGradient, at: 0)
+        
         visualEffectView.addSubview(iconContainer)
         
         // Icon
@@ -710,22 +861,23 @@ class ClipboardHistoryCellView: NSView {
         iconImageView.imageScaling = .scaleProportionallyUpOrDown
         iconContainer.addSubview(iconImageView)
         
-        // Type label
+        // Type label with improved typography
         typeLabel = NSTextField(labelWithString: "")
-        typeLabel.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
+        typeLabel.font = NSFont.systemFont(ofSize: 11, weight: .bold)
         typeLabel.textColor = .secondaryLabelColor
         visualEffectView.addSubview(typeLabel)
         
-        // Preview label
+        // Preview label with better line spacing
         previewLabel = NSTextField(labelWithString: "")
-        previewLabel.font = NSFont.systemFont(ofSize: 14, weight: .regular)
+        previewLabel.font = NSFont.systemFont(ofSize: 14, weight: .medium)
         previewLabel.textColor = .labelColor
         previewLabel.lineBreakMode = .byTruncatingTail
+        previewLabel.maximumNumberOfLines = 2
         visualEffectView.addSubview(previewLabel)
         
-        // Timestamp label
+        // Timestamp label with refined styling
         timestampLabel = NSTextField(labelWithString: "")
-        timestampLabel.font = NSFont.systemFont(ofSize: 10, weight: .regular)
+        timestampLabel.font = NSFont.systemFont(ofSize: 11, weight: .regular)
         timestampLabel.textColor = .tertiaryLabelColor
         visualEffectView.addSubview(timestampLabel)
         
@@ -738,17 +890,17 @@ class ClipboardHistoryCellView: NSView {
         timestampLabel.translatesAutoresizingMaskIntoConstraints = false
         
         NSLayoutConstraint.activate([
-            // Visual effect view fills the cell with proper margins
+            // Visual effect view fills the cell with improved margins
             visualEffectView.topAnchor.constraint(equalTo: topAnchor, constant: 4),
             visualEffectView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 0),
             visualEffectView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
             visualEffectView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
             
-            // Icon container
+            // Icon container with consistent spacing
             iconContainer.leadingAnchor.constraint(equalTo: visualEffectView.leadingAnchor, constant: 16),
             iconContainer.centerYAnchor.constraint(equalTo: visualEffectView.centerYAnchor),
-            iconContainer.widthAnchor.constraint(equalToConstant: 40),
-            iconContainer.heightAnchor.constraint(equalToConstant: 40),
+            iconContainer.widthAnchor.constraint(equalToConstant: 44),
+            iconContainer.heightAnchor.constraint(equalToConstant: 44),
             
             // Icon inside container
             iconImageView.centerXAnchor.constraint(equalTo: iconContainer.centerXAnchor),
@@ -790,39 +942,157 @@ class ClipboardHistoryCellView: NSView {
         setupHoverTracking()
     }
     
+    override func layout() {
+        super.layout()
+        // Update icon container gradient frame
+        if let iconGradient = iconContainer.layer?.sublayers?.first as? CAGradientLayer {
+            iconGradient.frame = iconContainer.bounds
+        }
+        
+        // Update gradient border frame if selected
+        if isSelected, let gradientBorder = gradientBorderLayer {
+            gradientBorder.frame = visualEffectView.bounds
+            // Update border mask path
+            if let borderMask = gradientBorder.mask as? CAShapeLayer {
+                let rect = visualEffectView.bounds
+                let cornerRadius = DesignConstants.cardCornerRadius
+                let borderWidth: CGFloat = 2.0
+                
+                // Validate rect dimensions
+                guard rect.width > 0 && rect.height > 0,
+                      rect.width >= 2 * cornerRadius,
+                      rect.height >= 2 * cornerRadius else {
+                    return
+                }
+                
+                let borderPath = CGMutablePath()
+                borderPath.addRoundedRect(in: rect, cornerWidth: cornerRadius, cornerHeight: cornerRadius)
+                
+                let innerRect = rect.insetBy(dx: borderWidth, dy: borderWidth)
+                let innerCornerRadius = max(0, cornerRadius - borderWidth)
+                
+                if innerRect.width > 0 && innerRect.height > 0 &&
+                   innerRect.width >= 2 * innerCornerRadius &&
+                   innerRect.height >= 2 * innerCornerRadius {
+                    borderPath.addRoundedRect(in: innerRect, cornerWidth: innerCornerRadius, cornerHeight: innerCornerRadius)
+                }
+                
+                borderMask.path = borderPath
+            }
+        }
+    }
+    
     override func mouseEntered(with event: NSEvent) {
         super.mouseEntered(with: event)
-        animateHover(entered: true)
+        if !isSelected {
+            animateHover(entered: true)
+        }
     }
     
     override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
-        animateHover(entered: false)
+        if !isSelected {
+            animateHover(entered: false)
+        }
     }
     
     private func animateHover(entered: Bool) {
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.2
+            context.duration = DesignConstants.animationNormal
             context.allowsImplicitAnimation = true
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            
             if entered {
-                visualEffectView.layer?.transform = CATransform3DMakeScale(1.02, 1.02, 1.0)
-                visualEffectView.layer?.shadowOpacity = 0.1
+                // Enhanced scale transform
+                visualEffectView.layer?.transform = CATransform3DMakeScale(1.03, 1.03, 1.0)
+                visualEffectView.layer?.shadowOpacity = 0.18
+                visualEffectView.layer?.shadowRadius = 12
             } else {
                 visualEffectView.layer?.transform = CATransform3DIdentity
-                visualEffectView.layer?.shadowOpacity = 0.0
+                visualEffectView.layer?.shadowOpacity = 0.12
+                visualEffectView.layer?.shadowRadius = 10
             }
         }
     }
     
     private func updateAppearance() {
-        if isSelected {
-            visualEffectView.layer?.borderWidth = 1.5
-            visualEffectView.layer?.borderColor = NSColor.controlAccentColor.cgColor
-            visualEffectView.material = .selection
-        } else {
-            visualEffectView.layer?.borderWidth = 0
-            visualEffectView.layer?.borderColor = nil
-            visualEffectView.material = .sidebar
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = DesignConstants.animationNormal
+            context.allowsImplicitAnimation = true
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            
+            if isSelected {
+                // Remove existing gradient border if any
+                gradientBorderLayer?.removeFromSuperlayer()
+                gradientBorderLayer = nil
+                
+                // Create gradient border
+                let gradient = CAGradientLayer()
+                gradient.colors = NSColor.accentGradientColors
+                gradient.startPoint = CGPoint(x: 0, y: 0.5)
+                gradient.endPoint = CGPoint(x: 1, y: 0.5)
+                gradient.cornerRadius = DesignConstants.cardCornerRadius
+                
+                // Create mask for border
+                let borderMask = CAShapeLayer()
+                let borderPath = CGMutablePath()
+                let rect = visualEffectView.bounds
+                let cornerRadius = DesignConstants.cardCornerRadius
+                let borderWidth: CGFloat = 2.0
+                
+                // Enhanced material and shadow (set these regardless of border creation)
+                visualEffectView.material = .selection
+                visualEffectView.layer?.shadowColor = DesignConstants.accentPrimary.cgColor
+                visualEffectView.layer?.shadowOpacity = 0.25
+                visualEffectView.layer?.shadowRadius = 14
+                visualEffectView.layer?.shadowOffset = CGSize(width: 0, height: -2)
+                
+                // Scale up slightly
+                visualEffectView.layer?.transform = CATransform3DMakeScale(1.02, 1.02, 1.0)
+                
+                // Validate rect dimensions before creating rounded rect
+                // CoreGraphics requires: 2 * cornerRadius <= width/height
+                guard rect.width > 0 && rect.height > 0,
+                      rect.width >= 2 * cornerRadius,
+                      rect.height >= 2 * cornerRadius else {
+                    // If rect is too small, skip gradient border for now
+                    // It will be updated in layout() when bounds are valid
+                    return
+                }
+                
+                // Outer path
+                borderPath.addRoundedRect(in: rect, cornerWidth: cornerRadius, cornerHeight: cornerRadius)
+                // Inner path
+                let innerRect = rect.insetBy(dx: borderWidth, dy: borderWidth)
+                let innerCornerRadius = max(0, cornerRadius - borderWidth)
+                
+                // Validate inner rect as well
+                if innerRect.width > 0 && innerRect.height > 0 &&
+                   innerRect.width >= 2 * innerCornerRadius &&
+                   innerRect.height >= 2 * innerCornerRadius {
+                    borderPath.addRoundedRect(in: innerRect, cornerWidth: innerCornerRadius, cornerHeight: innerCornerRadius)
+                }
+                
+                borderMask.path = borderPath
+                borderMask.fillRule = .evenOdd
+                gradient.mask = borderMask
+                
+                gradient.frame = visualEffectView.bounds
+                visualEffectView.layer?.insertSublayer(gradient, at: 0)
+                gradientBorderLayer = gradient
+            } else {
+                // Remove gradient border
+                gradientBorderLayer?.removeFromSuperlayer()
+                gradientBorderLayer = nil
+                
+                visualEffectView.layer?.borderWidth = 0
+                visualEffectView.layer?.borderColor = nil
+                visualEffectView.material = .sidebar
+                visualEffectView.layer?.shadowColor = NSColor.black.cgColor
+                visualEffectView.layer?.shadowOpacity = 0.12
+                visualEffectView.layer?.shadowRadius = 10
+                visualEffectView.layer?.transform = CATransform3DIdentity
+            }
         }
     }
     
