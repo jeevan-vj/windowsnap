@@ -90,7 +90,11 @@ class ClipboardManager: NSObject {
     }
     
     func getHistory() -> [ClipboardHistoryItem] {
-        return history
+        // Sort with pinned items first, then unpinned items
+        // Within each group, sort by timestamp (newest first)
+        let pinned = history.filter { $0.isPinned }.sorted { $0.timestamp > $1.timestamp }
+        let unpinned = history.filter { !$0.isPinned }.sorted { $0.timestamp > $1.timestamp }
+        return pinned + unpinned
     }
     
     func clearHistory() {
@@ -135,6 +139,78 @@ class ClipboardManager: NSObject {
         lastChangeCount = pasteboard.changeCount
         
         print("📋 Copied item to clipboard: \(item.preview)")
+    }
+    
+    // MARK: - Pin Management
+    
+    func pinItem(id: UUID) -> Bool {
+        return processingQueue.sync {
+            guard let index = history.firstIndex(where: { $0.id == id }) else {
+                return false
+            }
+            
+            let item = history[index]
+            let updatedItem = ClipboardHistoryItem(
+                id: item.id,
+                content: item.content,
+                type: item.type,
+                timestamp: item.timestamp,
+                preview: item.preview,
+                thumbnail: item.thumbnail,
+                isPinned: true
+            )
+            history[index] = updatedItem
+            debouncedSaveHistoryToDisk()
+            print("📌 Pinned item: \(item.preview)")
+            return true
+        }
+    }
+    
+    func unpinItem(id: UUID) -> Bool {
+        return processingQueue.sync {
+            guard let index = history.firstIndex(where: { $0.id == id }) else {
+                return false
+            }
+            
+            let item = history[index]
+            let updatedItem = ClipboardHistoryItem(
+                id: item.id,
+                content: item.content,
+                type: item.type,
+                timestamp: item.timestamp,
+                preview: item.preview,
+                thumbnail: item.thumbnail,
+                isPinned: false
+            )
+            history[index] = updatedItem
+            debouncedSaveHistoryToDisk()
+            print("📌 Unpinned item: \(item.preview)")
+            return true
+        }
+    }
+    
+    func togglePinState(id: UUID) -> Bool {
+        return processingQueue.sync {
+            guard let index = history.firstIndex(where: { $0.id == id }) else {
+                return false
+            }
+            
+            let item = history[index]
+            let newPinState = !item.isPinned
+            let updatedItem = ClipboardHistoryItem(
+                id: item.id,
+                content: item.content,
+                type: item.type,
+                timestamp: item.timestamp,
+                preview: item.preview,
+                thumbnail: item.thumbnail,
+                isPinned: newPinState
+            )
+            history[index] = updatedItem
+            debouncedSaveHistoryToDisk()
+            print("📌 \(newPinState ? "Pinned" : "Unpinned") item: \(item.preview)")
+            return newPinState
+        }
     }
     
     // MARK: - Private Methods
@@ -237,11 +313,34 @@ class ClipboardManager: NSObject {
             }
         }
 
+        // Check if there's an existing item with the same content
+        // If found, preserve its pin state
+        let existingItem = history.first(where: { $0.content == newItem.content })
+        let shouldPreservePinState = existingItem?.isPinned ?? false
+        
         // Remove any existing identical items to avoid duplicates
         history.removeAll { $0.content == newItem.content }
         
+        // Create new item with preserved pin state if it was pinned
+        // Use the persistence initializer from the extension
+        let itemToAdd: ClipboardHistoryItem
+        if shouldPreservePinState {
+            // Preserve pin state but update timestamp to now (so it appears at top of pinned items)
+            itemToAdd = ClipboardHistoryItem(
+                id: newItem.id,
+                content: newItem.content,
+                type: newItem.type,
+                timestamp: Date(), // Update timestamp to now
+                preview: newItem.preview,
+                thumbnail: newItem.thumbnail,
+                isPinned: true
+            )
+        } else {
+            itemToAdd = newItem
+        }
+        
         // Add to the beginning of the history
-        history.insert(newItem, at: 0)
+        history.insert(itemToAdd, at: 0)
         
         // Limit history size
         if history.count > maxHistoryItems {
@@ -251,7 +350,7 @@ class ClipboardManager: NSObject {
         // Use debounced save to avoid excessive disk writes
         debouncedSaveHistoryToDisk()
 
-        print("📋 Added to clipboard history: \(newItem.type.displayName) - \(newItem.preview)")
+        print("📋 Added to clipboard history: \(itemToAdd.type.displayName) - \(itemToAdd.preview)")
     }
     
     private func isValidURL(_ string: String) -> Bool {
@@ -425,7 +524,8 @@ class ClipboardManager: NSObject {
                     type: item.type.rawValue,
                     timestamp: item.timestamp,
                     preview: item.preview,
-                    thumbnail: item.thumbnail
+                    thumbnail: item.thumbnail,
+                    isPinned: item.isPinned
                 )
             })
 
@@ -483,7 +583,8 @@ class ClipboardManager: NSObject {
                     type: type,
                     timestamp: data.timestamp,
                     preview: data.preview,
-                    thumbnail: data.thumbnail
+                    thumbnail: data.thumbnail,
+                    isPinned: data.isPinned
                 ))
             }
 
@@ -521,17 +622,58 @@ private struct HistoryItemData: Codable {
     let timestamp: Date
     let preview: String
     let thumbnail: String? // Optional thumbnail for images
-}
-
-// MARK: - ClipboardHistoryItem Extension for Persistence
-
-extension ClipboardHistoryItem {
-    init(id: UUID, content: String, type: ClipboardItemType, timestamp: Date, preview: String, thumbnail: String? = nil) {
+    let isPinned: Bool
+    
+    // Memberwise initializer for encoding
+    init(id: String, content: String, type: String, timestamp: Date, preview: String, thumbnail: String?, isPinned: Bool) {
         self.id = id
         self.content = content
         self.type = type
         self.timestamp = timestamp
         self.preview = preview
         self.thumbnail = thumbnail
+        self.isPinned = isPinned
+    }
+    
+    // Custom decoder to handle backward compatibility
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        content = try container.decode(String.self, forKey: .content)
+        type = try container.decode(String.self, forKey: .type)
+        timestamp = try container.decode(Date.self, forKey: .timestamp)
+        preview = try container.decode(String.self, forKey: .preview)
+        thumbnail = try container.decodeIfPresent(String.self, forKey: .thumbnail)
+        isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
+    }
+    
+    // Custom encoder
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(content, forKey: .content)
+        try container.encode(type, forKey: .type)
+        try container.encode(timestamp, forKey: .timestamp)
+        try container.encode(preview, forKey: .preview)
+        try container.encodeIfPresent(thumbnail, forKey: .thumbnail)
+        try container.encode(isPinned, forKey: .isPinned)
+    }
+    
+    enum CodingKeys: String, CodingKey {
+        case id, content, type, timestamp, preview, thumbnail, isPinned
+    }
+}
+
+// MARK: - ClipboardHistoryItem Extension for Persistence
+
+extension ClipboardHistoryItem {
+    init(id: UUID, content: String, type: ClipboardItemType, timestamp: Date, preview: String, thumbnail: String? = nil, isPinned: Bool = false) {
+        self.id = id
+        self.content = content
+        self.type = type
+        self.timestamp = timestamp
+        self.preview = preview
+        self.thumbnail = thumbnail
+        self.isPinned = isPinned
     }
 }

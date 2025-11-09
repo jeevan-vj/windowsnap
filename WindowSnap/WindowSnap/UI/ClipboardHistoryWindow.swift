@@ -352,6 +352,9 @@ class ClipboardHistoryWindow: NSWindow {
         makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         
+        // Start periodic refresh to catch new clipboard items
+        startPeriodicRefresh()
+        
         // Focus search field after window is shown
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
             // Ensure window is key first
@@ -366,8 +369,34 @@ class ClipboardHistoryWindow: NSWindow {
     }
     
     func hideWindow() {
+        stopPeriodicRefresh()
         close()
     }
+    
+    private var refreshTimer: Timer?
+    private var lastHistoryCount: Int = 0
+    
+    private func startPeriodicRefresh() {
+        stopPeriodicRefresh()
+        lastHistoryCount = ClipboardManager.shared.getHistory().count
+        refreshTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            guard let self = self, self.isVisible else { return }
+            let currentCount = ClipboardManager.shared.getHistory().count
+            if currentCount != self.lastHistoryCount {
+                self.lastHistoryCount = currentCount
+                // Only reload if search field is empty or user isn't actively typing
+                if self.searchField.stringValue.isEmpty {
+                    self.loadHistory()
+                }
+            }
+        }
+    }
+    
+    private func stopPeriodicRefresh() {
+        refreshTimer?.invalidate()
+        refreshTimer = nil
+    }
+    
     
     // MARK: - Private Methods
     
@@ -383,11 +412,15 @@ class ClipboardHistoryWindow: NSWindow {
         if searchText.isEmpty {
             filteredHistory = history
         } else {
-            filteredHistory = history.filter { item in
+            let filtered = history.filter { item in
                 item.preview.lowercased().contains(searchText) ||
                 item.content.lowercased().contains(searchText) ||
                 item.type.displayName.lowercased().contains(searchText)
             }
+            // Maintain pinned items at top in search results
+            let pinned = filtered.filter { $0.isPinned }.sorted { $0.timestamp > $1.timestamp }
+            let unpinned = filtered.filter { !$0.isPinned }.sorted { $0.timestamp > $1.timestamp }
+            filteredHistory = pinned + unpinned
         }
         
         selectedIndex = 0
@@ -429,6 +462,30 @@ class ClipboardHistoryWindow: NSWindow {
                 tableView.selectRowIndexes(IndexSet(integer: selectedIndex), byExtendingSelection: false)
             }
         }
+    }
+    
+    func copyItemWithoutPasting(_ item: ClipboardHistoryItem) {
+        // Copy to clipboard without auto-paste
+        ClipboardManager.shared.copyToClipboard(item)
+        print("📋 Copied item to clipboard (no auto-paste): \(item.preview)")
+    }
+    
+    func togglePinStateForItem(id: UUID) {
+        _ = ClipboardManager.shared.togglePinState(id: id)
+        // Reload history to reflect pin state changes
+        loadHistory()
+        // Find the item in filtered history and maintain selection
+        if let index = filteredHistory.firstIndex(where: { $0.id == id }) {
+            selectedIndex = index
+            tableView.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
+            tableView.scrollRowToVisible(index)
+        }
+    }
+    
+    private func togglePinStateForSelectedItem() {
+        guard selectedIndex >= 0 && selectedIndex < filteredHistory.count else { return }
+        let selectedItem = filteredHistory[selectedIndex]
+        togglePinStateForItem(id: selectedItem.id)
     }
     
     private func copySelectedItem() {
@@ -657,6 +714,17 @@ class ClipboardHistoryWindow: NSWindow {
                 searchField.becomeFirstResponder()
                 return
 
+            case 8: // Cmd+C - Copy without auto-paste
+                if selectedIndex >= 0 && selectedIndex < filteredHistory.count {
+                    let selectedItem = filteredHistory[selectedIndex]
+                    copyItemWithoutPasting(selectedItem)
+                }
+                return
+
+            case 35: // Cmd+P - Toggle pin state
+                togglePinStateForSelectedItem()
+                return
+
             case 51: // Cmd+Backspace/Delete - Clear history
                 if !history.isEmpty {
                     clearHistory(clearButton)
@@ -726,6 +794,7 @@ extension ClipboardHistoryWindow: NSTableViewDelegate {
         
         let item = filteredHistory[row]
         let cellView = ClipboardHistoryCellView()
+        cellView.parentWindow = self
         cellView.configure(with: item)
         cellView.isSelected = (row == selectedIndex)
         
@@ -791,6 +860,10 @@ class ClipboardHistoryCellView: NSView {
     private var hoverTrackingArea: NSTrackingArea?
     private var gradientBorderLayer: CAGradientLayer?
     private var iconContainer: NSView!
+    private var pinButton: NSButton!
+    private var copyButton: NSButton!
+    private var currentItem: ClipboardHistoryItem?
+    weak var parentWindow: ClipboardHistoryWindow?
     
     var isSelected: Bool = false {
         didSet {
@@ -881,6 +954,42 @@ class ClipboardHistoryCellView: NSView {
         timestampLabel.textColor = .tertiaryLabelColor
         visualEffectView.addSubview(timestampLabel)
         
+        // Copy button
+        copyButton = NSButton()
+        copyButton.bezelStyle = .texturedRounded
+        copyButton.isBordered = false
+        copyButton.wantsLayer = true
+        copyButton.target = self
+        copyButton.action = #selector(copyButtonClicked(_:))
+        if let copyImage = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: "Copy") {
+            copyButton.image = copyImage
+        }
+        copyButton.imagePosition = .imageOnly
+        copyButton.contentTintColor = .secondaryLabelColor
+        copyButton.alphaValue = 0.6 // Start with lower opacity
+        copyButton.setAccessibilityLabel("Copy item")
+        copyButton.setAccessibilityRole(.button)
+        copyButton.setAccessibilityHelp("Copy this item to clipboard")
+        visualEffectView.addSubview(copyButton)
+        
+        // Pin button
+        pinButton = NSButton()
+        pinButton.bezelStyle = .texturedRounded
+        pinButton.isBordered = false
+        pinButton.wantsLayer = true
+        pinButton.target = self
+        pinButton.action = #selector(pinButtonClicked(_:))
+        if let pinImage = NSImage(systemSymbolName: "pin", accessibilityDescription: "Pin") {
+            pinButton.image = pinImage
+        }
+        pinButton.imagePosition = .imageOnly
+        pinButton.contentTintColor = .secondaryLabelColor
+        pinButton.alphaValue = 0.6 // Start with lower opacity
+        pinButton.setAccessibilityLabel("Pin item")
+        pinButton.setAccessibilityRole(.button)
+        pinButton.setAccessibilityHelp("Pin or unpin this item")
+        visualEffectView.addSubview(pinButton)
+        
         // Auto-layout
         visualEffectView.translatesAutoresizingMaskIntoConstraints = false
         iconContainer.translatesAutoresizingMaskIntoConstraints = false
@@ -888,6 +997,8 @@ class ClipboardHistoryCellView: NSView {
         typeLabel.translatesAutoresizingMaskIntoConstraints = false
         previewLabel.translatesAutoresizingMaskIntoConstraints = false
         timestampLabel.translatesAutoresizingMaskIntoConstraints = false
+        copyButton.translatesAutoresizingMaskIntoConstraints = false
+        pinButton.translatesAutoresizingMaskIntoConstraints = false
         
         NSLayoutConstraint.activate([
             // Visual effect view fills the cell with improved margins
@@ -911,17 +1022,29 @@ class ClipboardHistoryCellView: NSView {
             // Type label - increased right padding for consistency
             typeLabel.leadingAnchor.constraint(equalTo: iconContainer.trailingAnchor, constant: 12),
             typeLabel.topAnchor.constraint(equalTo: visualEffectView.topAnchor, constant: 12),
-            typeLabel.trailingAnchor.constraint(lessThanOrEqualTo: visualEffectView.trailingAnchor, constant: -28),
+            typeLabel.trailingAnchor.constraint(lessThanOrEqualTo: copyButton.leadingAnchor, constant: -12),
             
             // Preview label - ensure proper spacing from scrollbar (increased padding)
             previewLabel.leadingAnchor.constraint(equalTo: iconContainer.trailingAnchor, constant: 12),
             previewLabel.topAnchor.constraint(equalTo: typeLabel.bottomAnchor, constant: 4),
-            previewLabel.trailingAnchor.constraint(equalTo: visualEffectView.trailingAnchor, constant: -28),
+            previewLabel.trailingAnchor.constraint(equalTo: copyButton.leadingAnchor, constant: -12),
             
             // Timestamp label - increased right padding
             timestampLabel.leadingAnchor.constraint(equalTo: iconContainer.trailingAnchor, constant: 12),
             timestampLabel.topAnchor.constraint(equalTo: previewLabel.bottomAnchor, constant: 4),
-            timestampLabel.trailingAnchor.constraint(lessThanOrEqualTo: visualEffectView.trailingAnchor, constant: -28)
+            timestampLabel.trailingAnchor.constraint(lessThanOrEqualTo: copyButton.leadingAnchor, constant: -12),
+            
+            // Copy button - right side, top area
+            copyButton.trailingAnchor.constraint(equalTo: pinButton.leadingAnchor, constant: -12),
+            copyButton.topAnchor.constraint(equalTo: visualEffectView.topAnchor, constant: 12),
+            copyButton.widthAnchor.constraint(equalToConstant: 20),
+            copyButton.heightAnchor.constraint(equalToConstant: 20),
+            
+            // Pin button - right side, top area
+            pinButton.trailingAnchor.constraint(equalTo: visualEffectView.trailingAnchor, constant: -12),
+            pinButton.topAnchor.constraint(equalTo: visualEffectView.topAnchor, constant: 12),
+            pinButton.widthAnchor.constraint(equalToConstant: 20),
+            pinButton.heightAnchor.constraint(equalToConstant: 20)
         ])
         
         // Setup hover tracking
@@ -987,12 +1110,25 @@ class ClipboardHistoryCellView: NSView {
         if !isSelected {
             animateHover(entered: true)
         }
+        // Show buttons on hover
+        animateButtons(visible: true)
     }
     
     override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
         if !isSelected {
             animateHover(entered: false)
+        }
+        // Hide buttons when mouse exits
+        animateButtons(visible: false)
+    }
+    
+    private func animateButtons(visible: Bool) {
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = DesignConstants.animationFast
+            context.allowsImplicitAnimation = true
+            copyButton.alphaValue = visible ? 1.0 : 0.6
+            pinButton.alphaValue = visible ? 1.0 : 0.6
         }
     }
     
@@ -1097,6 +1233,8 @@ class ClipboardHistoryCellView: NSView {
     }
     
     func configure(with item: ClipboardHistoryItem) {
+        currentItem = item
+        
         // Set icon or thumbnail
         if item.type == .image, let thumbnailString = item.thumbnail,
            let thumbnailData = Data(base64Encoded: thumbnailString),
@@ -1141,7 +1279,87 @@ class ClipboardHistoryCellView: NSView {
             timestampLabel.stringValue = formatter.string(from: item.timestamp)
         }
         
+        // Update pin button state
+        updatePinButtonState(isPinned: item.isPinned)
+        
+        // Update visual appearance for pinned items
+        updatePinnedAppearance(isPinned: item.isPinned)
+        
         updateAppearance()
+    }
+    
+    private func updatePinButtonState(isPinned: Bool) {
+        let iconName = isPinned ? "pin.fill" : "pin"
+        if let pinImage = NSImage(systemSymbolName: iconName, accessibilityDescription: isPinned ? "Unpin" : "Pin") {
+            pinButton.image = pinImage
+        }
+        pinButton.contentTintColor = isPinned ? DesignConstants.accentPrimary : .secondaryLabelColor
+        pinButton.setAccessibilityLabel(isPinned ? "Unpin item" : "Pin item")
+        // Pinned items should always show button at full opacity
+        if isPinned {
+            pinButton.alphaValue = 1.0
+        }
+    }
+    
+    private func updatePinnedAppearance(isPinned: Bool) {
+        if isPinned {
+            // Add subtle background tint for pinned items
+            visualEffectView.layer?.backgroundColor = DesignConstants.accentPrimary.withAlphaComponent(0.05).cgColor
+        } else {
+            visualEffectView.layer?.backgroundColor = NSColor.clear.cgColor
+        }
+    }
+    
+    @objc private func copyButtonClicked(_ sender: NSButton) {
+        guard let item = currentItem else { return }
+        
+        // Animate button click
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = DesignConstants.animationFast
+            context.allowsImplicitAnimation = true
+            sender.layer?.transform = CATransform3DMakeScale(0.9, 0.9, 1.0)
+        } completionHandler: {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = DesignConstants.animationFast
+                context.allowsImplicitAnimation = true
+                sender.layer?.transform = CATransform3DIdentity
+            }
+        }
+        
+        // Brief checkmark flash
+        if let checkImage = NSImage(systemSymbolName: "checkmark", accessibilityDescription: "Copied") {
+            let originalImage = sender.image
+            sender.image = checkImage
+            sender.contentTintColor = DesignConstants.accentPrimary
+            
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                sender.image = originalImage
+                sender.contentTintColor = .secondaryLabelColor
+            }
+        }
+        
+        // Copy to clipboard without auto-paste
+        parentWindow?.copyItemWithoutPasting(item)
+    }
+    
+    @objc private func pinButtonClicked(_ sender: NSButton) {
+        guard let item = currentItem else { return }
+        
+        // Animate button click
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = DesignConstants.animationFast
+            context.allowsImplicitAnimation = true
+            sender.layer?.transform = CATransform3DMakeScale(0.9, 0.9, 1.0)
+        } completionHandler: {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = DesignConstants.animationFast
+                context.allowsImplicitAnimation = true
+                sender.layer?.transform = CATransform3DIdentity
+            }
+        }
+        
+        // Toggle pin state
+        parentWindow?.togglePinStateForItem(id: item.id)
     }
 }
 
