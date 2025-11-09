@@ -89,10 +89,24 @@ fi
 
 # Make executable
 chmod +x "$UNIVERSAL_BINARY"
+
+# Sign the binary (required for Accessibility permissions to appear in System Settings)
+echo -e "${YELLOW}[5/6]${NC} Signing binary with entitlements..."
+ENTITLEMENTS_FILE="$ROOT_DIR/WindowSnap.entitlements"
+if [[ -f "$ENTITLEMENTS_FILE" ]]; then
+    # Ad-hoc sign with entitlements (works for local testing)
+    codesign --force --sign "-" \
+        --entitlements "$ENTITLEMENTS_FILE" \
+        "$UNIVERSAL_BINARY" 2>/dev/null || true
+    echo -e "${GREEN}✓${NC} Binary signed with entitlements"
+else
+    echo -e "${YELLOW}⚠${NC}  Entitlements file not found, signing without it"
+    codesign --force --sign "-" "$UNIVERSAL_BINARY" 2>/dev/null || true
+fi
 echo ""
 
 # Verify the universal binary
-echo -e "${YELLOW}[5/5]${NC} Verifying universal binary..."
+echo -e "${YELLOW}[6/6]${NC} Verifying universal binary..."
 echo ""
 echo -e "${BLUE}Binary Information:${NC}"
 echo -e "  Location: ${GREEN}$UNIVERSAL_BINARY${NC}"

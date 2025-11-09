@@ -124,13 +124,22 @@ echo ""
 
 # Code signing
 echo -e "${YELLOW}[7/7]${NC} Code signing..."
+ENTITLEMENTS_FILE="$ROOT_DIR/WindowSnap.entitlements"
 if [[ -n "${CODESIGN_ID:-}" ]]; then
   echo "   Signing with identity: $CODESIGN_ID"
-  if codesign --force --sign "$CODESIGN_ID" \
-    --options runtime \
-    --timestamp \
-    --deep \
-    "$APP_DIR"; then
+  SIGN_ARGS=(
+    --force
+    --sign "$CODESIGN_ID"
+    --options runtime
+    --timestamp
+    --deep
+  )
+  if [[ -f "$ENTITLEMENTS_FILE" ]]; then
+    SIGN_ARGS+=(--entitlements "$ENTITLEMENTS_FILE")
+  fi
+  SIGN_ARGS+=("$APP_DIR")
+  
+  if codesign "${SIGN_ARGS[@]}"; then
     echo -e "${GREEN}✓${NC} Code signing successful"
 
     # Verify signature
@@ -147,7 +156,13 @@ if [[ -n "${CODESIGN_ID:-}" ]]; then
 else
   echo -e "${YELLOW}⚠${NC}  WARNING: App is not code-signed (set CODESIGN_ID environment variable)"
   echo "   For local testing only - ad-hoc signing"
-  codesign --force --sign "-" "$APP_DIR" 2>/dev/null || true
+  SIGN_ARGS=(--force --sign "-")
+  if [[ -f "$ENTITLEMENTS_FILE" ]]; then
+    SIGN_ARGS+=(--entitlements "$ENTITLEMENTS_FILE")
+    echo "   Using entitlements file for accessibility permissions"
+  fi
+  SIGN_ARGS+=("$APP_DIR")
+  codesign "${SIGN_ARGS[@]}" 2>/dev/null || true
   echo -e "${GREEN}✓${NC} Ad-hoc signed for local testing"
 fi
 echo ""
