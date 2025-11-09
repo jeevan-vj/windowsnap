@@ -12,12 +12,11 @@ class StatusBarController {
     private func setupStatusBar() {
         guard let button = statusItem.button else { return }
         
-        // Set the status bar icon
+        // Set the status bar icon (white icons for dark mode visibility)
         let image = NSImage(named: "MenuBarIcon")
-        image?.isTemplate = true
+        image?.isTemplate = false  // Use white icons directly, not as template
         button.image = image
         button.imageScaling = .scaleProportionallyDown
-        button.contentTintColor = NSColor.labelColor
         
         // Create the menu
         statusItem.menu = createContextMenu()
