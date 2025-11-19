@@ -130,102 +130,86 @@ class ClipboardHistoryWindow: NSWindow {
     private func setupUI() {
         guard let contentView = visualEffectView else { return }
         
-        // Custom title label with improved typography
-        titleLabel = NSTextField(labelWithString: "Clipboard History")
-        titleLabel.font = NSFont.systemFont(ofSize: 22, weight: .bold)
-        titleLabel.textColor = .labelColor
-        titleLabel.alignment = .left
-        titleLabel.setAccessibilityLabel("Clipboard History")
-        titleLabel.setAccessibilityRole(.staticText)
-        contentView.addSubview(titleLabel)
+        // Search Container View - Handles the visual styling (border, background, corner radius)
+        let searchContainerView = NSView()
+        searchContainerView.wantsLayer = true
+        searchContainerView.layer?.cornerRadius = 10
+        searchContainerView.layer?.borderWidth = 1.5
+        searchContainerView.layer?.borderColor = NSColor.controlAccentColor.withAlphaComponent(0.4).cgColor
+        searchContainerView.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.25).cgColor
+        searchContainerView.layer?.shadowColor = NSColor.controlAccentColor.cgColor
+        searchContainerView.layer?.shadowOpacity = 0.3
+        searchContainerView.layer?.shadowOffset = CGSize(width: 0, height: 0)
+        searchContainerView.layer?.shadowRadius = 4
         
-        // Search field - no container, integrated directly
+        contentView.addSubview(searchContainerView)
+        
+        // Search field - Standard NSSearchField inside the container
         searchField = NSSearchField()
-        searchField.placeholderString = "Search..."
+        
+        // Use custom cell to fix text overlap with icon
+        let cell = PaddedSearchFieldCell(textCell: "")
+        searchField.cell = cell
+        
+        searchField.placeholderString = "Search Clipboard..."
         searchField.target = self
         searchField.action = #selector(searchFieldChanged(_:))
         searchField.focusRingType = .none
         searchField.wantsLayer = true
-        searchField.font = NSFont.systemFont(ofSize: 13)
+        searchField.font = NSFont.systemFont(ofSize: 16)
         searchField.backgroundColor = .clear
         searchField.isBordered = false
         searchField.isBezeled = false
+        searchField.drawsBackground = false
         searchField.isEditable = true
         searchField.isSelectable = true
         searchField.isEnabled = true
         searchField.setAccessibilityLabel("Search clipboard history")
         searchField.setAccessibilityRole(.textField)
-        searchField.setAccessibilityPlaceholderValue("Search...")
+        searchField.setAccessibilityPlaceholderValue("Search Clipboard...")
         
-        // Use a custom cell subclass to fix text rect positioning
-        // Create cell first, then assign to search field
-        let customCell = CustomSearchFieldCell(textCell: "")
-        customCell.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.3)
-        customCell.isBezeled = false
-        customCell.isBordered = false
-        customCell.placeholderString = "Search..."
-        customCell.target = self
-        customCell.action = #selector(searchFieldChanged(_:))
-        customCell.isEditable = true
-        customCell.isSelectable = true
-        customCell.isEnabled = true
-        
-        // Assign cell to search field - this must happen before other setup
-        searchField.cell = customCell
-        
-        // Force the cell to recalculate its layout
-        searchField.needsLayout = true
-        
-        // Enhanced visual styling with improved clarity
-        searchField.layer?.cornerRadius = DesignConstants.buttonCornerRadius
-        searchField.layer?.borderWidth = 1.5
-        searchField.layer?.borderColor = NSColor.controlAccentColor.withAlphaComponent(0.4).cgColor
-        searchField.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.25).cgColor
-        searchField.layer?.shadowColor = NSColor.controlAccentColor.cgColor
-        searchField.layer?.shadowOpacity = 0.3
-        searchField.layer?.shadowOffset = CGSize(width: 0, height: 0)
-        searchField.layer?.shadowRadius = 4
-        
-        // Monitor focus to enhance glow
+        // Monitor focus to enhance glow on the CONTAINER
         NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(searchFieldDidBecomeFirstResponder),
-            name: NSControl.textDidBeginEditingNotification,
-            object: searchField
-        )
+            forName: NSControl.textDidBeginEditingNotification,
+            object: searchField,
+            queue: .main
+        ) { [weak self] _ in
+            self?.animateSearchFocus(focused: true, container: searchContainerView)
+        }
+        
         NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(searchFieldDidResignFirstResponder),
-            name: NSControl.textDidEndEditingNotification,
-            object: searchField
-        )
+            forName: NSControl.textDidEndEditingNotification,
+            object: searchField,
+            queue: .main
+        ) { [weak self] _ in
+            self?.animateSearchFocus(focused: false, container: searchContainerView)
+        }
         
-        contentView.addSubview(searchField)
+        searchContainerView.addSubview(searchField)
         
-        // Clear button container with glass effect
-        clearButtonContainer = NSVisualEffectView()
-        clearButtonContainer.material = .sidebar
-        clearButtonContainer.blendingMode = .withinWindow
-        clearButtonContainer.state = .active
-        clearButtonContainer.wantsLayer = true
-        clearButtonContainer.layer?.cornerRadius = 8
-        clearButtonContainer.layer?.masksToBounds = true
-        contentView.addSubview(clearButtonContainer)
-        
-        // Clear button with enhanced modern styling
+        // Clear button - Icon only (Trash)
         clearButton = NSButton()
-        clearButton.title = "Clear All"
         clearButton.bezelStyle = .texturedRounded
         clearButton.target = self
         clearButton.action = #selector(clearHistory(_:))
         clearButton.wantsLayer = true
-        clearButton.contentTintColor = .controlAccentColor
-        clearButton.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
+        clearButton.contentTintColor = .secondaryLabelColor
         clearButton.isBordered = false
+        clearButton.imagePosition = .imageOnly
+        if let trashImage = NSImage(systemSymbolName: "trash", accessibilityDescription: "Clear All") {
+            clearButton.image = trashImage
+        }
         clearButton.setAccessibilityLabel("Clear all clipboard history")
         clearButton.setAccessibilityRole(.button)
         clearButton.setAccessibilityHelp("Press Cmd+Backspace or click to clear all clipboard history")
+        
+        // Add a subtle background to the clear button for better visibility
+        let clearButtonContainer = NSView()
+        clearButtonContainer.wantsLayer = true
+        clearButtonContainer.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.2).cgColor
+        clearButtonContainer.layer?.cornerRadius = 8
         clearButtonContainer.addSubview(clearButton)
+        contentView.addSubview(clearButtonContainer)
         
         // Table view for history
         scrollView = NSScrollView()
@@ -287,7 +271,7 @@ class ClipboardHistoryWindow: NSWindow {
         contentView.addSubview(emptyLabel)
         
         // Auto-layout setup for resizing
-        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        searchContainerView.translatesAutoresizingMaskIntoConstraints = false
         searchField.translatesAutoresizingMaskIntoConstraints = false
         clearButtonContainer.translatesAutoresizingMaskIntoConstraints = false
         clearButton.translatesAutoresizingMaskIntoConstraints = false
@@ -295,31 +279,32 @@ class ClipboardHistoryWindow: NSWindow {
         emptyLabel.translatesAutoresizingMaskIntoConstraints = false
         
         NSLayoutConstraint.activate([
-            // Title label - add more top padding for better visual balance
-            titleLabel.topAnchor.constraint(equalTo: visualEffectView.topAnchor, constant: 28),
-            titleLabel.leadingAnchor.constraint(equalTo: visualEffectView.leadingAnchor, constant: 20),
-            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: clearButtonContainer.leadingAnchor, constant: -16),
+            // Search Container - Prominent at top
+            searchContainerView.topAnchor.constraint(equalTo: visualEffectView.topAnchor, constant: 20),
+            searchContainerView.leadingAnchor.constraint(equalTo: visualEffectView.leadingAnchor, constant: 20),
+            searchContainerView.trailingAnchor.constraint(equalTo: clearButtonContainer.leadingAnchor, constant: -12),
+            searchContainerView.heightAnchor.constraint(equalToConstant: 44),
             
-            // Search field - directly positioned with consistent alignment
-            searchField.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 16),
-            searchField.leadingAnchor.constraint(equalTo: visualEffectView.leadingAnchor, constant: 20),
-            searchField.trailingAnchor.constraint(equalTo: clearButtonContainer.leadingAnchor, constant: -12),
-            searchField.heightAnchor.constraint(equalToConstant: 36),
+            // Search Field inside Container - Vertically centered, with padding
+            searchField.leadingAnchor.constraint(equalTo: searchContainerView.leadingAnchor, constant: 8),
+            searchField.trailingAnchor.constraint(equalTo: searchContainerView.trailingAnchor, constant: -8),
+            searchField.centerYAnchor.constraint(equalTo: searchContainerView.centerYAnchor),
+            // Let intrinsic height handle the text field height
             
-            // Clear button container - align with search field
-            clearButtonContainer.centerYAnchor.constraint(equalTo: searchField.centerYAnchor),
+            // Clear button container
+            clearButtonContainer.centerYAnchor.constraint(equalTo: searchContainerView.centerYAnchor),
             clearButtonContainer.trailingAnchor.constraint(equalTo: visualEffectView.trailingAnchor, constant: -20),
-            clearButtonContainer.widthAnchor.constraint(equalToConstant: 90),
-            clearButtonContainer.heightAnchor.constraint(equalToConstant: 40),
+            clearButtonContainer.widthAnchor.constraint(equalToConstant: 44),
+            clearButtonContainer.heightAnchor.constraint(equalToConstant: 44),
             
             // Clear button inside container
             clearButton.centerXAnchor.constraint(equalTo: clearButtonContainer.centerXAnchor),
             clearButton.centerYAnchor.constraint(equalTo: clearButtonContainer.centerYAnchor),
-            clearButton.widthAnchor.constraint(equalToConstant: 80),
-            clearButton.heightAnchor.constraint(equalToConstant: 28),
+            clearButton.widthAnchor.constraint(equalToConstant: 24),
+            clearButton.heightAnchor.constraint(equalToConstant: 24),
             
-            // Scroll view - consistent 20px margins, aligned with title and search
-            scrollView.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 8),
+            // Scroll view - Below search field
+            scrollView.topAnchor.constraint(equalTo: searchContainerView.bottomAnchor, constant: 16),
             scrollView.leadingAnchor.constraint(equalTo: visualEffectView.leadingAnchor, constant: 20),
             scrollView.trailingAnchor.constraint(equalTo: visualEffectView.trailingAnchor, constant: -20),
             scrollView.bottomAnchor.constraint(equalTo: visualEffectView.bottomAnchor, constant: -20),
@@ -332,6 +317,54 @@ class ClipboardHistoryWindow: NSWindow {
         // Set initial column width
         DispatchQueue.main.async {
             self.updateColumnWidth()
+        }
+    }
+    
+    private func animateSearchFocus(focused: Bool, container: NSView) {
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = DesignConstants.animationNormal
+            context.allowsImplicitAnimation = true
+            context.timingFunction = CAMediaTimingFunction(name: focused ? .easeOut : .easeIn)
+            
+            if let layer = container.layer {
+                if focused {
+                    // Add gradient border
+                    let gradientBorder = CAGradientLayer()
+                    gradientBorder.name = "gradientBorder"
+                    gradientBorder.colors = NSColor.accentGradientColors
+                    gradientBorder.startPoint = CGPoint(x: 0, y: 0.5)
+                    gradientBorder.endPoint = CGPoint(x: 1, y: 0.5)
+                    gradientBorder.frame = layer.bounds
+                    gradientBorder.cornerRadius = 10
+                    
+                    let borderMask = CAShapeLayer()
+                    let borderPath = CGMutablePath()
+                    let rect = layer.bounds
+                    let borderWidth: CGFloat = 1.5
+                    
+                    borderPath.addRoundedRect(in: rect, cornerWidth: 10, cornerHeight: 10)
+                    let innerRect = rect.insetBy(dx: borderWidth, dy: borderWidth)
+                    borderPath.addRoundedRect(in: innerRect, cornerWidth: 10 - borderWidth, cornerHeight: 10 - borderWidth)
+                    
+                    borderMask.path = borderPath
+                    borderMask.fillRule = .evenOdd
+                    gradientBorder.mask = borderMask
+                    
+                    // Remove old border if exists
+                    layer.sublayers?.filter { $0.name == "gradientBorder" }.forEach { $0.removeFromSuperlayer() }
+                    layer.insertSublayer(gradientBorder, at: 0)
+                    
+                    layer.shadowOpacity = 0.6
+                    layer.shadowRadius = 8
+                } else {
+                    // Remove gradient border
+                    layer.sublayers?.filter { $0.name == "gradientBorder" }.forEach { $0.removeFromSuperlayer() }
+                    
+                    layer.borderColor = NSColor.controlAccentColor.withAlphaComponent(0.4).cgColor
+                    layer.shadowOpacity = 0.3
+                    layer.shadowRadius = 4
+                }
+            }
         }
     }
     
@@ -579,86 +612,11 @@ class ClipboardHistoryWindow: NSWindow {
     }
     
     @objc private func searchFieldDidBecomeFirstResponder() {
-        // Enhanced gradient glow when focused
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = DesignConstants.animationNormal
-            context.allowsImplicitAnimation = true
-            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            
-            // Create gradient border effect
-            if let layer = searchField.layer {
-                // Remove existing gradient border if any
-                layer.sublayers?.filter { $0.name == "gradientBorder" }.forEach { $0.removeFromSuperlayer() }
-                
-                // Add gradient border
-                let gradientBorder = CAGradientLayer()
-                gradientBorder.name = "gradientBorder"
-                gradientBorder.colors = NSColor.accentGradientColors
-                gradientBorder.startPoint = CGPoint(x: 0, y: 0.5)
-                gradientBorder.endPoint = CGPoint(x: 1, y: 0.5)
-                gradientBorder.frame = layer.bounds
-                let cornerRadius = DesignConstants.buttonCornerRadius
-                gradientBorder.cornerRadius = cornerRadius
-                
-                let borderMask = CAShapeLayer()
-                let borderPath = CGMutablePath()
-                let rect = layer.bounds
-                let borderWidth: CGFloat = 1.5
-                
-                // Validate rect dimensions before creating rounded rect
-                guard rect.width > 0 && rect.height > 0,
-                      rect.width >= 2 * cornerRadius,
-                      rect.height >= 2 * cornerRadius else {
-                    // If rect is too small, skip gradient border for now
-                    return
-                }
-                
-                // Outer path
-                borderPath.addRoundedRect(in: rect, cornerWidth: cornerRadius, cornerHeight: cornerRadius)
-                // Inner path
-                let innerRect = rect.insetBy(dx: borderWidth, dy: borderWidth)
-                let innerCornerRadius = max(0, cornerRadius - borderWidth)
-                
-                // Validate inner rect as well
-                if innerRect.width > 0 && innerRect.height > 0 &&
-                   innerRect.width >= 2 * innerCornerRadius &&
-                   innerRect.height >= 2 * innerCornerRadius {
-                    borderPath.addRoundedRect(in: innerRect, cornerWidth: innerCornerRadius, cornerHeight: innerCornerRadius)
-                }
-                
-                borderMask.path = borderPath
-                borderMask.fillRule = .evenOdd
-                gradientBorder.mask = borderMask
-                
-                layer.insertSublayer(gradientBorder, at: 0)
-                
-                // Enhanced shadow with colored glow
-                layer.shadowColor = DesignConstants.accentPrimary.cgColor
-                layer.shadowOpacity = 0.6
-                layer.shadowRadius = 8
-                layer.shadowOffset = CGSize(width: 0, height: 0)
-            }
-        }
+        // Handled by notification observer in setupUI
     }
     
     @objc private func searchFieldDidResignFirstResponder() {
-        // Reduce glow when not focused
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = DesignConstants.animationNormal
-            context.allowsImplicitAnimation = true
-            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
-            
-            if let layer = searchField.layer {
-                // Remove gradient border
-                layer.sublayers?.filter { $0.name == "gradientBorder" }.forEach { $0.removeFromSuperlayer() }
-                
-                // Restore normal border
-                layer.borderColor = NSColor.controlAccentColor.withAlphaComponent(0.4).cgColor
-                layer.shadowColor = NSColor.controlAccentColor.cgColor
-                layer.shadowOpacity = 0.3
-                layer.shadowRadius = 4
-            }
-        }
+        // Handled by notification observer in setupUI
     }
     
     // MARK: - Actions
@@ -854,7 +812,7 @@ class ModernTableRowView: NSTableRowView {
 class ClipboardHistoryCellView: NSView {
     private var visualEffectView: NSVisualEffectView!
     private var iconImageView: NSImageView!
-    private var typeLabel: NSTextField!
+    // private var typeLabel: NSTextField! // Removed for cleaner look
     private var previewLabel: NSTextField!
     private var timestampLabel: NSTextField!
     private var hoverTrackingArea: NSTrackingArea?
@@ -934,12 +892,6 @@ class ClipboardHistoryCellView: NSView {
         iconImageView.imageScaling = .scaleProportionallyUpOrDown
         iconContainer.addSubview(iconImageView)
         
-        // Type label with improved typography
-        typeLabel = NSTextField(labelWithString: "")
-        typeLabel.font = NSFont.systemFont(ofSize: 11, weight: .bold)
-        typeLabel.textColor = .secondaryLabelColor
-        visualEffectView.addSubview(typeLabel)
-        
         // Preview label with better line spacing
         previewLabel = NSTextField(labelWithString: "")
         previewLabel.font = NSFont.systemFont(ofSize: 14, weight: .medium)
@@ -994,7 +946,6 @@ class ClipboardHistoryCellView: NSView {
         visualEffectView.translatesAutoresizingMaskIntoConstraints = false
         iconContainer.translatesAutoresizingMaskIntoConstraints = false
         iconImageView.translatesAutoresizingMaskIntoConstraints = false
-        typeLabel.translatesAutoresizingMaskIntoConstraints = false
         previewLabel.translatesAutoresizingMaskIntoConstraints = false
         timestampLabel.translatesAutoresizingMaskIntoConstraints = false
         copyButton.translatesAutoresizingMaskIntoConstraints = false
@@ -1019,30 +970,25 @@ class ClipboardHistoryCellView: NSView {
             iconImageView.widthAnchor.constraint(equalToConstant: 20),
             iconImageView.heightAnchor.constraint(equalToConstant: 20),
             
-            // Type label - increased right padding for consistency
-            typeLabel.leadingAnchor.constraint(equalTo: iconContainer.trailingAnchor, constant: 12),
-            typeLabel.topAnchor.constraint(equalTo: visualEffectView.topAnchor, constant: 12),
-            typeLabel.trailingAnchor.constraint(lessThanOrEqualTo: copyButton.leadingAnchor, constant: -12),
-            
-            // Preview label - ensure proper spacing from scrollbar (increased padding)
+            // Preview label - Aligned with top of icon container
             previewLabel.leadingAnchor.constraint(equalTo: iconContainer.trailingAnchor, constant: 12),
-            previewLabel.topAnchor.constraint(equalTo: typeLabel.bottomAnchor, constant: 4),
+            previewLabel.topAnchor.constraint(equalTo: iconContainer.topAnchor, constant: 0),
             previewLabel.trailingAnchor.constraint(equalTo: copyButton.leadingAnchor, constant: -12),
             
-            // Timestamp label - increased right padding
+            // Timestamp label - Below preview
             timestampLabel.leadingAnchor.constraint(equalTo: iconContainer.trailingAnchor, constant: 12),
             timestampLabel.topAnchor.constraint(equalTo: previewLabel.bottomAnchor, constant: 4),
             timestampLabel.trailingAnchor.constraint(lessThanOrEqualTo: copyButton.leadingAnchor, constant: -12),
             
             // Copy button - right side, top area
             copyButton.trailingAnchor.constraint(equalTo: pinButton.leadingAnchor, constant: -12),
-            copyButton.topAnchor.constraint(equalTo: visualEffectView.topAnchor, constant: 12),
+            copyButton.centerYAnchor.constraint(equalTo: visualEffectView.centerYAnchor),
             copyButton.widthAnchor.constraint(equalToConstant: 20),
             copyButton.heightAnchor.constraint(equalToConstant: 20),
             
             // Pin button - right side, top area
             pinButton.trailingAnchor.constraint(equalTo: visualEffectView.trailingAnchor, constant: -12),
-            pinButton.topAnchor.constraint(equalTo: visualEffectView.topAnchor, constant: 12),
+            pinButton.centerYAnchor.constraint(equalTo: visualEffectView.centerYAnchor),
             pinButton.widthAnchor.constraint(equalToConstant: 20),
             pinButton.heightAnchor.constraint(equalToConstant: 20)
         ])
@@ -1250,9 +1196,6 @@ class ClipboardHistoryCellView: NSView {
             iconImageView.imageScaling = .scaleProportionallyDown
         }
 
-        // Set labels
-        typeLabel.stringValue = item.type.displayName.uppercased()
-
         // For images with thumbnails, show dimensions or file info instead of "[Image]"
         if item.type == .image && item.thumbnail != nil {
             previewLabel.stringValue = "Image content"
@@ -1363,106 +1306,31 @@ class ClipboardHistoryCellView: NSView {
     }
 }
 
-// MARK: - Custom Search Field Cell
+// MARK: - Padded Search Field Cell
 
-class CustomSearchFieldCell: NSSearchFieldCell {
-    override init(textCell string: String) {
-        super.init(textCell: string)
-        setupCell()
-        setupSearchButton()
-    }
-    
-    required init(coder: NSCoder) {
-        super.init(coder: coder)
-        setupCell()
-        setupSearchButton()
-    }
-    
-    private func setupCell() {
-        isEditable = true
-        isSelectable = true
-        isEnabled = true
-        isBezeled = false
-        isBordered = false
-    }
-    
-    private func setupSearchButton() {
-        // Configure search button cell for consistent styling
-        if let searchButton = searchButtonCell {
-            searchButton.imagePosition = .imageOnly
-            searchButton.bezelStyle = .shadowlessSquare
-            // Use system symbol if available
-            if let magnifyingGlass = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: "Search") {
-                searchButton.image = magnifyingGlass
-            }
-        }
+class PaddedSearchFieldCell: NSSearchFieldCell {
+    override func searchButtonRect(forBounds rect: NSRect) -> NSRect {
+        var buttonRect = super.searchButtonRect(forBounds: rect)
+        // Fix the search icon position
+        buttonRect.origin.x = 8
+        // Center vertically
+        buttonRect.origin.y = floor((rect.height - buttonRect.height) / 2)
+        return buttonRect
     }
     
     override func searchTextRect(forBounds rect: NSRect) -> NSRect {
-        // Calculate text rect with proper spacing
-        let iconStart: CGFloat = 18
-        let iconWidth: CGFloat = 20
-        let iconTextSpacing: CGFloat = 14
-        let textStartX = iconStart + iconWidth + iconTextSpacing  // 52px
-
-        let rightPadding: CGFloat = 16
-        let cancelButtonWidth: CGFloat = cancelButtonCell != nil ? 28 : 0
-
-        // Calculate text height based on font
-        let textHeight: CGFloat = 22  // Standard single-line text height
-
-        // Manually calculate vertical centering for better alignment
-        let verticalPadding: CGFloat = 7  // Top and bottom padding
-        let textY = verticalPadding
-
-        // Create properly centered text rect
-        var textRect = NSRect.zero
-        textRect.origin.x = textStartX
-        textRect.origin.y = textY
-        textRect.size.width = rect.width - textStartX - rightPadding - cancelButtonWidth
-        textRect.size.height = textHeight
-
-        return textRect
-    }
-    
-    override func searchButtonRect(forBounds rect: NSRect) -> NSRect {
-        var buttonRect = super.searchButtonRect(forBounds: rect)
-        buttonRect.origin.x = 18
-        buttonRect.size.width = 20
-        buttonRect.size.height = 20
-        buttonRect.origin.y = rect.midY - buttonRect.size.height / 2
-        return buttonRect
-    }
-    
-    override func cancelButtonRect(forBounds rect: NSRect) -> NSRect {
-        // Ensure cancel button maintains 12px padding from right edge
-        var buttonRect = super.cancelButtonRect(forBounds: rect)
-        if cancelButtonCell != nil {
-            buttonRect.origin.x = rect.width - 28 - 12  // Button width (28) + right padding (12)
-            buttonRect.size.width = 28
-            buttonRect.size.height = 20
-            buttonRect.origin.y = (rect.height - buttonRect.height) / 2
+        var textRect = super.searchTextRect(forBounds: rect)
+        // Force text to start after the icon with a clear gap
+        // Icon is at x=8, width approx 16-20. Let's start text at x=36
+        let newX: CGFloat = 36
+        let diff = newX - textRect.origin.x
+        
+        if diff > 0 {
+            textRect.origin.x = newX
+            textRect.size.width -= diff
         }
-        return buttonRect
-    }
-    
-    override var isEditable: Bool {
-        get { return super.isEditable }
-        set { super.isEditable = newValue }
-    }
-    
-    override var isSelectable: Bool {
-        get { return super.isSelectable }
-        set { super.isSelectable = newValue }
-    }
-    
-    override func drawingRect(forBounds rect: NSRect) -> NSRect {
-        return searchTextRect(forBounds: rect)
-    }
-    
-    override func select(withFrame rect: NSRect, in controlView: NSView, editor: NSText, delegate: Any?, start selStart: Int, length selLength: Int) {
-        let textRect = searchTextRect(forBounds: rect)
-        super.select(withFrame: textRect, in: controlView, editor: editor, delegate: delegate, start: selStart, length: selLength)
+        
+        return textRect
     }
     
     override func edit(withFrame rect: NSRect, in controlView: NSView, editor: NSText, delegate: Any?, event: NSEvent?) {
@@ -1470,9 +1338,14 @@ class CustomSearchFieldCell: NSSearchFieldCell {
         super.edit(withFrame: textRect, in: controlView, editor: editor, delegate: delegate, event: event)
     }
     
+    override func select(withFrame rect: NSRect, in controlView: NSView, editor: NSText, delegate: Any?, start selStart: Int, length selLength: Int) {
+        let textRect = searchTextRect(forBounds: rect)
+        super.select(withFrame: textRect, in: controlView, editor: editor, delegate: delegate, start: selStart, length: selLength)
+    }
+    
     override func drawInterior(withFrame cellFrame: NSRect, in controlView: NSView) {
-        let rect = searchTextRect(forBounds: cellFrame)
-        super.drawInterior(withFrame: rect, in: controlView)
+        let textRect = searchTextRect(forBounds: cellFrame)
+        super.drawInterior(withFrame: textRect, in: controlView)
     }
 }
 
