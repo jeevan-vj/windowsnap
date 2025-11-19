@@ -319,7 +319,7 @@ class ClipboardHistoryWindow: NSWindow {
             clearButton.heightAnchor.constraint(equalToConstant: 28),
             
             // Scroll view - consistent 20px margins, aligned with title and search
-            scrollView.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 16),
+            scrollView.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 8),
             scrollView.leadingAnchor.constraint(equalTo: visualEffectView.leadingAnchor, constant: 20),
             scrollView.trailingAnchor.constraint(equalTo: visualEffectView.trailingAnchor, constant: -20),
             scrollView.bottomAnchor.constraint(equalTo: visualEffectView.bottomAnchor, constant: -20),

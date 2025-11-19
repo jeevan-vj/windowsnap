@@ -6,9 +6,34 @@ set -euo pipefail
 
 APP_NAME="WindowSnap"
 BUNDLE_ID="com.windowsnap.app"
-VERSION="1.2.0"
-BUILD="$(date +%Y%m%d%H%M%S)"
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+
+# Read version from VERSION file (semantic versioning)
+VERSION_FILE="$ROOT_DIR/VERSION"
+if [[ ! -f "$VERSION_FILE" ]]; then
+  echo "❌ VERSION file not found at $VERSION_FILE" >&2
+  echo "   Create it with: echo '1.0.0' > $VERSION_FILE" >&2
+  exit 1
+fi
+
+VERSION=$(cat "$VERSION_FILE" | tr -d '[:space:]')
+if [[ -z "$VERSION" ]]; then
+  echo "❌ VERSION file is empty" >&2
+  exit 1
+fi
+
+# Validate semantic version format
+if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?(\+[a-zA-Z0-9.-]+)?$ ]]; then
+  echo "⚠️  Warning: Version '$VERSION' doesn't match semantic versioning format (MAJOR.MINOR.PATCH)" >&2
+fi
+
+# Build number: use git commit count if available, otherwise timestamp
+if command -v git >/dev/null && git rev-parse --git-dir >/dev/null 2>&1; then
+  BUILD=$(git rev-list --count HEAD 2>/dev/null || echo "$(date +%Y%m%d%H%M%S)")
+else
+  BUILD="$(date +%Y%m%d%H%M%S)"
+fi
+
 DIST_DIR="$ROOT_DIR/dist"
 APP_DIR="$DIST_DIR/${APP_NAME}.app"
 CONTENTS_DIR="$APP_DIR/Contents"
