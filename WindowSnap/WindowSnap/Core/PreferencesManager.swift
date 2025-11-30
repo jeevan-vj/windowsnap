@@ -17,7 +17,11 @@ class PreferencesManager {
             "AnimationDuration": 0.3,
             "DefaultMargin": 10.0,
             "HasShownLaunchAtLoginPrompt": false,
-            "IsFirstRun": true
+            "IsFirstRun": true,
+            "EnableHapticFeedback": true,
+            "PlaySoundOnSnap": false,
+            "WindowPadding": 0.0,
+            "ScreenEdgePadding": 0.0
         ]
         
         userDefaults.register(defaults: defaults)
@@ -50,6 +54,27 @@ class PreferencesManager {
     var defaultMargin: CGFloat {
         get { CGFloat(userDefaults.double(forKey: "DefaultMargin")) }
         set { userDefaults.set(Double(newValue), forKey: "DefaultMargin") }
+    }
+    
+    var windowPadding: CGFloat {
+        get { CGFloat(userDefaults.double(forKey: "WindowPadding")) }
+        set { userDefaults.set(Double(newValue), forKey: "WindowPadding") }
+    }
+    
+    var screenEdgePadding: CGFloat {
+        get { CGFloat(userDefaults.double(forKey: "ScreenEdgePadding")) }
+        set { userDefaults.set(Double(newValue), forKey: "ScreenEdgePadding") }
+    }
+    
+    // MARK: - Feedback Settings
+    var enableHapticFeedback: Bool {
+        get { userDefaults.bool(forKey: "EnableHapticFeedback") }
+        set { userDefaults.set(newValue, forKey: "EnableHapticFeedback") }
+    }
+    
+    var playSoundOnSnap: Bool {
+        get { userDefaults.bool(forKey: "PlaySoundOnSnap") }
+        set { userDefaults.set(newValue, forKey: "PlaySoundOnSnap") }
     }
     
     // MARK: - Shortcut Settings

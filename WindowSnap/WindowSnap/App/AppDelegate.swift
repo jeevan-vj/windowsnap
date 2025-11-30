@@ -127,6 +127,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Start clipboard monitoring
         clipboardManager?.startMonitoring()
         
+        // Register shortcut cheat sheet shortcut
+        let cheatSheetSuccess = shortcutManager.registerGlobalShortcut("cmd+shift+/") {
+            ShortcutCheatSheet.shared.toggle()
+        }
+        if !cheatSheetSuccess {
+            print("Failed to register cheat sheet shortcut: cmd+shift+/")
+        }
+        
         print("🎯 PRODUCTIVITY SHORTCUTS REGISTERED:")
         print("   ⏪ Undo: ⌘⌥Z")
         print("   ⏩ Redo: ⌘⌥⇧Z")
@@ -136,6 +144,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         print("   📏 Make Smaller: ⌃⌥⇧←")
         print("   🎯 Window Throw: ⌃⌥⌘Space")
         print("   📋 Clipboard History: ⌘⇧V")
+        print("   📖 Shortcut Reference: ⌘⇧/")
     }
     
     private func handleWindowSnap(to position: GridPosition) {

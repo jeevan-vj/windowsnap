@@ -5,11 +5,19 @@ A native macOS window management application that allows you to quickly arrange 
 ## Features
 
 - **Fast Window Positioning**: Snap windows to predefined grid positions using keyboard shortcuts
+- **Visual Feedback**: Beautiful HUD notifications and preview overlays when snapping windows
+- **Haptic Feedback**: Feel the snap on Force Touch trackpads
 - **Launch at Login**: Smart auto-start with first-run prompt and user choice respect
 - **Menu Bar Integration**: Lightweight status bar app with quick actions
-- **Multi-Monitor Support**: Works seamlessly across multiple displays
+- **Multi-Monitor Support**: Works seamlessly across multiple displays with display switching shortcuts
+- **Undo/Redo**: Revert window positions with ⌘⌥Z / ⌘⌥⇧Z
+- **Window Cycling**: Repeat shortcuts to cycle through sizes (e.g., Left Half → Left Third → Left Two-Thirds)
+- **Clipboard History**: Access clipboard history with ⌘⇧V (with pin support)
+- **Custom Positions**: Save and recall custom window positions
+- **Workspace Arrangements**: Save entire desktop layouts and restore with one click
+- **Window Throw**: Rectangle Pro-style quick position picker (⌃⌥⌘Space)
+- **Shortcut Reference**: Beautiful keyboard shortcut cheat sheet (⌘⇧/)
 - **Accessibility Compliant**: Uses macOS Accessibility APIs for reliable window management
-- **Customizable**: Preferences window for personalization
 - **Native Performance**: Built with Swift and AppKit for optimal performance
 
 ## Window Positioning Options
@@ -37,6 +45,17 @@ A native macOS window management application that allows you to quickly arrange 
 ### Special
 - **Maximize** (`⌘⇧M`): Fill entire screen (excluding menu bar/dock)
 - **Center** (`⌘⇧C`): Center window at original size
+
+### Advanced Shortcuts
+- **Undo** (`⌘⌥Z`): Revert last window position change
+- **Redo** (`⌘⌥⇧Z`): Redo last undone change
+- **Next Display** (`⌃⌥⌘→`): Move window to next display
+- **Previous Display** (`⌃⌥⌘←`): Move window to previous display
+- **Make Larger** (`⌃⌥⇧→`): Incrementally enlarge window
+- **Make Smaller** (`⌃⌥⇧←`): Incrementally shrink window
+- **Window Throw** (`⌃⌥⌘Space`): Open quick position picker overlay
+- **Clipboard History** (`⌘⇧V`): Access clipboard history
+- **Shortcut Reference** (`⌘⇧/`): Show keyboard shortcut cheat sheet
 
 ## Requirements
 
@@ -282,6 +301,14 @@ Copyright © 2025 WindowSnap. All rights reserved.
 
 ## Version History
 
+- **v2.0.0** - Major UX Enhancement Release
+  - Added beautiful HUD notifications (replaced deprecated NSUserNotification)
+  - Added visual snap preview overlay
+  - Added haptic feedback support for Force Touch trackpads
+  - Added keyboard shortcut cheat sheet (⌘⇧/)
+  - Added modern About window
+  - Enhanced feedback settings in preferences
+  - Improved overall user experience and polish
 - **v1.1.0** - Launch at Login feature with smart user prompting and system integration
 - **v1.0** - Initial release with core window management functionality
 
@@ -336,7 +363,11 @@ This creates:
 **Note:** Users will need to use the right-click method to open the app.
 
 ## Future Improvements
-- Migrate deprecated `NSUserNotification` to `UNUserNotificationCenter` or custom HUD.
-- Add tests for coordinate conversion & multi-monitor snapping.
-- Provide localization for menu items.
-- Add preferences for custom grid sizes.
+- Add drag-to-edge window snapping (hot corners/edges)
+- Add customizable keyboard shortcuts via UI
+- Provide localization for menu items
+- Add app-specific window position rules
+- Add window groups feature
+- Stage Manager integration
+- Add preferences for custom grid sizes
+- More comprehensive test coverage

@@ -69,6 +69,11 @@ class StatusBarController {
         menu.addItem(workspaceArrangementsItem)
         
         // Settings and Info
+        let shortcutReferenceItem = NSMenuItem(title: "Shortcut Reference...", action: #selector(showShortcutReference), keyEquivalent: "/")
+        shortcutReferenceItem.keyEquivalentModifierMask = [.command, .shift]
+        shortcutReferenceItem.target = self
+        menu.addItem(shortcutReferenceItem)
+        
         let preferencesItem = NSMenuItem(title: "Preferences...", action: #selector(showPreferences), keyEquivalent: ",")
         preferencesItem.target = self
         menu.addItem(preferencesItem)
@@ -111,7 +116,7 @@ class StatusBarController {
         }
         
         windowManager.snapWindow(focusedWindow, to: position)
-        showNotification(title: "Window Snapped", message: "Window moved to \(position.displayName)")
+        // HUD notification is shown by WindowManager.snapWindow
     }
     
     @objc func showPreferences() {
@@ -136,18 +141,7 @@ class StatusBarController {
     }
     
     @objc private func showAbout() {
-        let alert = NSAlert()
-        alert.messageText = "WindowSnap"
-        alert.informativeText = """
-        Version 1.0
-        
-        A native macOS window management application that allows you to quickly arrange application windows using keyboard shortcuts.
-        
-        © 2025 WindowSnap. All rights reserved.
-        """
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: "OK")
-        alert.runModal()
+        AboutWindow.shared.show()
     }
     
     @objc private func quit() {
@@ -155,12 +149,11 @@ class StatusBarController {
     }
     
     private func showNotification(title: String, message: String) {
-        let notification = NSUserNotification()
-        notification.title = title
-        notification.informativeText = message
-        notification.soundName = nil
-        
-        let notificationCenter = NSUserNotificationCenter.default
-        notificationCenter.deliver(notification)
+        // Use modern HUD notification instead of deprecated NSUserNotification
+        SnapHUD.shared.show(title: title, subtitle: message, icon: NSImage(systemSymbolName: "exclamationmark.triangle", accessibilityDescription: "Alert"))
+    }
+    
+    @objc private func showShortcutReference() {
+        ShortcutCheatSheet.shared.show()
     }
 }
