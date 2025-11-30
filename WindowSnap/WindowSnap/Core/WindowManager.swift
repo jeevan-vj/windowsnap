@@ -113,6 +113,9 @@ class WindowManager {
         print("Detected screen: \(getScreenDisplayName(containingScreen))")
         print("Screen visible frame (NSScreen): \(containingScreen.visibleFrame)")
         
+        // 🎨 Show visual preview overlay
+        SnapPreviewOverlay.shared.show(for: actualPosition, on: containingScreen)
+        
         // Convert screen visible frame to AX coordinates (like Spectacle does)
         let axScreenFrame = convertNSScreenToAXCoordinates(containingScreen.visibleFrame)
         print("Screen visible frame (AX): \(axScreenFrame)")
@@ -128,6 +131,12 @@ class WindowManager {
         
         // Move window directly (already in correct AX coordinate system)
         moveWindowToAXFrame(window, frame: targetAXFrame)
+        
+        // 🎯 Show HUD notification
+        SnapHUD.shared.show(for: actualPosition)
+        
+        // 📳 Haptic feedback (for trackpads)
+        triggerHapticFeedback()
         
         print("=== END DEBUG ===")
     }
@@ -674,6 +683,18 @@ class WindowManager {
         )
     }
 
+    // MARK: - Haptic Feedback
+    
+    /// Trigger haptic feedback for window snap (Force Touch trackpads)
+    private func triggerHapticFeedback() {
+        guard PreferencesManager.shared.enableHapticFeedback else { return }
+        
+        NSHapticFeedbackManager.defaultPerformer.perform(
+            .alignment,
+            performanceTime: .default
+        )
+    }
+    
     // MARK: - Wake/Sleep Handling
     func resetAfterWake() {
         print("🔄 Resetting WindowManager after system wake...")

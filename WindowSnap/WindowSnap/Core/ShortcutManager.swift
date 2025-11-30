@@ -325,6 +325,16 @@ class ShortcutManager {
             return 0x33
         case "backspace":
             return 0x33
+        case "/":
+            return 0x2C
+        case "-", "minus":
+            return 0x1B
+        case "=", "equals":
+            return 0x18
+        case "[":
+            return 0x21
+        case "]":
+            return 0x1E
             
         default:
             return nil
