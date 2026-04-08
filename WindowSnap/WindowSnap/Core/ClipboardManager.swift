@@ -157,6 +157,8 @@ class ClipboardManager: NSObject {
                 timestamp: item.timestamp,
                 preview: item.preview,
                 thumbnail: item.thumbnail,
+                imageWidth: item.imageWidth,
+                imageHeight: item.imageHeight,
                 isPinned: true
             )
             history[index] = updatedItem
@@ -180,6 +182,8 @@ class ClipboardManager: NSObject {
                 timestamp: item.timestamp,
                 preview: item.preview,
                 thumbnail: item.thumbnail,
+                imageWidth: item.imageWidth,
+                imageHeight: item.imageHeight,
                 isPinned: false
             )
             history[index] = updatedItem
@@ -204,6 +208,8 @@ class ClipboardManager: NSObject {
                 timestamp: item.timestamp,
                 preview: item.preview,
                 thumbnail: item.thumbnail,
+                imageWidth: item.imageWidth,
+                imageHeight: item.imageHeight,
                 isPinned: newPinState
             )
             history[index] = updatedItem
@@ -261,8 +267,15 @@ class ClipboardManager: NSObject {
 
             // Generate thumbnail for display
             let thumbnail = generateThumbnail(from: image)
+            let dims = pixelDimensions(of: image)
 
-            let item = ClipboardHistoryItem(content: base64String, type: .image, thumbnail: thumbnail)
+            let item = ClipboardHistoryItem(
+                content: base64String,
+                type: .image,
+                thumbnail: thumbnail,
+                imageWidth: dims?.width,
+                imageHeight: dims?.height
+            )
             addToHistory(item)
             return
         }
@@ -333,6 +346,8 @@ class ClipboardManager: NSObject {
                 timestamp: Date(), // Update timestamp to now
                 preview: newItem.preview,
                 thumbnail: newItem.thumbnail,
+                imageWidth: newItem.imageWidth,
+                imageHeight: newItem.imageHeight,
                 isPinned: true
             )
         } else {
@@ -414,6 +429,22 @@ class ClipboardManager: NSObject {
     }
 
     // MARK: - Image Processing
+
+    private func pixelDimensions(of image: NSImage) -> (width: Int, height: Int)? {
+        for rep in image.representations {
+            if let bitmap = rep as? NSBitmapImageRep {
+                let w = bitmap.pixelsWide
+                let h = bitmap.pixelsHigh
+                if w > 0, h > 0 {
+                    return (w, h)
+                }
+            }
+        }
+        let scale = NSScreen.main?.backingScaleFactor ?? 2.0
+        let w = max(1, Int(image.size.width * scale))
+        let h = max(1, Int(image.size.height * scale))
+        return (w, h)
+    }
 
     private func generateThumbnail(from image: NSImage, maxSize: CGFloat = 100) -> String? {
         let originalSize = image.size
@@ -525,6 +556,8 @@ class ClipboardManager: NSObject {
                     timestamp: item.timestamp,
                     preview: item.preview,
                     thumbnail: item.thumbnail,
+                    imageWidth: item.imageWidth,
+                    imageHeight: item.imageHeight,
                     isPinned: item.isPinned
                 )
             })
@@ -584,6 +617,8 @@ class ClipboardManager: NSObject {
                     timestamp: data.timestamp,
                     preview: data.preview,
                     thumbnail: data.thumbnail,
+                    imageWidth: data.imageWidth,
+                    imageHeight: data.imageHeight,
                     isPinned: data.isPinned
                 ))
             }
@@ -622,16 +657,30 @@ private struct HistoryItemData: Codable {
     let timestamp: Date
     let preview: String
     let thumbnail: String? // Optional thumbnail for images
+    let imageWidth: Int?
+    let imageHeight: Int?
     let isPinned: Bool
     
     // Memberwise initializer for encoding
-    init(id: String, content: String, type: String, timestamp: Date, preview: String, thumbnail: String?, isPinned: Bool) {
+    init(
+        id: String,
+        content: String,
+        type: String,
+        timestamp: Date,
+        preview: String,
+        thumbnail: String?,
+        imageWidth: Int? = nil,
+        imageHeight: Int? = nil,
+        isPinned: Bool
+    ) {
         self.id = id
         self.content = content
         self.type = type
         self.timestamp = timestamp
         self.preview = preview
         self.thumbnail = thumbnail
+        self.imageWidth = imageWidth
+        self.imageHeight = imageHeight
         self.isPinned = isPinned
     }
     
@@ -644,6 +693,8 @@ private struct HistoryItemData: Codable {
         timestamp = try container.decode(Date.self, forKey: .timestamp)
         preview = try container.decode(String.self, forKey: .preview)
         thumbnail = try container.decodeIfPresent(String.self, forKey: .thumbnail)
+        imageWidth = try container.decodeIfPresent(Int.self, forKey: .imageWidth)
+        imageHeight = try container.decodeIfPresent(Int.self, forKey: .imageHeight)
         isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
     }
     
@@ -656,24 +707,38 @@ private struct HistoryItemData: Codable {
         try container.encode(timestamp, forKey: .timestamp)
         try container.encode(preview, forKey: .preview)
         try container.encodeIfPresent(thumbnail, forKey: .thumbnail)
+        try container.encodeIfPresent(imageWidth, forKey: .imageWidth)
+        try container.encodeIfPresent(imageHeight, forKey: .imageHeight)
         try container.encode(isPinned, forKey: .isPinned)
     }
     
     enum CodingKeys: String, CodingKey {
-        case id, content, type, timestamp, preview, thumbnail, isPinned
+        case id, content, type, timestamp, preview, thumbnail, imageWidth, imageHeight, isPinned
     }
 }
 
 // MARK: - ClipboardHistoryItem Extension for Persistence
 
 extension ClipboardHistoryItem {
-    init(id: UUID, content: String, type: ClipboardItemType, timestamp: Date, preview: String, thumbnail: String? = nil, isPinned: Bool = false) {
+    init(
+        id: UUID,
+        content: String,
+        type: ClipboardItemType,
+        timestamp: Date,
+        preview: String,
+        thumbnail: String? = nil,
+        imageWidth: Int? = nil,
+        imageHeight: Int? = nil,
+        isPinned: Bool = false
+    ) {
         self.id = id
         self.content = content
         self.type = type
         self.timestamp = timestamp
         self.preview = preview
         self.thumbnail = thumbnail
+        self.imageWidth = imageWidth
+        self.imageHeight = imageHeight
         self.isPinned = isPinned
     }
 }

@@ -8,15 +8,27 @@ struct ClipboardHistoryItem {
     let timestamp: Date
     let preview: String
     let thumbnail: String? // Base64 encoded thumbnail for images
+    /// Pixel dimensions of the source image when captured (optional for legacy items).
+    let imageWidth: Int?
+    let imageHeight: Int?
     let isPinned: Bool
 
-    init(content: String, type: ClipboardItemType, thumbnail: String? = nil, isPinned: Bool = false) {
+    init(
+        content: String,
+        type: ClipboardItemType,
+        thumbnail: String? = nil,
+        imageWidth: Int? = nil,
+        imageHeight: Int? = nil,
+        isPinned: Bool = false
+    ) {
         self.id = UUID()
         self.content = content
         self.type = type
         self.timestamp = Date()
         self.preview = Self.generatePreview(from: content, type: type)
         self.thumbnail = thumbnail
+        self.imageWidth = imageWidth
+        self.imageHeight = imageHeight
         self.isPinned = isPinned
     }
     

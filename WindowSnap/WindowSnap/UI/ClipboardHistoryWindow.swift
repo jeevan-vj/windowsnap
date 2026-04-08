@@ -224,7 +224,6 @@ class ClipboardHistoryWindow: NSWindow {
         tableView = NSTableView()
         tableView.delegate = self
         tableView.dataSource = self
-        tableView.rowHeight = rowHeight
         tableView.intercellSpacing = NSSize(width: 0, height: 8)
         tableView.selectionHighlightStyle = .none
         tableView.allowsEmptySelection = false
@@ -747,6 +746,15 @@ extension ClipboardHistoryWindow: NSTableViewDataSource {
 // MARK: - NSTableViewDelegate
 
 extension ClipboardHistoryWindow: NSTableViewDelegate {
+    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
+        guard row >= 0, row < filteredHistory.count else { return rowHeight }
+        let item = filteredHistory[row]
+        if item.type == .image, item.thumbnail != nil {
+            return 92
+        }
+        return rowHeight
+    }
+
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         guard row < filteredHistory.count else { return nil }
         
@@ -818,10 +826,15 @@ class ClipboardHistoryCellView: NSView {
     private var hoverTrackingArea: NSTrackingArea?
     private var gradientBorderLayer: CAGradientLayer?
     private var iconContainer: NSView!
+    private var iconGradientLayer: CAGradientLayer?
     private var pinButton: NSButton!
     private var copyButton: NSButton!
     private var currentItem: ClipboardHistoryItem?
     weak var parentWindow: ClipboardHistoryWindow?
+
+    private var layoutConstraintsStandard: [NSLayoutConstraint] = []
+    private var layoutConstraintsImagePreview: [NSLayoutConstraint] = []
+    private var usesImagePreviewLayout = false
     
     var isSelected: Bool = false {
         didSet {
@@ -884,12 +897,16 @@ class ClipboardHistoryCellView: NSView {
         iconGradient.endPoint = CGPoint(x: 1, y: 1)
         iconGradient.cornerRadius = DesignConstants.iconCornerRadius
         iconContainer.layer?.insertSublayer(iconGradient, at: 0)
+        iconGradientLayer = iconGradient
         
         visualEffectView.addSubview(iconContainer)
         
         // Icon
         iconImageView = NSImageView()
         iconImageView.imageScaling = .scaleProportionallyUpOrDown
+        iconImageView.wantsLayer = true
+        iconImageView.layer?.cornerRadius = 6
+        iconImageView.layer?.masksToBounds = true
         iconContainer.addSubview(iconImageView)
         
         // Preview label with better line spacing
@@ -951,50 +968,95 @@ class ClipboardHistoryCellView: NSView {
         copyButton.translatesAutoresizingMaskIntoConstraints = false
         pinButton.translatesAutoresizingMaskIntoConstraints = false
         
-        NSLayoutConstraint.activate([
-            // Visual effect view fills the cell with improved margins
+        let sharedConstraints: [NSLayoutConstraint] = [
             visualEffectView.topAnchor.constraint(equalTo: topAnchor, constant: 4),
             visualEffectView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 0),
             visualEffectView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
             visualEffectView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
-            
-            // Icon container with consistent spacing
             iconContainer.leadingAnchor.constraint(equalTo: visualEffectView.leadingAnchor, constant: 16),
             iconContainer.centerYAnchor.constraint(equalTo: visualEffectView.centerYAnchor),
-            iconContainer.widthAnchor.constraint(equalToConstant: 44),
-            iconContainer.heightAnchor.constraint(equalToConstant: 44),
-            
-            // Icon inside container
-            iconImageView.centerXAnchor.constraint(equalTo: iconContainer.centerXAnchor),
-            iconImageView.centerYAnchor.constraint(equalTo: iconContainer.centerYAnchor),
-            iconImageView.widthAnchor.constraint(equalToConstant: 20),
-            iconImageView.heightAnchor.constraint(equalToConstant: 20),
-            
-            // Preview label - Aligned with top of icon container
             previewLabel.leadingAnchor.constraint(equalTo: iconContainer.trailingAnchor, constant: 12),
             previewLabel.topAnchor.constraint(equalTo: iconContainer.topAnchor, constant: 0),
             previewLabel.trailingAnchor.constraint(equalTo: copyButton.leadingAnchor, constant: -12),
-            
-            // Timestamp label - Below preview
             timestampLabel.leadingAnchor.constraint(equalTo: iconContainer.trailingAnchor, constant: 12),
             timestampLabel.topAnchor.constraint(equalTo: previewLabel.bottomAnchor, constant: 4),
             timestampLabel.trailingAnchor.constraint(lessThanOrEqualTo: copyButton.leadingAnchor, constant: -12),
-            
-            // Copy button - right side, top area
             copyButton.trailingAnchor.constraint(equalTo: pinButton.leadingAnchor, constant: -12),
             copyButton.centerYAnchor.constraint(equalTo: visualEffectView.centerYAnchor),
             copyButton.widthAnchor.constraint(equalToConstant: 20),
             copyButton.heightAnchor.constraint(equalToConstant: 20),
-            
-            // Pin button - right side, top area
             pinButton.trailingAnchor.constraint(equalTo: visualEffectView.trailingAnchor, constant: -12),
             pinButton.centerYAnchor.constraint(equalTo: visualEffectView.centerYAnchor),
             pinButton.widthAnchor.constraint(equalToConstant: 20),
             pinButton.heightAnchor.constraint(equalToConstant: 20)
-        ])
+        ]
+
+        layoutConstraintsStandard = [
+            iconContainer.widthAnchor.constraint(equalToConstant: 44),
+            iconContainer.heightAnchor.constraint(equalToConstant: 44),
+            iconImageView.centerXAnchor.constraint(equalTo: iconContainer.centerXAnchor),
+            iconImageView.centerYAnchor.constraint(equalTo: iconContainer.centerYAnchor),
+            iconImageView.widthAnchor.constraint(equalToConstant: 20),
+            iconImageView.heightAnchor.constraint(equalToConstant: 20)
+        ]
+
+        layoutConstraintsImagePreview = [
+            iconContainer.widthAnchor.constraint(equalToConstant: 80),
+            iconContainer.heightAnchor.constraint(equalToConstant: 60),
+            iconImageView.leadingAnchor.constraint(equalTo: iconContainer.leadingAnchor, constant: 2),
+            iconImageView.trailingAnchor.constraint(equalTo: iconContainer.trailingAnchor, constant: -2),
+            iconImageView.topAnchor.constraint(equalTo: iconContainer.topAnchor, constant: 2),
+            iconImageView.bottomAnchor.constraint(equalTo: iconContainer.bottomAnchor, constant: -2)
+        ]
+
+        NSLayoutConstraint.activate(sharedConstraints + layoutConstraintsStandard)
+        usesImagePreviewLayout = false
         
         // Setup hover tracking
         setupHoverTracking()
+    }
+
+    private func setImagePreviewLayout(_ usePreview: Bool) {
+        guard usePreview != usesImagePreviewLayout else { return }
+        if usesImagePreviewLayout {
+            NSLayoutConstraint.deactivate(layoutConstraintsImagePreview)
+        } else {
+            NSLayoutConstraint.deactivate(layoutConstraintsStandard)
+        }
+        if usePreview {
+            NSLayoutConstraint.activate(layoutConstraintsImagePreview)
+        } else {
+            NSLayoutConstraint.activate(layoutConstraintsStandard)
+        }
+        usesImagePreviewLayout = usePreview
+        iconContainer.layer?.masksToBounds = usePreview
+        iconGradientLayer?.isHidden = usePreview
+        if usePreview {
+            iconContainer.layer?.backgroundColor = NSColor.tertiaryLabelColor.withAlphaComponent(0.12).cgColor
+        } else {
+            iconContainer.layer?.backgroundColor = nil
+        }
+        needsLayout = true
+    }
+
+    private static func relativeTimeDescription(since date: Date) -> String {
+        let now = Date()
+        let timeInterval = now.timeIntervalSince(date)
+        if timeInterval < 60 {
+            return "Just now"
+        }
+        if timeInterval < 3600 {
+            let minutes = Int(timeInterval / 60)
+            return "\(minutes) minute\(minutes == 1 ? "" : "s") ago"
+        }
+        if timeInterval < 86400 {
+            let hours = Int(timeInterval / 3600)
+            return "\(hours) hour\(hours == 1 ? "" : "s") ago"
+        }
+        let formatter = DateFormatter()
+        formatter.dateStyle = .short
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
     }
     
     private func setupHoverTracking() {
@@ -1180,46 +1242,40 @@ class ClipboardHistoryCellView: NSView {
     
     func configure(with item: ClipboardHistoryItem) {
         currentItem = item
+
+        let hasImageThumbnail = item.type == .image && item.thumbnail != nil
+        setImagePreviewLayout(hasImageThumbnail)
         
         // Set icon or thumbnail
         if item.type == .image, let thumbnailString = item.thumbnail,
            let thumbnailData = Data(base64Encoded: thumbnailString),
            let thumbnailImage = NSImage(data: thumbnailData) {
-            // Display thumbnail for images
             iconImageView.image = thumbnailImage
             iconImageView.contentTintColor = nil
             iconImageView.imageScaling = .scaleProportionallyUpOrDown
+            if let w = item.imageWidth, let h = item.imageHeight {
+                iconImageView.setAccessibilityLabel("Image preview, \(w) by \(h) pixels")
+            } else {
+                iconImageView.setAccessibilityLabel("Image preview")
+            }
         } else if let iconImage = NSImage(systemSymbolName: item.type.icon, accessibilityDescription: item.type.displayName) {
-            // Display icon for other types
             iconImageView.image = iconImage
             iconImageView.contentTintColor = .controlAccentColor
             iconImageView.imageScaling = .scaleProportionallyDown
+            iconImageView.setAccessibilityLabel(item.type.displayName)
         }
 
-        // For images with thumbnails, show dimensions or file info instead of "[Image]"
-        if item.type == .image && item.thumbnail != nil {
-            previewLabel.stringValue = "Image content"
+        if hasImageThumbnail {
+            previewLabel.stringValue = "Image"
         } else {
             previewLabel.stringValue = item.preview
         }
         
-        // Format timestamp
-        let formatter = DateFormatter()
-        let now = Date()
-        let timeInterval = now.timeIntervalSince(item.timestamp)
-        
-        if timeInterval < 60 {
-            timestampLabel.stringValue = "Just now"
-        } else if timeInterval < 3600 {
-            let minutes = Int(timeInterval / 60)
-            timestampLabel.stringValue = "\(minutes) minute\(minutes == 1 ? "" : "s") ago"
-        } else if timeInterval < 86400 {
-            let hours = Int(timeInterval / 3600)
-            timestampLabel.stringValue = "\(hours) hour\(hours == 1 ? "" : "s") ago"
+        let timePart = Self.relativeTimeDescription(since: item.timestamp)
+        if hasImageThumbnail, let w = item.imageWidth, let h = item.imageHeight {
+            timestampLabel.stringValue = "\(w) × \(h) · \(timePart)"
         } else {
-            formatter.dateStyle = .short
-            formatter.timeStyle = .short
-            timestampLabel.stringValue = formatter.string(from: item.timestamp)
+            timestampLabel.stringValue = timePart
         }
         
         // Update pin button state
