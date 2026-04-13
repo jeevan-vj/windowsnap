@@ -105,6 +105,15 @@ class ClipboardManager: NSObject {
         }
     }
     
+    func deleteItem(id: UUID) {
+        processingQueue.async { [weak self] in
+            guard let self = self else { return }
+            self.history.removeAll { $0.id == id }
+            self.debouncedSaveHistoryToDisk()
+            print("📋 Deleted item from clipboard history")
+        }
+    }
+    
     func copyToClipboard(_ item: ClipboardHistoryItem) {
         pasteboard.clearContents()
         

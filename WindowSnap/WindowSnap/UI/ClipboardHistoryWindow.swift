@@ -38,6 +38,11 @@ extension NSColor {
     }
 }
 
+private enum SectionItem {
+    case header(String)
+    case item(ClipboardHistoryItem)
+}
+
 class ClipboardHistoryWindow: NSWindow {
     private var tableView: NSTableView!
     private var scrollView: NSScrollView!
@@ -47,11 +52,18 @@ class ClipboardHistoryWindow: NSWindow {
     private var clearButtonContainer: NSVisualEffectView!
     private var titleLabel: NSTextField!
     private var visualEffectView: NSVisualEffectView!
+    private var shortcutHintsLabel: NSTextField!
+    private var itemCountLabel: NSTextField!
+    private var footerStack: NSStackView!
     
     private var history: [ClipboardHistoryItem] = []
     private var filteredHistory: [ClipboardHistoryItem] = []
+    private var displayItems: [SectionItem] = []
     private var selectedIndex: Int = 0
     private var previousApp: NSRunningApplication?
+    private var quickLookPopover: NSPopover?
+    private var activeTypeFilters: Set<ClipboardItemType> = []
+    private var filterChipsStack: NSStackView!
 
     // Search debouncing
     private var searchWorkItem: DispatchWorkItem?
@@ -203,11 +215,11 @@ class ClipboardHistoryWindow: NSWindow {
         clearButton.setAccessibilityRole(.button)
         clearButton.setAccessibilityHelp("Press Cmd+Backspace or click to clear all clipboard history")
         
-        // Add a subtle background to the clear button for better visibility
-        let clearButtonContainer = NSView()
+        let clearButtonContainer = HoverableClearButtonContainer()
         clearButtonContainer.wantsLayer = true
         clearButtonContainer.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.2).cgColor
         clearButtonContainer.layer?.cornerRadius = 8
+        clearButtonContainer.button = clearButton
         clearButtonContainer.addSubview(clearButton)
         contentView.addSubview(clearButtonContainer)
         
@@ -269,6 +281,63 @@ class ClipboardHistoryWindow: NSWindow {
         emptyLabel.wantsLayer = true
         contentView.addSubview(emptyLabel)
         
+        // Filter chips
+        filterChipsStack = NSStackView()
+        filterChipsStack.orientation = .horizontal
+        filterChipsStack.spacing = 6
+        filterChipsStack.distribution = .fill
+        filterChipsStack.alignment = .centerY
+        
+        for itemType in ClipboardItemType.allCases {
+            let chip = NSButton()
+            chip.bezelStyle = .texturedRounded
+            chip.isBordered = false
+            chip.wantsLayer = true
+            chip.title = itemType.displayName
+            chip.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+            chip.contentTintColor = .tertiaryLabelColor
+            chip.layer?.cornerRadius = 10
+            chip.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.15).cgColor
+            chip.tag = ClipboardItemType.allCases.firstIndex(of: itemType) ?? 0
+            chip.target = self
+            chip.action = #selector(filterChipClicked(_:))
+            chip.setAccessibilityLabel("Filter by \(itemType.displayName)")
+            
+            chip.translatesAutoresizingMaskIntoConstraints = false
+            chip.heightAnchor.constraint(equalToConstant: 22).isActive = true
+            
+            filterChipsStack.addArrangedSubview(chip)
+        }
+        
+        // Spacer to push chips left
+        let chipSpacer = NSView()
+        chipSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        filterChipsStack.addArrangedSubview(chipSpacer)
+        
+        contentView.addSubview(filterChipsStack)
+        
+        // Footer bar with shortcut hints and item count
+        shortcutHintsLabel = NSTextField(labelWithString: "↵ Paste  ⌘⌫ Delete  ⌘P Pin  ⌘C Copy  esc Close")
+        shortcutHintsLabel.font = NSFont.systemFont(ofSize: 10, weight: .regular)
+        shortcutHintsLabel.textColor = .tertiaryLabelColor
+        shortcutHintsLabel.alignment = .left
+        shortcutHintsLabel.lineBreakMode = .byTruncatingTail
+        shortcutHintsLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        shortcutHintsLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        
+        itemCountLabel = NSTextField(labelWithString: "")
+        itemCountLabel.font = NSFont.systemFont(ofSize: 10, weight: .regular)
+        itemCountLabel.textColor = .tertiaryLabelColor
+        itemCountLabel.alignment = .right
+        itemCountLabel.setContentHuggingPriority(.required, for: .horizontal)
+        itemCountLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        
+        footerStack = NSStackView(views: [shortcutHintsLabel, itemCountLabel])
+        footerStack.orientation = .horizontal
+        footerStack.distribution = .fill
+        footerStack.spacing = 8
+        contentView.addSubview(footerStack)
+        
         // Auto-layout setup for resizing
         searchContainerView.translatesAutoresizingMaskIntoConstraints = false
         searchField.translatesAutoresizingMaskIntoConstraints = false
@@ -276,6 +345,8 @@ class ClipboardHistoryWindow: NSWindow {
         clearButton.translatesAutoresizingMaskIntoConstraints = false
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         emptyLabel.translatesAutoresizingMaskIntoConstraints = false
+        footerStack.translatesAutoresizingMaskIntoConstraints = false
+        filterChipsStack.translatesAutoresizingMaskIntoConstraints = false
         
         NSLayoutConstraint.activate([
             // Search Container - Prominent at top
@@ -302,11 +373,23 @@ class ClipboardHistoryWindow: NSWindow {
             clearButton.widthAnchor.constraint(equalToConstant: 24),
             clearButton.heightAnchor.constraint(equalToConstant: 24),
             
-            // Scroll view - Below search field
-            scrollView.topAnchor.constraint(equalTo: searchContainerView.bottomAnchor, constant: 16),
+            // Filter chips - Below search field
+            filterChipsStack.topAnchor.constraint(equalTo: searchContainerView.bottomAnchor, constant: 10),
+            filterChipsStack.leadingAnchor.constraint(equalTo: visualEffectView.leadingAnchor, constant: 20),
+            filterChipsStack.trailingAnchor.constraint(equalTo: visualEffectView.trailingAnchor, constant: -20),
+            filterChipsStack.heightAnchor.constraint(equalToConstant: 24),
+            
+            // Scroll view - Below filter chips, above footer
+            scrollView.topAnchor.constraint(equalTo: filterChipsStack.bottomAnchor, constant: 8),
             scrollView.leadingAnchor.constraint(equalTo: visualEffectView.leadingAnchor, constant: 20),
             scrollView.trailingAnchor.constraint(equalTo: visualEffectView.trailingAnchor, constant: -20),
-            scrollView.bottomAnchor.constraint(equalTo: visualEffectView.bottomAnchor, constant: -20),
+            scrollView.bottomAnchor.constraint(equalTo: footerStack.topAnchor, constant: -8),
+            
+            // Footer
+            footerStack.leadingAnchor.constraint(equalTo: visualEffectView.leadingAnchor, constant: 20),
+            footerStack.trailingAnchor.constraint(equalTo: visualEffectView.trailingAnchor, constant: -20),
+            footerStack.bottomAnchor.constraint(equalTo: visualEffectView.bottomAnchor, constant: -12),
+            footerStack.heightAnchor.constraint(equalToConstant: 16),
             
             // Empty label
             emptyLabel.centerXAnchor.constraint(equalTo: visualEffectView.centerXAnchor),
@@ -432,6 +515,44 @@ class ClipboardHistoryWindow: NSWindow {
     
     // MARK: - Private Methods
     
+    private func selectedItem() -> ClipboardHistoryItem? {
+        guard selectedIndex >= 0 && selectedIndex < displayItems.count else { return nil }
+        if case .item(let item) = displayItems[selectedIndex] { return item }
+        return nil
+    }
+    
+    private func buildDisplayItems() {
+        let pinned = filteredHistory.filter { $0.isPinned }
+        let unpinned = filteredHistory.filter { !$0.isPinned }
+        
+        var items: [SectionItem] = []
+        if !pinned.isEmpty {
+            items.append(.header("Pinned"))
+            items.append(contentsOf: pinned.map { .item($0) })
+        }
+        if !unpinned.isEmpty {
+            items.append(.header("Recent"))
+            items.append(contentsOf: unpinned.map { .item($0) })
+        }
+        displayItems = items
+    }
+    
+    private func firstSelectableRow() -> Int {
+        for (i, item) in displayItems.enumerated() {
+            if case .item = item { return i }
+        }
+        return 0
+    }
+    
+    private func nextSelectableRow(after row: Int, direction: Int) -> Int? {
+        var candidate = row + direction
+        while candidate >= 0 && candidate < displayItems.count {
+            if case .item = displayItems[candidate] { return candidate }
+            candidate += direction
+        }
+        return nil
+    }
+    
     private func loadHistory() {
         history = ClipboardManager.shared.getHistory()
         applySearchFilter()
@@ -449,31 +570,35 @@ class ClipboardHistoryWindow: NSWindow {
                 item.content.lowercased().contains(searchText) ||
                 item.type.displayName.lowercased().contains(searchText)
             }
-            // Maintain pinned items at top in search results
             let pinned = filtered.filter { $0.isPinned }.sorted { $0.timestamp > $1.timestamp }
             let unpinned = filtered.filter { !$0.isPinned }.sorted { $0.timestamp > $1.timestamp }
             filteredHistory = pinned + unpinned
         }
         
-        selectedIndex = 0
+        // Apply active type filters
+        if !activeTypeFilters.isEmpty {
+            filteredHistory = filteredHistory.filter { activeTypeFilters.contains($0.type) }
+        }
+        
+        buildDisplayItems()
+        
+        selectedIndex = firstSelectableRow()
         tableView.reloadData()
         
-        if !filteredHistory.isEmpty {
-            tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+        if !displayItems.isEmpty {
+            tableView.selectRowIndexes(IndexSet(integer: selectedIndex), byExtendingSelection: false)
         }
     }
     
     private func updateUI() {
         let hasItems = !filteredHistory.isEmpty
         
-        // Animate empty state appearance
         NSAnimationContext.runAnimationGroup { context in
             context.duration = DesignConstants.animationNormal
             context.allowsImplicitAnimation = true
             emptyLabel.alphaValue = hasItems ? 0 : 1
             emptyLabel.isHidden = hasItems
             
-            // Add subtle fade animation to empty state
             if !hasItems && emptyLabel.alphaValue < 1 {
                 let fadeAnimation = CABasicAnimation(keyPath: "opacity")
                 fadeAnimation.fromValue = 0
@@ -488,9 +613,15 @@ class ClipboardHistoryWindow: NSWindow {
         scrollView.isHidden = !hasItems
         clearButton.isEnabled = !history.isEmpty
         
+        if searchField.stringValue.isEmpty && activeTypeFilters.isEmpty {
+            itemCountLabel.stringValue = "\(history.count) item\(history.count == 1 ? "" : "s")"
+        } else {
+            itemCountLabel.stringValue = "\(filteredHistory.count) of \(history.count)"
+        }
+        
         if hasItems {
             tableView.reloadData()
-            if selectedIndex < filteredHistory.count {
+            if selectedIndex < displayItems.count {
                 tableView.selectRowIndexes(IndexSet(integer: selectedIndex), byExtendingSelection: false)
             }
         }
@@ -502,28 +633,39 @@ class ClipboardHistoryWindow: NSWindow {
         print("📋 Copied item to clipboard (no auto-paste): \(item.preview)")
     }
     
+    func deleteItemById(id: UUID) {
+        ClipboardManager.shared.deleteItem(id: id)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            self?.loadHistory()
+        }
+    }
+    
+    private func deleteSelectedItem() {
+        guard let item = selectedItem() else { return }
+        deleteItemById(id: item.id)
+    }
+    
     func togglePinStateForItem(id: UUID) {
         _ = ClipboardManager.shared.togglePinState(id: id)
-        // Reload history to reflect pin state changes
         loadHistory()
-        // Find the item in filtered history and maintain selection
-        if let index = filteredHistory.firstIndex(where: { $0.id == id }) {
-            selectedIndex = index
-            tableView.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
-            tableView.scrollRowToVisible(index)
+        // Find the item in display items and maintain selection
+        for (i, displayItem) in displayItems.enumerated() {
+            if case .item(let item) = displayItem, item.id == id {
+                selectedIndex = i
+                tableView.selectRowIndexes(IndexSet(integer: i), byExtendingSelection: false)
+                tableView.scrollRowToVisible(i)
+                break
+            }
         }
     }
     
     private func togglePinStateForSelectedItem() {
-        guard selectedIndex >= 0 && selectedIndex < filteredHistory.count else { return }
-        let selectedItem = filteredHistory[selectedIndex]
-        togglePinStateForItem(id: selectedItem.id)
+        guard let item = selectedItem() else { return }
+        togglePinStateForItem(id: item.id)
     }
     
     private func copySelectedItem() {
-        guard selectedIndex >= 0 && selectedIndex < filteredHistory.count else { return }
-
-        let selectedItem = filteredHistory[selectedIndex]
+        guard let selectedItem = selectedItem() else { return }
         let previousAppToRestore = previousApp
 
         // Copy to clipboard
@@ -622,7 +764,8 @@ class ClipboardHistoryWindow: NSWindow {
     
     @objc private func handleDoubleClick(_ sender: NSTableView) {
         let clickedRow = sender.clickedRow
-        if clickedRow >= 0 && clickedRow < filteredHistory.count {
+        guard clickedRow >= 0, clickedRow < displayItems.count else { return }
+        if case .item = displayItems[clickedRow] {
             selectedIndex = clickedRow
             copySelectedItem()
         }
@@ -641,6 +784,39 @@ class ClipboardHistoryWindow: NSWindow {
 
         // Execute the search after the debounce interval
         DispatchQueue.main.asyncAfter(deadline: .now() + searchDebounceInterval, execute: workItem)
+    }
+    
+    @objc private func filterChipClicked(_ sender: NSButton) {
+        let allCases = ClipboardItemType.allCases
+        guard sender.tag >= 0, sender.tag < allCases.count else { return }
+        let type = allCases[sender.tag]
+        
+        if activeTypeFilters.contains(type) {
+            activeTypeFilters.remove(type)
+        } else {
+            activeTypeFilters.insert(type)
+        }
+        
+        updateFilterChipAppearances()
+        applySearchFilter()
+        updateUI()
+    }
+    
+    private func updateFilterChipAppearances() {
+        let allCases = ClipboardItemType.allCases
+        for view in filterChipsStack.arrangedSubviews {
+            guard let chip = view as? NSButton, chip.tag < allCases.count else { continue }
+            let type = allCases[chip.tag]
+            let isActive = activeTypeFilters.contains(type)
+            
+            if isActive {
+                chip.contentTintColor = .white
+                chip.layer?.backgroundColor = DesignConstants.accentPrimary.withAlphaComponent(0.7).cgColor
+            } else {
+                chip.contentTintColor = .tertiaryLabelColor
+                chip.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.15).cgColor
+            }
+        }
     }
     
     @objc private func clearHistory(_ sender: NSButton) {
@@ -672,9 +848,8 @@ class ClipboardHistoryWindow: NSWindow {
                 return
 
             case 8: // Cmd+C - Copy without auto-paste
-                if selectedIndex >= 0 && selectedIndex < filteredHistory.count {
-                    let selectedItem = filteredHistory[selectedIndex]
-                    copyItemWithoutPasting(selectedItem)
+                if let item = selectedItem() {
+                    copyItemWithoutPasting(item)
                 }
                 return
 
@@ -683,8 +858,12 @@ class ClipboardHistoryWindow: NSWindow {
                 return
 
             case 51: // Cmd+Backspace/Delete - Clear history
-                if !history.isEmpty {
-                    clearHistory(clearButton)
+                if modifierFlags.contains(.shift) {
+                    if !history.isEmpty {
+                        clearHistory(clearButton)
+                    }
+                } else {
+                    deleteSelectedItem()
                 }
                 return
 
@@ -708,21 +887,23 @@ class ClipboardHistoryWindow: NSWindow {
             }
 
         case 125: // Down arrow
-            if selectedIndex < filteredHistory.count - 1 {
-                selectedIndex += 1
+            if let next = nextSelectableRow(after: selectedIndex, direction: 1) {
+                selectedIndex = next
                 tableView.selectRowIndexes(IndexSet(integer: selectedIndex), byExtendingSelection: false)
                 tableView.scrollRowToVisible(selectedIndex)
             }
 
         case 126: // Up arrow
-            if selectedIndex > 0 {
-                selectedIndex -= 1
+            if let prev = nextSelectableRow(after: selectedIndex, direction: -1) {
+                selectedIndex = prev
                 tableView.selectRowIndexes(IndexSet(integer: selectedIndex), byExtendingSelection: false)
                 tableView.scrollRowToVisible(selectedIndex)
             }
 
+        case 49: // Space - Quick look
+            toggleQuickLook()
+
         case 48: // Tab key
-            // Cycle focus between search field and table
             if searchField.currentEditor() != nil {
                 makeFirstResponder(tableView)
             } else {
@@ -733,13 +914,66 @@ class ClipboardHistoryWindow: NSWindow {
             super.keyDown(with: event)
         }
     }
+    
+    private func toggleQuickLook() {
+        if let popover = quickLookPopover, popover.isShown {
+            popover.close()
+            quickLookPopover = nil
+            return
+        }
+        
+        guard let item = selectedItem() else { return }
+        
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.animates = true
+        
+        let viewController = NSViewController()
+        let containerView = NSView(frame: NSRect(x: 0, y: 0, width: 340, height: 240))
+        
+        if item.type == .image,
+           let thumbnailString = item.thumbnail,
+           let thumbnailData = Data(base64Encoded: thumbnailString),
+           let image = NSImage(data: thumbnailData) {
+            let imageView = NSImageView(frame: containerView.bounds)
+            imageView.image = image
+            imageView.imageScaling = .scaleProportionallyUpOrDown
+            imageView.autoresizingMask = [.width, .height]
+            containerView.addSubview(imageView)
+        } else {
+            let scrollView = NSScrollView(frame: containerView.bounds)
+            scrollView.autoresizingMask = [.width, .height]
+            scrollView.hasVerticalScroller = true
+            scrollView.borderType = .noBorder
+            
+            let textView = NSTextView(frame: containerView.bounds)
+            textView.isEditable = false
+            textView.isSelectable = true
+            textView.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+            textView.textColor = .labelColor
+            textView.backgroundColor = .clear
+            textView.textContainerInset = NSSize(width: 12, height: 12)
+            textView.string = item.content.count > 2000 ? String(item.content.prefix(2000)) + "\n..." : item.content
+            
+            scrollView.documentView = textView
+            containerView.addSubview(scrollView)
+        }
+        
+        viewController.view = containerView
+        popover.contentViewController = viewController
+        popover.contentSize = NSSize(width: 340, height: 240)
+        
+        let rowRect = tableView.rect(ofRow: selectedIndex)
+        popover.show(relativeTo: rowRect, of: tableView, preferredEdge: .maxX)
+        quickLookPopover = popover
+    }
 }
 
 // MARK: - NSTableViewDataSource
 
 extension ClipboardHistoryWindow: NSTableViewDataSource {
     func numberOfRows(in tableView: NSTableView) -> Int {
-        return filteredHistory.count
+        return displayItems.count
     }
 }
 
@@ -747,24 +981,31 @@ extension ClipboardHistoryWindow: NSTableViewDataSource {
 
 extension ClipboardHistoryWindow: NSTableViewDelegate {
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
-        guard row >= 0, row < filteredHistory.count else { return rowHeight }
-        let item = filteredHistory[row]
-        if item.type == .image, item.thumbnail != nil {
-            return 92
+        guard row >= 0, row < displayItems.count else { return rowHeight }
+        switch displayItems[row] {
+        case .header:
+            return 28
+        case .item(let item):
+            if item.type == .image, item.thumbnail != nil {
+                return 92
+            }
+            return rowHeight
         }
-        return rowHeight
     }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        guard row < filteredHistory.count else { return nil }
+        guard row < displayItems.count else { return nil }
         
-        let item = filteredHistory[row]
-        let cellView = ClipboardHistoryCellView()
-        cellView.parentWindow = self
-        cellView.configure(with: item)
-        cellView.isSelected = (row == selectedIndex)
-        
-        return cellView
+        switch displayItems[row] {
+        case .header(let title):
+            return SectionHeaderCellView(title: title)
+        case .item(let item):
+            let cellView = ClipboardHistoryCellView()
+            cellView.parentWindow = self
+            cellView.configure(with: item)
+            cellView.isSelected = (row == selectedIndex)
+            return cellView
+        }
     }
     
     func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
@@ -772,18 +1013,45 @@ extension ClipboardHistoryWindow: NSTableViewDelegate {
     }
     
     func tableViewSelectionDidChange(_ notification: Notification) {
-        selectedIndex = tableView.selectedRow
-        tableView.enumerateAvailableRowViews { rowView, row in
+        let row = tableView.selectedRow
+        guard row >= 0, row < displayItems.count else { return }
+        if case .header = displayItems[row] { return }
+        selectedIndex = row
+        tableView.enumerateAvailableRowViews { rowView, r in
             if let cellView = rowView.view(atColumn: 0) as? ClipboardHistoryCellView {
-                cellView.isSelected = (row == selectedIndex)
+                cellView.isSelected = (r == selectedIndex)
             }
         }
     }
     
     func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
+        guard row >= 0, row < displayItems.count else { return false }
+        if case .header = displayItems[row] { return false }
         selectedIndex = row
         return true
     }
+}
+
+// MARK: - Section Header Cell View
+
+class SectionHeaderCellView: NSView {
+    init(title: String) {
+        super.init(frame: .zero)
+        wantsLayer = true
+        
+        let label = NSTextField(labelWithString: title)
+        label.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
+        label.textColor = .secondaryLabelColor
+        label.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(label)
+        
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+            label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4)
+        ])
+    }
+    
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 }
 
 // MARK: - Modern Table Row View
@@ -829,6 +1097,7 @@ class ClipboardHistoryCellView: NSView {
     private var iconGradientLayer: CAGradientLayer?
     private var pinButton: NSButton!
     private var copyButton: NSButton!
+    private var deleteButton: NSButton!
     private var currentItem: ClipboardHistoryItem?
     weak var parentWindow: ClipboardHistoryWindow?
 
@@ -935,11 +1204,29 @@ class ClipboardHistoryCellView: NSView {
         }
         copyButton.imagePosition = .imageOnly
         copyButton.contentTintColor = .secondaryLabelColor
-        copyButton.alphaValue = 0.6 // Start with lower opacity
+        copyButton.alphaValue = 0.0
         copyButton.setAccessibilityLabel("Copy item")
         copyButton.setAccessibilityRole(.button)
         copyButton.setAccessibilityHelp("Copy this item to clipboard")
         visualEffectView.addSubview(copyButton)
+        
+        // Delete button
+        deleteButton = NSButton()
+        deleteButton.bezelStyle = .texturedRounded
+        deleteButton.isBordered = false
+        deleteButton.wantsLayer = true
+        deleteButton.target = self
+        deleteButton.action = #selector(deleteButtonClicked(_:))
+        if let deleteImage = NSImage(systemSymbolName: "xmark.circle", accessibilityDescription: "Delete") {
+            deleteButton.image = deleteImage
+        }
+        deleteButton.imagePosition = .imageOnly
+        deleteButton.contentTintColor = .secondaryLabelColor
+        deleteButton.alphaValue = 0.0
+        deleteButton.setAccessibilityLabel("Delete item")
+        deleteButton.setAccessibilityRole(.button)
+        deleteButton.setAccessibilityHelp("Delete this item from history")
+        visualEffectView.addSubview(deleteButton)
         
         // Pin button
         pinButton = NSButton()
@@ -953,7 +1240,7 @@ class ClipboardHistoryCellView: NSView {
         }
         pinButton.imagePosition = .imageOnly
         pinButton.contentTintColor = .secondaryLabelColor
-        pinButton.alphaValue = 0.6 // Start with lower opacity
+        pinButton.alphaValue = 0.0
         pinButton.setAccessibilityLabel("Pin item")
         pinButton.setAccessibilityRole(.button)
         pinButton.setAccessibilityHelp("Pin or unpin this item")
@@ -965,6 +1252,7 @@ class ClipboardHistoryCellView: NSView {
         iconImageView.translatesAutoresizingMaskIntoConstraints = false
         previewLabel.translatesAutoresizingMaskIntoConstraints = false
         timestampLabel.translatesAutoresizingMaskIntoConstraints = false
+        deleteButton.translatesAutoresizingMaskIntoConstraints = false
         copyButton.translatesAutoresizingMaskIntoConstraints = false
         pinButton.translatesAutoresizingMaskIntoConstraints = false
         
@@ -977,11 +1265,15 @@ class ClipboardHistoryCellView: NSView {
             iconContainer.centerYAnchor.constraint(equalTo: visualEffectView.centerYAnchor),
             previewLabel.leadingAnchor.constraint(equalTo: iconContainer.trailingAnchor, constant: 12),
             previewLabel.topAnchor.constraint(equalTo: iconContainer.topAnchor, constant: 0),
-            previewLabel.trailingAnchor.constraint(equalTo: copyButton.leadingAnchor, constant: -12),
+            previewLabel.trailingAnchor.constraint(equalTo: deleteButton.leadingAnchor, constant: -8),
             timestampLabel.leadingAnchor.constraint(equalTo: iconContainer.trailingAnchor, constant: 12),
             timestampLabel.topAnchor.constraint(equalTo: previewLabel.bottomAnchor, constant: 4),
-            timestampLabel.trailingAnchor.constraint(lessThanOrEqualTo: copyButton.leadingAnchor, constant: -12),
-            copyButton.trailingAnchor.constraint(equalTo: pinButton.leadingAnchor, constant: -12),
+            timestampLabel.trailingAnchor.constraint(lessThanOrEqualTo: deleteButton.leadingAnchor, constant: -8),
+            deleteButton.trailingAnchor.constraint(equalTo: copyButton.leadingAnchor, constant: -8),
+            deleteButton.centerYAnchor.constraint(equalTo: visualEffectView.centerYAnchor),
+            deleteButton.widthAnchor.constraint(equalToConstant: 20),
+            deleteButton.heightAnchor.constraint(equalToConstant: 20),
+            copyButton.trailingAnchor.constraint(equalTo: pinButton.leadingAnchor, constant: -8),
             copyButton.centerYAnchor.constraint(equalTo: visualEffectView.centerYAnchor),
             copyButton.widthAnchor.constraint(equalToConstant: 20),
             copyButton.heightAnchor.constraint(equalToConstant: 20),
@@ -1135,8 +1427,10 @@ class ClipboardHistoryCellView: NSView {
         NSAnimationContext.runAnimationGroup { context in
             context.duration = DesignConstants.animationFast
             context.allowsImplicitAnimation = true
-            copyButton.alphaValue = visible ? 1.0 : 0.6
-            pinButton.alphaValue = visible ? 1.0 : 0.6
+            copyButton.alphaValue = visible ? 1.0 : 0.0
+            deleteButton.alphaValue = visible ? 1.0 : 0.0
+            let isPinned = currentItem?.isPinned ?? false
+            pinButton.alphaValue = visible ? 1.0 : (isPinned ? 1.0 : 0.0)
         }
     }
     
@@ -1147,8 +1441,7 @@ class ClipboardHistoryCellView: NSView {
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
             
             if entered {
-                // Enhanced scale transform
-                visualEffectView.layer?.transform = CATransform3DMakeScale(1.03, 1.03, 1.0)
+                visualEffectView.layer?.transform = CATransform3DMakeTranslation(0, 2, 0)
                 visualEffectView.layer?.shadowOpacity = 0.18
                 visualEffectView.layer?.shadowRadius = 12
             } else {
@@ -1191,8 +1484,7 @@ class ClipboardHistoryCellView: NSView {
                 visualEffectView.layer?.shadowRadius = 14
                 visualEffectView.layer?.shadowOffset = CGSize(width: 0, height: -2)
                 
-                // Scale up slightly
-                visualEffectView.layer?.transform = CATransform3DMakeScale(1.02, 1.02, 1.0)
+                visualEffectView.layer?.transform = CATransform3DMakeTranslation(0, 1, 0)
                 
                 // Validate rect dimensions before creating rounded rect
                 // CoreGraphics requires: 2 * cornerRadius <= width/height
@@ -1266,16 +1558,23 @@ class ClipboardHistoryCellView: NSView {
         }
 
         if hasImageThumbnail {
-            previewLabel.stringValue = "Image"
+            if let w = item.imageWidth, let h = item.imageHeight {
+                previewLabel.stringValue = "Copied Image (\(w) × \(h))"
+            } else {
+                previewLabel.stringValue = "Copied Image"
+            }
         } else {
             previewLabel.stringValue = item.preview
         }
         
-        let timePart = Self.relativeTimeDescription(since: item.timestamp)
-        if hasImageThumbnail, let w = item.imageWidth, let h = item.imageHeight {
-            timestampLabel.stringValue = "\(w) × \(h) · \(timePart)"
+        timestampLabel.stringValue = Self.relativeTimeDescription(since: item.timestamp)
+        
+        // Tooltip for truncated content
+        if item.type != .image {
+            let tooltipText = item.content.count > 500 ? String(item.content.prefix(500)) + "..." : item.content
+            previewLabel.toolTip = tooltipText
         } else {
-            timestampLabel.stringValue = timePart
+            previewLabel.toolTip = nil
         }
         
         // Update pin button state
@@ -1341,10 +1640,9 @@ class ClipboardHistoryCellView: NSView {
         parentWindow?.copyItemWithoutPasting(item)
     }
     
-    @objc private func pinButtonClicked(_ sender: NSButton) {
+    @objc private func deleteButtonClicked(_ sender: NSButton) {
         guard let item = currentItem else { return }
         
-        // Animate button click
         NSAnimationContext.runAnimationGroup { context in
             context.duration = DesignConstants.animationFast
             context.allowsImplicitAnimation = true
@@ -1357,8 +1655,60 @@ class ClipboardHistoryCellView: NSView {
             }
         }
         
-        // Toggle pin state
+        parentWindow?.deleteItemById(id: item.id)
+    }
+    
+    @objc private func pinButtonClicked(_ sender: NSButton) {
+        guard let item = currentItem else { return }
+        
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = DesignConstants.animationFast
+            context.allowsImplicitAnimation = true
+            sender.layer?.transform = CATransform3DMakeScale(0.9, 0.9, 1.0)
+        } completionHandler: {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = DesignConstants.animationFast
+                context.allowsImplicitAnimation = true
+                sender.layer?.transform = CATransform3DIdentity
+            }
+        }
+        
         parentWindow?.togglePinStateForItem(id: item.id)
+    }
+}
+
+// MARK: - Hoverable Clear Button Container
+
+class HoverableClearButtonContainer: NSView {
+    var button: NSButton?
+    private var trackingArea: NSTrackingArea?
+    
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let existing = trackingArea { removeTrackingArea(existing) }
+        let area = NSTrackingArea(rect: bounds, options: [.activeInKeyWindow, .mouseEnteredAndExited, .inVisibleRect], owner: self, userInfo: nil)
+        addTrackingArea(area)
+        trackingArea = area
+    }
+    
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.15
+            ctx.allowsImplicitAnimation = true
+            layer?.backgroundColor = NSColor.systemRed.withAlphaComponent(0.15).cgColor
+            button?.contentTintColor = .systemRed
+        }
+    }
+    
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.15
+            ctx.allowsImplicitAnimation = true
+            layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.2).cgColor
+            button?.contentTintColor = .secondaryLabelColor
+        }
     }
 }
 
