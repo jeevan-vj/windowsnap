@@ -17,7 +17,7 @@
 	<key>CFBundleShortVersionString</key>
 	<string>1.2.6</string>
 	<key>CFBundleVersion</key>
-	<string>37</string>
+	<string>40</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>12.0</string>
 	<key>LSUIElement</key>
@@ -30,6 +30,8 @@
 	<string>Main</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>WindowSnap needs screen recording access to share selected screen regions in video calls</string>
 	<key>SMLoginItemSetEnabled</key>
 	<true/>
 </dict>

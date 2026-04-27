@@ -4,8 +4,11 @@ import AppKit
 
 class ShortcutManager {
     private var registeredShortcuts: [String: EventHotKeyRef] = [:]
-    private var shortcutActions: [String: () -> Void] = [:]
+    private var shortcutToHotKeyID: [String: UInt32] = [:]
+    private var hotKeyIDToAction: [UInt32: () -> Void] = [:]
+    private var shortcutStringToAction: [String: () -> Void] = [:]
     private var eventHandler: EventHandlerRef?
+    private var nextHotKeyID: UInt32 = 1
     
     init() {
         setupEventHandler()
@@ -36,20 +39,25 @@ class ShortcutManager {
         
         guard result == noErr else { return result }
         
-        let shortcutKey = "\(hotKeyID.signature)_\(hotKeyID.id)"
-        shortcutActions[shortcutKey]?()
+        hotKeyIDToAction[hotKeyID.id]?()
         
         return noErr
     }
     
     func registerGlobalShortcut(_ shortcutString: String, action: @escaping () -> Void) -> Bool {
+        if registeredShortcuts[shortcutString] != nil {
+            print("Shortcut already registered: \(shortcutString)")
+            return true
+        }
+        
         guard let (keyCode, modifiers) = parseShortcutString(shortcutString) else {
             print("Failed to parse shortcut: \(shortcutString)")
             return false
         }
         
         let signature = OSType("WSAP".fourCharCodeValue)
-        let keyID = UInt32(registeredShortcuts.count + 1)
+        let keyID = nextHotKeyID
+        nextHotKeyID += 1
         let hotKeyID = EventHotKeyID(signature: signature, id: keyID)
         
         var hotKeyRef: EventHotKeyRef?
@@ -60,28 +68,24 @@ class ShortcutManager {
             return false
         }
         
-        let shortcutKey = "\(signature)_\(keyID)"
         registeredShortcuts[shortcutString] = hotKey
-        shortcutActions[shortcutKey] = action
+        shortcutToHotKeyID[shortcutString] = keyID
+        hotKeyIDToAction[keyID] = action
+        shortcutStringToAction[shortcutString] = action
         
         print("Successfully registered shortcut: \(shortcutString)")
         return true
     }
     
     func unregisterShortcut(_ shortcutString: String) {
-        guard let hotKeyRef = registeredShortcuts[shortcutString] else { return }
+        guard let hotKeyRef = registeredShortcuts[shortcutString],
+              let keyID = shortcutToHotKeyID[shortcutString] else { return }
         
         UnregisterEventHotKey(hotKeyRef)
         registeredShortcuts.removeValue(forKey: shortcutString)
-        
-        // Find the shortcut key in our actions dictionary
-        let signature = OSType("WSAP".fourCharCodeValue)
-        for (key, _) in shortcutActions {
-            if key.hasPrefix("\(signature)_") {
-                shortcutActions.removeValue(forKey: key)
-                break
-            }
-        }
+        shortcutToHotKeyID.removeValue(forKey: shortcutString)
+        hotKeyIDToAction.removeValue(forKey: keyID)
+        shortcutStringToAction.removeValue(forKey: shortcutString)
         
         print("Unregistered shortcut: \(shortcutString)")
     }
@@ -92,7 +96,9 @@ class ShortcutManager {
             print("Unregistered shortcut: \(shortcutString)")
         }
         registeredShortcuts.removeAll()
-        shortcutActions.removeAll()
+        shortcutToHotKeyID.removeAll()
+        hotKeyIDToAction.removeAll()
+        shortcutStringToAction.removeAll()
     }
     
     func getDefaultShortcuts() -> [String: GridPosition] {
@@ -335,33 +341,33 @@ class ShortcutManager {
     func reinitializeAfterWake() {
         print("🔄 Reinitializing ShortcutManager after system wake...")
         
-        // Store current shortcuts and actions before clearing
-        let currentShortcuts = registeredShortcuts
-        let currentActions = shortcutActions
+        let savedActions = shortcutStringToAction
         
-        // Clear current state
+        for (shortcutString, hotKeyRef) in registeredShortcuts {
+            UnregisterEventHotKey(hotKeyRef)
+            print("Unregistered shortcut for wake recovery: \(shortcutString)")
+        }
+        
         registeredShortcuts.removeAll()
-        shortcutActions.removeAll()
+        shortcutToHotKeyID.removeAll()
+        hotKeyIDToAction.removeAll()
+        shortcutStringToAction.removeAll()
         
-        // Rebuild event handler to ensure it's still working
         if let handler = eventHandler {
             RemoveEventHandler(handler)
             eventHandler = nil
         }
         setupEventHandler()
         
-        // Re-register all shortcuts
         var successCount = 0
         var failureCount = 0
         
-        for (shortcutString, _) in currentShortcuts {
-            if let action = currentActions.values.first {
-                if registerGlobalShortcut(shortcutString, action: action) {
-                    successCount += 1
-                } else {
-                    failureCount += 1
-                    print("❌ Failed to re-register shortcut after wake: \(shortcutString)")
-                }
+        for (shortcutString, action) in savedActions {
+            if registerGlobalShortcut(shortcutString, action: action) {
+                successCount += 1
+            } else {
+                failureCount += 1
+                print("❌ Failed to re-register shortcut after wake: \(shortcutString)")
             }
         }
         
@@ -369,7 +375,10 @@ class ShortcutManager {
     }
     
     func isHealthy() -> Bool {
-        // Basic health check - verify we have shortcuts registered and event handler is set
         return !registeredShortcuts.isEmpty && eventHandler != nil
+    }
+    
+    func getRegisteredShortcutStrings() -> [String] {
+        return Array(shortcutStringToAction.keys)
     }
 }

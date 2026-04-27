@@ -68,6 +68,23 @@ class StatusBarController {
         workspaceArrangementsItem.target = self
         menu.addItem(workspaceArrangementsItem)
         
+        // REGION SHARE FEATURE: Screen region sharing for video calls
+        if #available(macOS 12.3, *) {
+            let regionShareMenu = NSMenu()
+            
+            let showRegionItem = NSMenuItem(title: "Show Region Share", action: #selector(showRegionShare), keyEquivalent: "")
+            showRegionItem.target = self
+            regionShareMenu.addItem(showRegionItem)
+            
+            let newRegionItem = NSMenuItem(title: "Select New Region...", action: #selector(selectNewRegion), keyEquivalent: "")
+            newRegionItem.target = self
+            regionShareMenu.addItem(newRegionItem)
+            
+            let regionShareItem = NSMenuItem(title: "Region Share", action: nil, keyEquivalent: "")
+            regionShareItem.submenu = regionShareMenu
+            menu.addItem(regionShareItem)
+        }
+        
         // Settings and Info
         let preferencesItem = NSMenuItem(title: "Preferences...", action: #selector(showPreferences), keyEquivalent: ",")
         preferencesItem.target = self
@@ -78,6 +95,10 @@ class StatusBarController {
         menu.addItem(aboutItem)
         
         menu.addItem(NSMenuItem.separator())
+        
+        let restartItem = NSMenuItem(title: "Restart WindowSnap", action: #selector(restartApp), keyEquivalent: "")
+        restartItem.target = self
+        menu.addItem(restartItem)
         
         let quitItem = NSMenuItem(title: "Quit WindowSnap", action: #selector(quit), keyEquivalent: "q")
         quitItem.target = self
@@ -135,6 +156,16 @@ class StatusBarController {
         NSApp.activate(ignoringOtherApps: true)
     }
     
+    @available(macOS 12.3, *)
+    @objc private func showRegionShare() {
+        RegionShareController.shared.showRegionShare()
+    }
+    
+    @available(macOS 12.3, *)
+    @objc private func selectNewRegion() {
+        RegionShareController.shared.selectNewRegion()
+    }
+    
     @objc private func showAbout() {
         let alert = NSAlert()
         alert.messageText = "WindowSnap"
@@ -148,6 +179,19 @@ class StatusBarController {
         alert.alertStyle = .informational
         alert.addButton(withTitle: "OK")
         alert.runModal()
+    }
+    
+    @objc private func restartApp() {
+        let url = URL(fileURLWithPath: Bundle.main.resourcePath!)
+        let path = url.deletingLastPathComponent().deletingLastPathComponent().absoluteString
+        let task = Process()
+        task.launchPath = "/usr/bin/open"
+        task.arguments = [path]
+        task.launch()
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            NSApp.terminate(nil)
+        }
     }
     
     @objc private func quit() {

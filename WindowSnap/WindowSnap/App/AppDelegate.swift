@@ -10,6 +10,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var clipboardManager: ClipboardManager?
     private var clipboardHistoryWindow: ClipboardHistoryWindow?
     private var healthCheckTimer: Timer?
+    private var pendingWakeRecovery: DispatchWorkItem?
+    private var isRecoveringFromWake = false
+    @available(macOS 12.3, *)
+    private var regionShareController: RegionShareController? {
+        get { _regionShareController as? RegionShareController }
+        set { _regionShareController = newValue }
+    }
+    private var _regionShareController: AnyObject?
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupMenuBarApp()
@@ -26,6 +34,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         // Set up notification observers
         setupNotificationObservers()
+        
+        // Check screen recording permission status
+        checkScreenRecordingPermissionOnLaunch()
+    }
+    
+    private func checkScreenRecordingPermissionOnLaunch() {
+        if #available(macOS 12.3, *) {
+            ScreenRecordingPermissions.checkPermissionStatusOnLaunch()
+        }
     }
     
     func applicationWillTerminate(_ notification: Notification) {
@@ -127,6 +144,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Start clipboard monitoring
         clipboardManager?.startMonitoring()
         
+        // REGION SHARE FEATURE: Register region share shortcut
+        if #available(macOS 12.3, *) {
+            regionShareController = RegionShareController.shared
+            regionShareController?.registerShortcut(with: shortcutManager)
+        }
+        
         print("🎯 PRODUCTIVITY SHORTCUTS REGISTERED:")
         print("   ⏪ Undo: ⌘⌥Z")
         print("   ⏩ Redo: ⌘⌥⇧Z")
@@ -136,6 +159,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         print("   📏 Make Smaller: ⌃⌥⇧←")
         print("   🎯 Window Throw: ⌃⌥⌘Space")
         print("   📋 Clipboard History: ⌘⇧V")
+        print("   📺 Region Share: ⌃⌘R")
     }
     
     private func handleWindowSnap(to position: GridPosition) {
@@ -190,54 +214,56 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     @objc private func systemWillSleep() {
         print("💤 System going to sleep - preparing WindowSnap...")
-        // Optionally pause operations or clean up resources
+        pendingWakeRecovery?.cancel()
+        pendingWakeRecovery = nil
     }
     
     @objc private func systemDidWake() {
-        print("☀️ System woke up - reinitializing WindowSnap...")
-        
-        // Small delay to allow system to fully wake up
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            self.reinitializeAfterWake()
-        }
+        print("☀️ System woke up - scheduling WindowSnap recovery...")
+        scheduleWakeRecovery(delay: 1.0)
     }
     
     @objc private func screensDidWake() {
-        print("🖥️ Screens woke up - checking WindowSnap status...")
+        print("🖥️ Screens woke up - scheduling WindowSnap recovery...")
+        scheduleWakeRecovery(delay: 1.5)
+    }
+    
+    private func scheduleWakeRecovery(delay: TimeInterval) {
+        pendingWakeRecovery?.cancel()
         
-        // Additional delay for screen wake events
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            self.reinitializeAfterWake()
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.reinitializeAfterWake()
         }
+        pendingWakeRecovery = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
     }
     
     private func reinitializeAfterWake() {
-        print("🔄 Reinitializing WindowSnap after wake...")
-        
-        // Check if accessibility permissions are still valid
-        if !AccessibilityPermissions.hasPermissions() {
-            print("⚠️ Accessibility permissions lost after wake - requesting again")
-            requestAccessibilityPermissions()
+        guard !isRecoveringFromWake else {
+            print("⏳ Wake recovery already in progress, skipping...")
             return
         }
         
-        // Test if WindowManager accessibility is working
+        isRecoveringFromWake = true
+        defer { isRecoveringFromWake = false }
+        
+        print("🔄 Reinitializing WindowSnap after wake...")
+        
+        if !AccessibilityPermissions.hasPermissions() {
+            print("⚠️ Accessibility permissions lost after wake - requesting again")
+            requestAccessibilityPermissions()
+        }
+        
         if let windowManager = windowManager, !windowManager.testAccessibility() {
             print("🔧 WindowManager accessibility lost after wake - resetting...")
             windowManager.resetAfterWake()
         }
         
-        // Check if shortcut manager is healthy, if not reinitialize it
-        if let shortcutManager = shortcutManager, !shortcutManager.isHealthy() {
-            print("🔧 ShortcutManager unhealthy after wake - reinitializing...")
+        if let shortcutManager = shortcutManager {
+            print("🔧 Reinitializing shortcuts after wake...")
             shortcutManager.reinitializeAfterWake()
-        } else {
-            // Re-register shortcuts (they may have been lost)
-            print("🔧 Re-registering shortcuts after wake...")
-            setupDefaultShortcuts()
         }
         
-        // Reset window manager state
         windowManager = WindowManager.shared
         
         print("✅ WindowSnap reinitialized successfully after wake")
@@ -258,27 +284,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     @objc private func performHealthCheck() {
+        guard !isRecoveringFromWake else { return }
+        
         guard let shortcutManager = shortcutManager,
               let windowManager = windowManager else { return }
         
-        // Check if shortcuts are still working
         if !shortcutManager.isHealthy() {
             print("⚠️ Health check failed - ShortcutManager unhealthy - reinitializing...")
-            reinitializeAfterWake()
+            scheduleWakeRecovery(delay: 0.5)
             return
         }
         
-        // Check if window manager accessibility is still working
         if !windowManager.testAccessibility() {
             print("⚠️ Health check failed - WindowManager accessibility lost - reinitializing...")
-            reinitializeAfterWake()
+            scheduleWakeRecovery(delay: 0.5)
             return
         }
         
-        // Check if accessibility permissions are still valid
         if !AccessibilityPermissions.hasPermissions() {
             print("⚠️ Health check: Accessibility permissions lost")
-            // Don't auto-reinitialize here as it might be annoying, just log
         }
     }
     
