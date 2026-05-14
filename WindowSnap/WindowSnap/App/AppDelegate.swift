@@ -9,6 +9,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var workspaceManager: WorkspaceManager?
     private var clipboardManager: ClipboardManager?
     private var clipboardHistoryWindow: ClipboardHistoryWindow?
+    private var textExpanderManager: TextExpanderManager?
+    private var textExpansionEngine: TextExpansionEngine?
     private var healthCheckTimer: Timer?
     private var pendingWakeRecovery: DispatchWorkItem?
     private var isRecoveringFromWake = false
@@ -48,6 +50,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         shortcutManager?.unregisterAllShortcuts()
         clipboardManager?.stopMonitoring()
+        textExpansionEngine?.stop()
         removeSleepWakeNotifications()
         stopHealthCheck()
     }
@@ -81,8 +84,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         throwController = WindowThrowController.shared
         workspaceManager = WorkspaceManager.shared
         clipboardManager = ClipboardManager.shared
+        textExpanderManager = TextExpanderManager.shared
+        textExpansionEngine = TextExpansionEngine.shared
         
         setupDefaultShortcuts()
+        setupTextExpander()
+    }
+    
+    private func setupTextExpander() {
+        guard let textExpanderManager = textExpanderManager else { return }
+        
+        if textExpanderManager.isEnabled {
+            if InputMonitoringPermissions.hasPermissions() {
+                textExpansionEngine?.start()
+                print("📝 Text Expander initialized and running")
+            } else {
+                print("⚠️ Text Expander disabled - Input Monitoring permission required")
+            }
+        } else {
+            print("📝 Text Expander is disabled in settings")
+        }
     }
     
     private func setupDefaultShortcuts() {
@@ -160,6 +181,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         print("   🎯 Window Throw: ⌃⌥⌘Space")
         print("   📋 Clipboard History: ⌘⇧V")
         print("   📺 Region Share: ⌃⌘R")
+        print("   📝 Text Expander: Type trigger + Tab")
     }
     
     private func handleWindowSnap(to position: GridPosition) {
@@ -262,6 +284,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if let shortcutManager = shortcutManager {
             print("🔧 Reinitializing shortcuts after wake...")
             shortcutManager.reinitializeAfterWake()
+        }
+        
+        if textExpanderManager?.isEnabled == true {
+            print("🔧 Reinitializing text expander after wake...")
+            textExpansionEngine?.restart()
         }
         
         windowManager = WindowManager.shared

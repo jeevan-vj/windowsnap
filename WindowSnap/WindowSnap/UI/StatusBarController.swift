@@ -4,6 +4,7 @@ import Foundation
 class StatusBarController {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private var preferencesWindow: PreferencesWindow?
+    private var textExpanderWindow: TextExpanderWindow?
     
     init() {
         setupStatusBar()
@@ -67,6 +68,24 @@ class StatusBarController {
         let workspaceArrangementsItem = NSMenuItem(title: "Workspace Arrangements...", action: #selector(showWorkspaceArrangements), keyEquivalent: "")
         workspaceArrangementsItem.target = self
         menu.addItem(workspaceArrangementsItem)
+        
+        // TEXT EXPANDER FEATURE: Quick toggle and settings access
+        let textExpanderMenu = NSMenu()
+        
+        let textExpanderEnabledItem = NSMenuItem(title: "Enabled", action: #selector(toggleTextExpander(_:)), keyEquivalent: "")
+        textExpanderEnabledItem.target = self
+        textExpanderEnabledItem.state = TextExpanderManager.shared.isEnabled ? .on : .off
+        textExpanderMenu.addItem(textExpanderEnabledItem)
+        
+        textExpanderMenu.addItem(NSMenuItem.separator())
+        
+        let textExpanderSettingsItem = NSMenuItem(title: "Manage Snippets...", action: #selector(showTextExpanderSettings), keyEquivalent: "")
+        textExpanderSettingsItem.target = self
+        textExpanderMenu.addItem(textExpanderSettingsItem)
+        
+        let textExpanderItem = NSMenuItem(title: "Text Expander", action: nil, keyEquivalent: "")
+        textExpanderItem.submenu = textExpanderMenu
+        menu.addItem(textExpanderItem)
         
         // REGION SHARE FEATURE: Screen region sharing for video calls
         if #available(macOS 12.3, *) {
@@ -153,6 +172,31 @@ class StatusBarController {
     @objc private func showWorkspaceArrangements() {
         let workspaceWindow = WorkspaceArrangementsWindow()
         workspaceWindow.orderFrontRegardless()
+        NSApp.activate(ignoringOtherApps: true)
+    }
+    
+    @objc private func toggleTextExpander(_ sender: NSMenuItem) {
+        let newState = !TextExpanderManager.shared.isEnabled
+        TextExpanderManager.shared.isEnabled = newState
+        sender.state = newState ? .on : .off
+        
+        if newState {
+            if InputMonitoringPermissions.hasPermissions() {
+                TextExpansionEngine.shared.start()
+            } else {
+                InputMonitoringPermissions.showPermissionsAlert()
+            }
+        } else {
+            TextExpansionEngine.shared.stop()
+        }
+    }
+    
+    @objc private func showTextExpanderSettings() {
+        if textExpanderWindow == nil {
+            textExpanderWindow = TextExpanderWindow()
+        }
+        textExpanderWindow?.showWindow(nil)
+        textExpanderWindow?.window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
     

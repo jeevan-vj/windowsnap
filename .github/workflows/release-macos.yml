@@ -1,0 +1,135 @@
+# Signed + notarized macOS release (Developer ID + Apple notary → GitHub Release).
+#
+# ── Triggers ───────────────────────────────────────────────────────────────
+#   • Push a git tag matching v* (e.g. v1.2.7)
+#   • workflow_dispatch — enter the existing tag to release (must exist on remote)
+#
+# ── Release checklist ────────────────────────────────────────────────────────
+#   1. Bump WindowSnap/VERSION if needed and commit.
+#   2. git tag v$(tr -d '\n' < WindowSnap/VERSION) && git push origin v…
+#   3. Ensure bundle ID com.windowsnap.app is registered in Apple Developer → Identifiers (macOS).
+#
+# ── Apple prerequisites ──────────────────────────────────────────────────────
+#   • Paid Apple Developer Program
+#   • Developer ID Application certificate; export cert + private key as .p12
+#   • Notarization (pick one):
+#       – App Store Connect API key (recommended): Keys → generate key with Developer access;
+#         note Issuer ID, Key ID, download .p8
+#       – Or Apple ID app-specific password (appleid.apple.com) + Team ID
+#
+# ── Repository secrets ─────────────────────────────────────────────────────────
+#   Required:
+#     BUILD_CERTIFICATE_BASE64   Base64-encoded Developer ID Application .p12
+#     P12_PASSWORD               Password for the .p12
+#     APPLE_TEAM_ID              10-character Team ID
+#
+#   Notarization — API key (recommended):
+#     ASC_KEY_ID                 App Store Connect API key ID
+#     ASC_KEY_ISSUER_ID          Issuer UUID from App Store Connect → Keys
+#     ASC_KEY_P8                 Full contents of the .p8 private key (multiline PEM)
+#
+#   Notarization — Apple ID instead (omit ASC_* secrets):
+#     APPLE_ID                   Apple ID email (e.g. developer Apple ID)
+#     APPLE_APP_SPECIFIC_PASSWORD App-specific password from appleid.apple.com
+#
+#   Optional:
+#     CODESIGN_IDENTITY          Full "Developer ID Application: Name (TEAMID)" string;
+#                                if unset, the workflow picks the first Developer ID Application identity
+#     KEYCHAIN_PASSWORD          Only if you customize apple-actions/import-codesign-certs (omit by default;
+#                                the action generates a password for the temporary keychain)
+#
+# ── Permissions ────────────────────────────────────────────────────────────────
+#   contents: write — create/update releases with GITHUB_TOKEN
+
+name: Release macOS
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to build and release (e.g. v1.2.7)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - name: Resolve checkout ref
+        id: checkout_ref
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "ref=refs/tags/${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=${{ github.ref }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ steps.checkout_ref.outputs.ref }}
+
+      - name: Resolve release tag name
+        id: meta
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "tag=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Import signing certificate
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          p12-password: ${{ secrets.P12_PASSWORD }}
+
+      - name: Resolve Developer ID identity
+        id: signing
+        env:
+          EXPLICIT_IDENTITY: ${{ secrets.CODESIGN_IDENTITY }}
+        run: |
+          if [[ -n "$EXPLICIT_IDENTITY" ]]; then
+            echo "identity=$EXPLICIT_IDENTITY" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null | grep 'Developer ID Application' | head -1 | sed 's/.*\"\(.*\)\".*/\1/' || true)"
+          if [[ -z "$IDENTITY" ]]; then
+            echo 'No Developer ID Application identity found after importing .p12.' >&2
+            echo 'Set repository secret CODESIGN_IDENTITY or fix BUILD_CERTIFICATE_BASE64.' >&2
+            exit 1
+          fi
+          echo "identity=$IDENTITY" >> "$GITHUB_OUTPUT"
+
+      - name: Build universal signed bundle
+        env:
+          CODESIGN_ID: ${{ steps.signing.outputs.identity }}
+        working-directory: WindowSnap
+        run: bash scripts/build-universal-bundle.sh
+
+      - name: Notarize and staple
+        working-directory: WindowSnap
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_KEY_ISSUER_ID: ${{ secrets.ASC_KEY_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: bash scripts/notarize-dist.sh
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: WindowSnap ${{ steps.meta.outputs.tag }}
+          files: WindowSnap/dist/WindowSnap.zip
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

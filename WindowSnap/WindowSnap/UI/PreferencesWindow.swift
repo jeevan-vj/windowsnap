@@ -3,6 +3,8 @@ import Foundation
 
 class PreferencesWindow: NSWindowController {
     
+    private var textExpanderWindow: TextExpanderWindow?
+    
     override init(window: NSWindow?) {
         super.init(window: window)
         setupWindow()
@@ -55,6 +57,12 @@ class PreferencesWindow: NSWindowController {
         shortcutsTab.label = "Shortcuts"
         shortcutsTab.view = createShortcutsTab()
         tabView.addTabViewItem(shortcutsTab)
+        
+        // Text Expander tab
+        let textExpanderTab = NSTabViewItem(identifier: "textexpander")
+        textExpanderTab.label = "Text Expander"
+        textExpanderTab.view = createTextExpanderTab()
+        tabView.addTabViewItem(textExpanderTab)
     }
     
     private func createGeneralTab() -> NSView {
@@ -176,5 +184,95 @@ class PreferencesWindow: NSWindowController {
     
     private func getNotificationsState() -> NSControl.StateValue {
         return UserDefaults.standard.bool(forKey: "ShowNotifications") ? .on : .off
+    }
+    
+    private func createTextExpanderTab() -> NSView {
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: 480, height: 350))
+        
+        var yPos: CGFloat = 300
+        
+        let titleLabel = NSTextField(labelWithString: "Text Expander Settings")
+        titleLabel.font = NSFont.boldSystemFont(ofSize: 16)
+        titleLabel.frame = NSRect(x: 20, y: yPos, width: 440, height: 25)
+        view.addSubview(titleLabel)
+        yPos -= 40
+        
+        let enabledCheckbox = NSButton(checkboxWithTitle: "Enable Text Expander", target: self, action: #selector(toggleTextExpander(_:)))
+        enabledCheckbox.frame = NSRect(x: 20, y: yPos, width: 300, height: 25)
+        enabledCheckbox.state = TextExpanderManager.shared.isEnabled ? .on : .off
+        view.addSubview(enabledCheckbox)
+        yPos -= 35
+        
+        let descriptionLabel = NSTextField(wrappingLabelWithString: "Type a trigger phrase (e.g., ':email') and press Tab to automatically expand it to the configured replacement text.")
+        descriptionLabel.frame = NSRect(x: 40, y: yPos - 30, width: 400, height: 40)
+        descriptionLabel.textColor = .secondaryLabelColor
+        view.addSubview(descriptionLabel)
+        yPos -= 60
+        
+        let permissionLabel = NSTextField(labelWithString: "Input Monitoring Permission:")
+        permissionLabel.font = NSFont.boldSystemFont(ofSize: 13)
+        permissionLabel.frame = NSRect(x: 20, y: yPos, width: 250, height: 20)
+        view.addSubview(permissionLabel)
+        yPos -= 25
+        
+        let hasPermission = InputMonitoringPermissions.hasPermissions()
+        let permissionStatus = hasPermission ? "✓ Granted" : "✗ Not Granted"
+        let statusLabel = NSTextField(labelWithString: permissionStatus)
+        statusLabel.textColor = hasPermission ? .systemGreen : .systemRed
+        statusLabel.frame = NSRect(x: 40, y: yPos, width: 150, height: 20)
+        view.addSubview(statusLabel)
+        
+        if !hasPermission {
+            let openSettingsButton = NSButton(title: "Grant Permission", target: self, action: #selector(openInputMonitoringSettings))
+            openSettingsButton.frame = NSRect(x: 200, y: yPos - 5, width: 150, height: 30)
+            view.addSubview(openSettingsButton)
+        }
+        yPos -= 45
+        
+        let snippetsLabel = NSTextField(labelWithString: "Snippets:")
+        snippetsLabel.font = NSFont.boldSystemFont(ofSize: 13)
+        snippetsLabel.frame = NSRect(x: 20, y: yPos, width: 100, height: 20)
+        view.addSubview(snippetsLabel)
+        
+        let snippetCount = TextExpanderManager.shared.getAllSnippets().count
+        let countLabel = NSTextField(labelWithString: "\(snippetCount) snippet\(snippetCount == 1 ? "" : "s") configured")
+        countLabel.frame = NSRect(x: 130, y: yPos, width: 200, height: 20)
+        countLabel.textColor = .secondaryLabelColor
+        view.addSubview(countLabel)
+        yPos -= 35
+        
+        let manageButton = NSButton(title: "Manage Snippets...", target: self, action: #selector(openTextExpanderWindow))
+        manageButton.frame = NSRect(x: 40, y: yPos, width: 150, height: 30)
+        view.addSubview(manageButton)
+        
+        return view
+    }
+    
+    @objc private func toggleTextExpander(_ sender: NSButton) {
+        let enabled = sender.state == .on
+        TextExpanderManager.shared.isEnabled = enabled
+        
+        if enabled {
+            if InputMonitoringPermissions.hasPermissions() {
+                TextExpansionEngine.shared.start()
+            } else {
+                InputMonitoringPermissions.showPermissionsAlert()
+            }
+        } else {
+            TextExpansionEngine.shared.stop()
+        }
+    }
+    
+    @objc private func openInputMonitoringSettings() {
+        InputMonitoringPermissions.openInputMonitoringSettings()
+    }
+    
+    @objc private func openTextExpanderWindow() {
+        if textExpanderWindow == nil {
+            textExpanderWindow = TextExpanderWindow()
+        }
+        textExpanderWindow?.showWindow(nil)
+        textExpanderWindow?.window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 }
