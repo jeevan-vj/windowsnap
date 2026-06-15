@@ -128,4 +128,15 @@ class RegionShareManager {
         }
         return nil
     }
+    
+    /// Resolves the display currently under the mouse cursor. Uses NSScreen so the
+    /// AppKit (bottom-left origin) mouse location is matched correctly.
+    func getDisplayUnderCursor() -> CGDirectDisplayID? {
+        let mouse = NSEvent.mouseLocation
+        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(mouse) }) ?? NSScreen.main,
+              let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
+            return nil
+        }
+        return number.uint32Value
+    }
 }
