@@ -1,24 +1,25 @@
 import Foundation
 import AppKit
 import IOKit
+import UserNotifications
 
-/// Manages Input Monitoring permission checks and user guidance
-class InputMonitoringPermissions {
-    
-    static func hasPermissions() -> Bool {
-        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): false] as CFDictionary
-        let trusted = AXIsProcessTrustedWithOptions(options)
-        
-        if trusted {
-            return true
-        }
-        
-        return canCreateEventTap()
+/// Manages Input Monitoring and Accessibility permission checks for the text expander
+enum InputMonitoringPermissions {
+    static func hasInputMonitoringAccess() -> Bool {
+        IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) == kIOHIDAccessTypeGranted
     }
-    
-    private static func canCreateEventTap() -> Bool {
+
+    static func hasAccessibilityAccess() -> Bool {
+        AccessibilityPermissions.hasPermissions()
+    }
+
+    static func hasPermissions() -> Bool {
+        hasInputMonitoringAccess() && hasAccessibilityAccess()
+    }
+
+    static func canCreateEventTap() -> Bool {
         let eventMask: CGEventMask = (1 << CGEventType.keyDown.rawValue)
-        
+
         let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
@@ -27,65 +28,104 @@ class InputMonitoringPermissions {
             callback: { _, _, event, _ in Unmanaged.passRetained(event) },
             userInfo: nil
         )
-        
-        if tap != nil {
-            return true
-        }
-        
-        return false
+
+        return tap != nil
     }
-    
+
     static func requestPermissions() {
-        let options = [kAXTrustedCheckOptionPrompt.takeRetainedValue(): true] as CFDictionary
-        AXIsProcessTrustedWithOptions(options)
+        _ = IOHIDRequestAccess(kIOHIDRequestTypeListenEvent)
+        AccessibilityPermissions.requestPermissions()
     }
-    
+
     static func showPermissionsAlert() {
         let alert = NSAlert()
-        alert.messageText = "Input Monitoring Access Required"
+        alert.messageText = "Permissions Required for Text Expander"
         alert.informativeText = """
-        The Text Expander feature requires Input Monitoring permissions to detect when you type trigger phrases.
-        
-        Please:
+        The Text Expander requires both Input Monitoring and Accessibility permissions.
+
+        Input Monitoring:
         1. Open System Settings
         2. Go to Privacy & Security
         3. Select Input Monitoring
-        4. Enable WindowSnap in the list
-        
-        After granting permission, the Text Expander feature will be enabled automatically.
+        4. Enable WindowSnap
+
+        Accessibility:
+        1. Open System Settings
+        2. Go to Privacy & Security
+        3. Select Accessibility
+        4. Enable WindowSnap
+
+        After granting both permissions, restart the Text Expander from the menu bar.
         """
         alert.alertStyle = .informational
-        alert.addButton(withTitle: "Open System Settings")
+        alert.addButton(withTitle: "Open Input Monitoring")
+        alert.addButton(withTitle: "Open Accessibility")
         alert.addButton(withTitle: "Later")
-        
+
         let response = alert.runModal()
-        
-        if response == .alertFirstButtonReturn {
+
+        switch response {
+        case .alertFirstButtonReturn:
             openInputMonitoringSettings()
+        case .alertSecondButtonReturn:
+            AccessibilityPermissions.openSecurityPreferences()
+        default:
+            break
         }
     }
-    
+
     static func openInputMonitoringSettings() {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent") {
             NSWorkspace.shared.open(url)
         }
     }
-    
+
     static func checkPermissionsWithAlert() -> Bool {
         if hasPermissions() {
             return true
-        } else {
-            showPermissionsAlert()
-            return false
+        }
+        showPermissionsAlert()
+        return false
+    }
+
+    static func missingPermissionDescription() -> String {
+        var missing: [String] = []
+        if !hasInputMonitoringAccess() {
+            missing.append("Input Monitoring")
+        }
+        if !hasAccessibilityAccess() {
+            missing.append("Accessibility")
+        }
+        return missing.joined(separator: " and ")
+    }
+
+    static func showPermissionDeniedNotification() {
+        requestNotificationAuthorizationIfNeeded()
+
+        let content = UNMutableNotificationContent()
+        content.title = "Text Expander Disabled"
+        content.body = "Input Monitoring and Accessibility permissions are required for text expansion."
+
+        let request = UNNotificationRequest(
+            identifier: "com.windowsnap.textexpander.permissions",
+            content: content,
+            trigger: nil
+        )
+
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error {
+                AppLog.permissions.error("Failed to deliver permission notification: \(error.localizedDescription, privacy: .public)")
+            }
         }
     }
-    
-    static func showPermissionDeniedNotification() {
-        let notification = NSUserNotification()
-        notification.title = "Text Expander Disabled"
-        notification.informativeText = "Input Monitoring permission is required for text expansion. Click to enable."
-        notification.soundName = nil
-        
-        NSUserNotificationCenter.default.deliver(notification)
+
+    private static func requestNotificationAuthorizationIfNeeded() {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, error in
+            if let error {
+                AppLog.permissions.error("Notification authorization failed: \(error.localizedDescription, privacy: .public)")
+            } else if !granted {
+                AppLog.permissions.debug("Notification authorization not granted")
+            }
+        }
     }
 }

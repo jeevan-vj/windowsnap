@@ -115,9 +115,12 @@ struct TextExpansionSnippet: Codable, Identifiable, Equatable {
     }
 
     var displayDescription: String {
-        let truncatedReplacement = replacement.count > 30
-            ? String(replacement.prefix(30)) + "..."
-            : replacement
+        let normalized = replacement
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\t", with: " ")
+        let truncatedReplacement = normalized.count > 30
+            ? String(normalized.prefix(30)) + "..."
+            : normalized
         return "\(trigger) → \(truncatedReplacement)"
     }
 }

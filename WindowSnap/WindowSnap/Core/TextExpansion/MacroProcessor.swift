@@ -44,7 +44,7 @@ enum MacroProcessor {
         case "time":
             return shortTimeFormatter.string(from: now)
         case "isodate":
-            return ISO8601DateFormatter().string(from: now)
+            return iso8601Formatter.string(from: now)
         case "clipboard":
             return clipboard ?? ""
         case "uuid":
@@ -122,5 +122,9 @@ enum MacroProcessor {
         formatter.dateStyle = .none
         formatter.timeStyle = .short
         return formatter
+    }()
+
+    private static let iso8601Formatter: ISO8601DateFormatter = {
+        ISO8601DateFormatter()
     }()
 }

@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 
-final class FillInFormController: NSWindowController {
+final class FillInFormController: NSWindowController, NSWindowDelegate {
     private static let fieldWidth: CGFloat = 388
     private static let areaFieldHeight: CGFloat = 70
     private static let singleLineFieldHeight: CGFloat = 24
@@ -164,7 +164,14 @@ final class FillInFormController: NSWindowController {
             stack.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -16),
         ])
 
+        window.delegate = self
         window.center()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        guard completion != nil else { return }
+        completion?(nil)
+        completion = nil
     }
 
     func showModal() {

@@ -1,9 +1,18 @@
 import Foundation
 import AppKit
+import Carbon
 
 /// Engine that performs text expansion by replacing triggers with configured text
-class TextExpansionEngine {
+final class TextExpansionEngine {
     static let shared = TextExpansionEngine()
+
+    private enum ExpansionTiming {
+        static let postDeleteDelay: TimeInterval = 0.03
+        static let postPasteboardWriteDelay: TimeInterval = 0.02
+        static let postPasteDelay: TimeInterval = 0.02
+        static let clipboardRestoreDelay: TimeInterval = 0.15
+        static let targetAppActivationDelay: TimeInterval = 0.15
+    }
 
     private var isExpanding = false
     private var activeFillInFormController: FillInFormController?
@@ -24,7 +33,7 @@ class TextExpansionEngine {
 
     func performExpansion(snippet: TextExpansionSnippet, triggerLength: Int = 0, values: [String: String] = [:]) {
         guard !isExpanding else {
-            print("⚠️ Expansion already in progress, skipping")
+            AppLog.textExpansion.warning("Expansion already in progress, skipping")
             return
         }
 
@@ -42,11 +51,10 @@ class TextExpansionEngine {
         isExpanding = true
         GlobalKeyCaptureService.shared.setExpanding(true)
 
-        print("📝 Expanding: '\(snippet.trigger)' → '\(snippet.replacement.prefix(30))...'")
+        AppLog.textExpansion.debug("Expanding snippet")
 
         let pasteboard = NSPasteboard.general
         let previousContents = backupClipboard(pasteboard)
-        let previousChangeCount = pasteboard.changeCount
         let prepared = prepareReplacement(for: snippet, values: values)
         let replacementText = prepared.text
         let leftArrowCount = prepared.leftArrowCount
@@ -58,34 +66,45 @@ class TextExpansionEngine {
             self.expansionQueue.async {
                 if triggerLength > 0 {
                     self.deleteCharacters(count: triggerLength)
-                    usleep(30000)
+                    usleep(useconds_t(ExpansionTiming.postDeleteDelay * 1_000_000))
                 }
 
                 DispatchQueue.main.async {
                     pasteboard.clearContents()
                     self.writeToPasteboard(snippet: snippet, replacementText: replacementText, pasteboard: pasteboard)
+                    let postWriteChangeCount = pasteboard.changeCount
 
-                    usleep(20000)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + ExpansionTiming.postPasteboardWriteDelay) {
+                        self.simulatePaste()
 
-                    self.simulatePaste()
+                        let finishExpansion = {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + ExpansionTiming.clipboardRestoreDelay) {
+                                self.restoreClipboard(
+                                    pasteboard,
+                                    contents: previousContents,
+                                    postWriteChangeCount: postWriteChangeCount
+                                )
 
-                    if let leftArrowCount, leftArrowCount > 0 {
-                        usleep(20000)
-                        self.moveCursorLeft(count: leftArrowCount)
-                    }
+                                TextExpanderManager.shared.recordExpansion(
+                                    trigger: snippet.trigger,
+                                    replacement: replacementText
+                                )
 
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                        self.restoreClipboard(pasteboard, contents: previousContents, previousChangeCount: previousChangeCount)
+                                self.isExpanding = false
+                                GlobalKeyCaptureService.shared.setExpanding(false)
 
-                        TextExpanderManager.shared.recordExpansion(
-                            trigger: snippet.trigger,
-                            replacement: replacementText
-                        )
+                                AppLog.textExpansion.debug("Expansion complete")
+                            }
+                        }
 
-                        self.isExpanding = false
-                        GlobalKeyCaptureService.shared.setExpanding(false)
-
-                        print("✅ Expansion complete")
+                        if let leftArrowCount, leftArrowCount > 0 {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + ExpansionTiming.postPasteDelay) {
+                                self.moveCursorLeft(count: leftArrowCount)
+                                finishExpansion()
+                            }
+                        } else {
+                            finishExpansion()
+                        }
                     }
                 }
             }
@@ -93,7 +112,7 @@ class TextExpansionEngine {
 
         if let targetApp {
             targetApp.activate(options: [.activateIgnoringOtherApps])
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + ExpansionTiming.targetAppActivationDelay) {
                 runKeyboardExpansion()
             }
         } else {
@@ -143,8 +162,13 @@ class TextExpansionEngine {
         return contents
     }
 
-    private func restoreClipboard(_ pasteboard: NSPasteboard, contents: ClipboardContents, previousChangeCount: Int) {
-        guard pasteboard.changeCount != previousChangeCount else {
+    private func restoreClipboard(
+        _ pasteboard: NSPasteboard,
+        contents: ClipboardContents,
+        postWriteChangeCount: Int
+    ) {
+        guard pasteboard.changeCount == postWriteChangeCount else {
+            AppLog.textExpansion.debug("Skipping clipboard restore; pasteboard changed since expansion write")
             return
         }
 
@@ -160,7 +184,7 @@ class TextExpansionEngine {
             pasteboard.setString(string, forType: .string)
         }
 
-        print("📋 Clipboard restored")
+        AppLog.textExpansion.debug("Clipboard restored")
     }
 
     private func writeToPasteboard(
@@ -211,10 +235,10 @@ class TextExpansionEngine {
         let source = CGEventSource(stateID: .hidSystemState)
 
         for _ in 0..<count {
-            if let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 0x33, keyDown: true) {
+            if let keyDown = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(kVK_Delete), keyDown: true) {
                 keyDown.post(tap: .cghidEventTap)
             }
-            if let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 0x33, keyDown: false) {
+            if let keyUp = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(kVK_Delete), keyDown: false) {
                 keyUp.post(tap: .cghidEventTap)
             }
             usleep(5000)
@@ -224,28 +248,27 @@ class TextExpansionEngine {
     private func simulatePaste() {
         let source = CGEventSource(stateID: .hidSystemState)
 
-        if let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: true) {
+        if let keyDown = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(kVK_ANSI_V), keyDown: true) {
             keyDown.flags = .maskCommand
             keyDown.post(tap: .cghidEventTap)
         }
 
-        if let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: false) {
+        if let keyUp = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(kVK_ANSI_V), keyDown: false) {
             keyUp.flags = .maskCommand
             keyUp.post(tap: .cghidEventTap)
         }
 
-        print("📋 Simulated paste command")
+        AppLog.textExpansion.debug("Simulated paste command")
     }
 
     private func moveCursorLeft(count: Int) {
         let source = CGEventSource(stateID: .hidSystemState)
-        let leftArrowKeyCode: CGKeyCode = 0x7B
 
         for _ in 0..<count {
-            if let keyDown = CGEvent(keyboardEventSource: source, virtualKey: leftArrowKeyCode, keyDown: true) {
+            if let keyDown = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(kVK_LeftArrow), keyDown: true) {
                 keyDown.post(tap: .cghidEventTap)
             }
-            if let keyUp = CGEvent(keyboardEventSource: source, virtualKey: leftArrowKeyCode, keyDown: false) {
+            if let keyUp = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(kVK_LeftArrow), keyDown: false) {
                 keyUp.post(tap: .cghidEventTap)
             }
             usleep(5000)
@@ -256,18 +279,18 @@ class TextExpansionEngine {
 
     func start() {
         guard TextExpanderManager.shared.isEnabled else {
-            print("📝 Text expander is disabled")
+            AppLog.textExpansion.info("Text expander is disabled")
             return
         }
 
         GlobalKeyCaptureService.shared.start()
-        print("📝 TextExpansionEngine started")
+        AppLog.textExpansion.info("TextExpansionEngine started")
     }
 
     func stop() {
         GlobalKeyCaptureService.shared.stop()
         isExpanding = false
-        print("📝 TextExpansionEngine stopped")
+        AppLog.textExpansion.info("TextExpansionEngine stopped")
     }
 
     func restart() {

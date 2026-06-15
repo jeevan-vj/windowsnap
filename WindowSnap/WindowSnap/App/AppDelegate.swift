@@ -94,16 +94,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     private func setupTextExpander() {
         guard let textExpanderManager = textExpanderManager else { return }
-        
+
         if textExpanderManager.isEnabled {
             if InputMonitoringPermissions.hasPermissions() {
                 textExpansionEngine?.start()
-                print("📝 Text Expander initialized and running")
+                AppLog.textExpansion.info("Text Expander initialized and running")
             } else {
-                print("⚠️ Text Expander disabled - Input Monitoring permission required")
+                let missing = InputMonitoringPermissions.missingPermissionDescription()
+                AppLog.textExpansion.warning("Text Expander disabled - missing permissions: \(missing, privacy: .public)")
             }
         } else {
-            print("📝 Text Expander is disabled in settings")
+            AppLog.textExpansion.info("Text Expander is disabled in settings")
         }
     }
     
@@ -317,8 +318,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         
         if textExpanderManager?.isEnabled == true {
-            print("🔧 Reinitializing text expander after wake...")
-            textExpansionEngine?.restart()
+            if InputMonitoringPermissions.hasPermissions() {
+                AppLog.textExpansion.info("Reinitializing text expander after wake")
+                textExpansionEngine?.restart()
+            } else {
+                let missing = InputMonitoringPermissions.missingPermissionDescription()
+                AppLog.textExpansion.warning("Text expander not restarted after wake - missing permissions: \(missing, privacy: .public)")
+            }
         }
         
         windowManager = WindowManager.shared

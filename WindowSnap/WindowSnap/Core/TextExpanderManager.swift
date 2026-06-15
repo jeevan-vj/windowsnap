@@ -1,74 +1,92 @@
 import Foundation
 
 /// Manages storage and operations for text expansion snippets
-class TextExpanderManager {
+final class TextExpanderManager {
     static let shared = TextExpanderManager()
-    
+
     private let snippetsStorageKey = "WindowSnap_TextExpanderSnippets"
     private let settingsStorageKey = "WindowSnap_TextExpanderSettings"
     private let hasPopulatedDefaultsKey = "WindowSnap_TextExpanderHasPopulatedDefaults"
     private let usageStatsStorageKey = "WindowSnap_TextExpanderUsageStats"
 
+    private let lock = NSLock()
     private var snippets: [TextExpansionSnippet] = []
     private(set) var settings: TextExpanderSettings = .default
     private(set) var usageStats: UsageStats = UsageStats()
+    private var matchingCache: [TextExpansionSnippet]?
     private let userDefaults: UserDefaults
 
-    private init(userDefaults: UserDefaults = .standard) {
+    init(userDefaults: UserDefaults = .standard) {
         self.userDefaults = userDefaults
         loadSnippets()
         loadSettings()
         loadUsageStats()
         populateDefaultSnippetsIfNeeded()
     }
-    
+
+    private func invalidateMatchingCache() {
+        matchingCache = nil
+    }
+
+    private func rebuildMatchingCacheLocked() -> [TextExpansionSnippet] {
+        if let matchingCache {
+            return matchingCache
+        }
+        let cache = snippets
+            .filter(\.isEnabled)
+            .sorted { $0.trigger.count > $1.trigger.count }
+        matchingCache = cache
+        return cache
+    }
+
     private func loadSnippets() {
         guard let data = userDefaults.data(forKey: snippetsStorageKey) else {
             snippets = []
             return
         }
-        
+
         do {
             snippets = try JSONDecoder().decode([TextExpansionSnippet].self, from: data)
-            print("📝 Loaded \(snippets.count) text expansion snippets")
+            AppLog.textExpansion.info("Loaded \(self.snippets.count, privacy: .public) text expansion snippets")
         } catch {
-            print("❌ Failed to load text expansion snippets: \(error)")
+            AppLog.textExpansion.error("Failed to load text expansion snippets: \(error.localizedDescription, privacy: .public)")
             snippets = []
         }
     }
-    
+
     private func saveSnippets() {
         do {
             let data = try JSONEncoder().encode(snippets)
             userDefaults.set(data, forKey: snippetsStorageKey)
-            print("💾 Saved \(snippets.count) text expansion snippets")
+            AppLog.textExpansion.info("Saved \(self.snippets.count, privacy: .public) text expansion snippets")
         } catch {
-            print("❌ Failed to save text expansion snippets: \(error)")
+            AppLog.textExpansion.error("Failed to save text expansion snippets: \(error.localizedDescription, privacy: .public)")
         }
     }
-    
+
     private func loadSettings() {
         guard let data = userDefaults.data(forKey: settingsStorageKey) else {
             settings = .default
             return
         }
-        
+
         do {
             settings = try JSONDecoder().decode(TextExpanderSettings.self, from: data)
-            print("📝 Loaded text expander settings")
+            AppLog.textExpansion.debug("Loaded text expander settings")
         } catch {
-            print("❌ Failed to load text expander settings: \(error)")
+            AppLog.textExpansion.error("Failed to load text expander settings: \(error.localizedDescription, privacy: .public)")
             settings = .default
         }
     }
-    
+
     private func saveSettings() {
         do {
             let data = try JSONEncoder().encode(settings)
             userDefaults.set(data, forKey: settingsStorageKey)
-            print("💾 Saved text expander settings")
+            invalidateMatchingCache()
+            AppLog.textExpansion.debug("Saved text expander settings")
         } catch {
-            print("❌ Failed to save text expander settings: \(error)")
+            AppLog.textExpansion.error("Failed to save text expander settings: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -81,7 +99,7 @@ class TextExpanderManager {
         do {
             usageStats = try JSONDecoder().decode(UsageStats.self, from: data)
         } catch {
-            print("❌ Failed to load usage stats: \(error)")
+            AppLog.textExpansion.error("Failed to load usage stats: \(error.localizedDescription, privacy: .public)")
             usageStats = UsageStats()
         }
     }
@@ -91,136 +109,178 @@ class TextExpanderManager {
             let data = try JSONEncoder().encode(usageStats)
             userDefaults.set(data, forKey: usageStatsStorageKey)
         } catch {
-            print("❌ Failed to save usage stats: \(error)")
+            AppLog.textExpansion.error("Failed to save usage stats: \(error.localizedDescription, privacy: .public)")
         }
     }
 
     func recordExpansion(trigger: String, replacement: String) {
+        lock.lock()
         usageStats = usageStats.recording(trigger: trigger, replacement: replacement)
+        lock.unlock()
         saveUsageStats()
     }
 
     func getUsageStats() -> UsageStats {
-        usageStats
+        lock.lock()
+        defer { lock.unlock() }
+        return usageStats
     }
 
     // MARK: - Settings Management
-    
+
     var isEnabled: Bool {
-        get { settings.isEnabled }
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return settings.isEnabled
+        }
         set {
+            lock.lock()
             settings.isEnabled = newValue
+            lock.unlock()
             saveSettings()
         }
     }
-    
+
     func updateSettings(_ newSettings: TextExpanderSettings) {
+        lock.lock()
         settings = newSettings
+        lock.unlock()
         saveSettings()
     }
-    
+
     // MARK: - Snippet Management
-    
+
     func addSnippet(_ snippet: TextExpansionSnippet) -> Bool {
         guard validateTrigger(snippet.trigger) else {
-            print("⚠️ Invalid trigger: '\(snippet.trigger)'")
+            AppLog.textExpansion.warning("Invalid trigger rejected")
             return false
         }
-        
+
+        lock.lock()
         if snippets.contains(where: { $0.trigger == snippet.trigger }) {
-            print("⚠️ Snippet with trigger '\(snippet.trigger)' already exists")
+            lock.unlock()
+            AppLog.textExpansion.warning("Duplicate trigger rejected")
             return false
         }
-        
+
         snippets.append(snippet)
+        invalidateMatchingCache()
+        lock.unlock()
         saveSnippets()
-        print("✅ Added text expansion snippet: '\(snippet.trigger)'")
+        AppLog.textExpansion.info("Added text expansion snippet")
         return true
     }
-    
+
     func removeSnippet(id: UUID) -> Bool {
+        lock.lock()
         guard let index = snippets.firstIndex(where: { $0.id == id }) else {
-            print("❌ Snippet with ID \(id) not found")
+            lock.unlock()
+            AppLog.textExpansion.error("Snippet not found for removal")
             return false
         }
-        
-        let snippet = snippets[index]
+
         snippets.remove(at: index)
+        invalidateMatchingCache()
+        lock.unlock()
         saveSnippets()
-        print("🗑️ Removed text expansion snippet: '\(snippet.trigger)'")
+        AppLog.textExpansion.info("Removed text expansion snippet")
         return true
     }
-    
+
     func updateSnippet(_ updatedSnippet: TextExpansionSnippet) -> Bool {
+        lock.lock()
         guard let index = snippets.firstIndex(where: { $0.id == updatedSnippet.id }) else {
-            print("❌ Snippet with ID \(updatedSnippet.id) not found")
+            lock.unlock()
+            AppLog.textExpansion.error("Snippet not found for update")
             return false
         }
-        
+
         if updatedSnippet.trigger != snippets[index].trigger {
             guard validateTrigger(updatedSnippet.trigger) else {
-                print("⚠️ Invalid trigger: '\(updatedSnippet.trigger)'")
+                lock.unlock()
+                AppLog.textExpansion.warning("Invalid trigger rejected on update")
                 return false
             }
-            
+
             if snippets.contains(where: { $0.trigger == updatedSnippet.trigger && $0.id != updatedSnippet.id }) {
-                print("⚠️ Snippet with trigger '\(updatedSnippet.trigger)' already exists")
+                lock.unlock()
+                AppLog.textExpansion.warning("Duplicate trigger rejected on update")
                 return false
             }
         }
-        
+
         snippets[index] = updatedSnippet
+        invalidateMatchingCache()
+        lock.unlock()
         saveSnippets()
-        print("📝 Updated text expansion snippet: '\(updatedSnippet.trigger)'")
+        AppLog.textExpansion.info("Updated text expansion snippet")
         return true
     }
-    
+
     func toggleSnippetEnabled(id: UUID) -> Bool {
+        lock.lock()
         guard let index = snippets.firstIndex(where: { $0.id == id }) else {
+            lock.unlock()
             return false
         }
-        
+
         snippets[index].update(isEnabled: !snippets[index].isEnabled)
+        invalidateMatchingCache()
+        lock.unlock()
         saveSnippets()
         return true
     }
-    
+
     func getAllSnippets() -> [TextExpansionSnippet] {
+        lock.lock()
+        defer { lock.unlock() }
         return snippets.sorted { $0.trigger < $1.trigger }
     }
-    
+
     func getEnabledSnippets() -> [TextExpansionSnippet] {
+        lock.lock()
+        defer { lock.unlock() }
         return snippets.filter { $0.isEnabled }.sorted { $0.trigger < $1.trigger }
     }
-    
+
     func getSnippet(id: UUID) -> TextExpansionSnippet? {
+        lock.lock()
+        defer { lock.unlock() }
         return snippets.first { $0.id == id }
     }
-    
+
     func getSnippet(trigger: String) -> TextExpansionSnippet? {
+        lock.lock()
+        defer { lock.unlock() }
         let searchTrigger = settings.caseSensitive ? trigger : trigger.lowercased()
         return snippets.first { snippet in
             let snippetTrigger = settings.caseSensitive ? snippet.trigger : snippet.trigger.lowercased()
             return snippetTrigger == searchTrigger && snippet.isEnabled
         }
     }
-    
+
     // MARK: - Trigger Matching
-    
+
     func findMatchingSnippet(for buffer: String) -> TextExpansionSnippet? {
-        guard settings.isEnabled else { return nil }
-        
-        let enabledSnippets = getEnabledSnippets()
-        guard !enabledSnippets.isEmpty else { return nil }
-        
-        let sortedByLength = enabledSnippets.sorted { $0.trigger.count > $1.trigger.count }
-        
+        lock.lock()
+        guard settings.isEnabled else {
+            lock.unlock()
+            return nil
+        }
+
+        let currentSettings = settings
+        let sortedByLength = rebuildMatchingCacheLocked()
+        lock.unlock()
+
+        guard !sortedByLength.isEmpty else { return nil }
+
         for snippet in sortedByLength {
-            let trigger = settings.caseSensitive ? snippet.trigger : snippet.trigger.lowercased()
-            let searchBuffer = settings.caseSensitive ? buffer : buffer.lowercased()
-            
+            let trigger = currentSettings.caseSensitive ? snippet.trigger : snippet.trigger.lowercased()
+            let searchBuffer = currentSettings.caseSensitive ? buffer : buffer.lowercased()
+
             if searchBuffer.hasSuffix(trigger) {
-                if settings.requireWordBoundary {
+                if currentSettings.requireWordBoundary {
                     let prefixLength = buffer.count - trigger.count
                     if prefixLength > 0 {
                         let prefixIndex = buffer.index(buffer.startIndex, offsetBy: prefixLength - 1)
@@ -233,102 +293,129 @@ class TextExpanderManager {
                 return snippet
             }
         }
-        
+
         return nil
     }
-    
+
     // MARK: - Validation
-    
+
     func validateTrigger(_ trigger: String) -> Bool {
         guard !trigger.isEmpty else { return false }
         guard trigger.count >= 2 else { return false }
         guard !trigger.contains("\n") && !trigger.contains("\t") else { return false }
         return true
     }
-    
+
     func validateReplacement(_ replacement: String) -> Bool {
         return !replacement.isEmpty
     }
-    
+
     // MARK: - Import/Export
-    
+
     func exportSnippets() -> Data? {
+        lock.lock()
+        defer { lock.unlock() }
         do {
             return try JSONEncoder().encode(snippets)
         } catch {
-            print("❌ Failed to export snippets: \(error)")
+            AppLog.textExpansion.error("Failed to export snippets: \(error.localizedDescription, privacy: .public)")
             return nil
         }
     }
-    
+
     func importSnippets(from data: Data, merge: Bool = true) -> Int {
         do {
             let importedSnippets = try JSONDecoder().decode([TextExpansionSnippet].self, from: data)
+            var validSnippets: [TextExpansionSnippet] = []
+            var seenTriggers = Set<String>()
+
+            for snippet in importedSnippets {
+                guard validateTrigger(snippet.trigger), validateReplacement(snippet.replacement) else { continue }
+                guard !seenTriggers.contains(snippet.trigger) else { continue }
+                seenTriggers.insert(snippet.trigger)
+                validSnippets.append(snippet)
+            }
+
+            lock.lock()
             var addedCount = 0
-            
+
             if merge {
-                for snippet in importedSnippets {
-                    if !snippets.contains(where: { $0.trigger == snippet.trigger }) {
-                        snippets.append(snippet)
-                        addedCount += 1
-                    }
+                for snippet in validSnippets where !snippets.contains(where: { $0.trigger == snippet.trigger }) {
+                    snippets.append(snippet)
+                    addedCount += 1
                 }
             } else {
-                snippets = importedSnippets
-                addedCount = importedSnippets.count
+                snippets = validSnippets
+                addedCount = validSnippets.count
             }
-            
+
+            invalidateMatchingCache()
+            lock.unlock()
             saveSnippets()
-            print("📥 Imported \(addedCount) snippets")
+            AppLog.textExpansion.info("Imported \(addedCount, privacy: .public) snippets")
             return addedCount
         } catch {
-            print("❌ Failed to import snippets: \(error)")
+            AppLog.textExpansion.error("Failed to import snippets: \(error.localizedDescription, privacy: .public)")
             return 0
         }
     }
-    
+
     // MARK: - Default Snippets
-    
+
     private func populateDefaultSnippetsIfNeeded() {
         guard !userDefaults.bool(forKey: hasPopulatedDefaultsKey) else { return }
-        
-        if snippets.isEmpty {
+
+        lock.lock()
+        let isEmpty = snippets.isEmpty
+        lock.unlock()
+
+        if isEmpty {
             addDefaultSnippets()
             userDefaults.set(true, forKey: hasPopulatedDefaultsKey)
-            print("📝 Populated default text expansion snippets")
+            AppLog.textExpansion.info("Populated default text expansion snippets")
         }
     }
-    
+
     private func addDefaultSnippets() {
         let defaults = getDefaultSnippetsList()
+        lock.lock()
         for snippet in defaults {
             snippets.append(snippet)
         }
+        invalidateMatchingCache()
+        lock.unlock()
         saveSnippets()
     }
-    
+
     func resetToDefaultSnippets() {
+        lock.lock()
         snippets = []
+        invalidateMatchingCache()
+        lock.unlock()
         addDefaultSnippets()
     }
-    
+
     func mergeDefaultSnippets() -> Int {
         let defaults = getDefaultSnippetsList()
+        lock.lock()
         var addedCount = 0
-        
-        for snippet in defaults {
-            if !snippets.contains(where: { $0.trigger == snippet.trigger }) {
-                snippets.append(snippet)
-                addedCount += 1
-            }
+
+        for snippet in defaults where !snippets.contains(where: { $0.trigger == snippet.trigger }) {
+            snippets.append(snippet)
+            addedCount += 1
         }
-        
+
+        if addedCount > 0 {
+            invalidateMatchingCache()
+        }
+        lock.unlock()
+
         if addedCount > 0 {
             saveSnippets()
         }
         return addedCount
     }
-    
+
     private func getDefaultSnippetsList() -> [TextExpansionSnippet] {
         return [
             // === DATE/TIME ===
@@ -385,12 +472,12 @@ class TextExpanderManager {
                 replacement: "## Summary\n{area:Summary:What changed and why.}\n\n## Test plan\n{area:TestPlan:- [ ] }\n\n{cursor}",
                 groupName: "Templates"
             ),
-            
+
             // === CONTACT (customize these) ===
             TextExpansionSnippet(trigger: ":email", replacement: "your.email@example.com", groupName: "Contact"),
             TextExpansionSnippet(trigger: ":phone", replacement: "+1 (555) 123-4567", groupName: "Contact"),
             TextExpansionSnippet(trigger: ":addr", replacement: "123 Main Street\nCity, State 12345", groupName: "Contact"),
-            
+
             // === COMMON PHRASES ===
             TextExpansionSnippet(trigger: ":ty", replacement: "Thank you", groupName: "Phrases"),
             TextExpansionSnippet(trigger: ":tyvm", replacement: "Thank you very much!", groupName: "Phrases"),
@@ -401,7 +488,7 @@ class TextExpanderManager {
             TextExpansionSnippet(trigger: ":fyi", replacement: "For your information", groupName: "Phrases"),
             TextExpansionSnippet(trigger: ":sig", replacement: "Best regards,\n\nYour Name\nyour.email@example.com", groupName: "Phrases"),
             TextExpansionSnippet(trigger: ":oof", replacement: "I'm currently out of the office with limited access to email. I will respond to your message when I return.", groupName: "Phrases"),
-            
+
             // === CODE COMMENTS ===
             TextExpansionSnippet(trigger: ":todo", replacement: "// TODO: {cursor}", groupName: "Code"),
             TextExpansionSnippet(trigger: ":fixme", replacement: "// FIXME: {cursor}", groupName: "Code"),
@@ -409,14 +496,14 @@ class TextExpanderManager {
             TextExpansionSnippet(trigger: ":note", replacement: "// NOTE: {cursor}", groupName: "Code"),
             TextExpansionSnippet(trigger: ":bug", replacement: "// BUG: {cursor}", groupName: "Code"),
             TextExpansionSnippet(trigger: ":warn", replacement: "// WARNING: {cursor}", groupName: "Code"),
-            
+
             // === DEBUGGING ===
             TextExpansionSnippet(trigger: ":clog", replacement: "console.log({cursor})", groupName: "Code"),
             TextExpansionSnippet(trigger: ":cerr", replacement: "console.error({cursor})", groupName: "Code"),
             TextExpansionSnippet(trigger: ":cdir", replacement: "console.dir({cursor})", groupName: "Code"),
             TextExpansionSnippet(trigger: ":pprint", replacement: "print({cursor})", groupName: "Code"),
             TextExpansionSnippet(trigger: ":dbg", replacement: "debugger;", groupName: "Code"),
-            
+
             // === GIT COMMANDS ===
             TextExpansionSnippet(trigger: ":gaa", replacement: "git add -A", groupName: "Git"),
             TextExpansionSnippet(trigger: ":gcm", replacement: "git commit -m \"{cursor}\"", groupName: "Git"),
@@ -428,7 +515,7 @@ class TextExpanderManager {
             TextExpansionSnippet(trigger: ":glog", replacement: "git log --oneline -10", groupName: "Git"),
             TextExpansionSnippet(trigger: ":gdf", replacement: "git diff", groupName: "Git"),
             TextExpansionSnippet(trigger: ":grh", replacement: "git reset --hard HEAD", groupName: "Git"),
-            
+
             // === CODE BLOCKS ===
             TextExpansionSnippet(trigger: ":try", replacement: "try {\n    {cursor}\n} catch (error) {\n    console.error(error);\n}", groupName: "Code"),
             TextExpansionSnippet(trigger: ":ife", replacement: "if ({cursor}) {\n    \n} else {\n    \n}", groupName: "Code"),
@@ -437,12 +524,12 @@ class TextExpanderManager {
             TextExpansionSnippet(trigger: ":fore", replacement: ".forEach((item) => {\n    {cursor}\n})", groupName: "Code"),
             TextExpansionSnippet(trigger: ":map", replacement: ".map((item) => {\n    {cursor}\n})", groupName: "Code"),
             TextExpansionSnippet(trigger: ":filt", replacement: ".filter((item) => {\n    {cursor}\n})", groupName: "Code"),
-            
+
             // === PLACEHOLDER TEXT ===
             TextExpansionSnippet(trigger: ":lorem", replacement: "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."),
             TextExpansionSnippet(trigger: ":lorem1", replacement: "Lorem ipsum dolor sit amet."),
             TextExpansionSnippet(trigger: ":lorem3", replacement: "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur."),
-            
+
             // === SYMBOLS & SPECIAL ===
             TextExpansionSnippet(trigger: ":shrug", replacement: "¯\\_(ツ)_/¯"),
             TextExpansionSnippet(trigger: ":arr", replacement: "→"),
@@ -451,7 +538,7 @@ class TextExpanderManager {
             TextExpansionSnippet(trigger: ":x", replacement: "✗"),
             TextExpansionSnippet(trigger: ":star", replacement: "★"),
             TextExpansionSnippet(trigger: ":bullet", replacement: "•"),
-            
+
             // === COMMON VALUES ===
             TextExpansionSnippet(trigger: ":null", replacement: "null"),
             TextExpansionSnippet(trigger: ":undef", replacement: "undefined"),
