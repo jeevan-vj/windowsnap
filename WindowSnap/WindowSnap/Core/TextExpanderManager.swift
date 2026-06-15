@@ -4,21 +4,23 @@ import Foundation
 class TextExpanderManager {
     static let shared = TextExpanderManager()
     
-    private let userDefaults = UserDefaults.standard
     private let snippetsStorageKey = "WindowSnap_TextExpanderSnippets"
     private let settingsStorageKey = "WindowSnap_TextExpanderSettings"
     private let hasPopulatedDefaultsKey = "WindowSnap_TextExpanderHasPopulatedDefaults"
-    
+    private let usageStatsStorageKey = "WindowSnap_TextExpanderUsageStats"
+
     private var snippets: [TextExpansionSnippet] = []
     private(set) var settings: TextExpanderSettings = .default
-    
-    private init() {
+    private(set) var usageStats: UsageStats = UsageStats()
+    private let userDefaults: UserDefaults
+
+    private init(userDefaults: UserDefaults = .standard) {
+        self.userDefaults = userDefaults
         loadSnippets()
         loadSettings()
+        loadUsageStats()
         populateDefaultSnippetsIfNeeded()
     }
-    
-    // MARK: - Storage Operations
     
     private func loadSnippets() {
         guard let data = userDefaults.data(forKey: snippetsStorageKey) else {
@@ -69,7 +71,39 @@ class TextExpanderManager {
             print("❌ Failed to save text expander settings: \(error)")
         }
     }
-    
+
+    private func loadUsageStats() {
+        guard let data = userDefaults.data(forKey: usageStatsStorageKey) else {
+            usageStats = UsageStats()
+            return
+        }
+
+        do {
+            usageStats = try JSONDecoder().decode(UsageStats.self, from: data)
+        } catch {
+            print("❌ Failed to load usage stats: \(error)")
+            usageStats = UsageStats()
+        }
+    }
+
+    private func saveUsageStats() {
+        do {
+            let data = try JSONEncoder().encode(usageStats)
+            userDefaults.set(data, forKey: usageStatsStorageKey)
+        } catch {
+            print("❌ Failed to save usage stats: \(error)")
+        }
+    }
+
+    func recordExpansion(trigger: String, replacement: String) {
+        usageStats = usageStats.recording(trigger: trigger, replacement: replacement)
+        saveUsageStats()
+    }
+
+    func getUsageStats() -> UsageStats {
+        usageStats
+    }
+
     // MARK: - Settings Management
     
     var isEnabled: Bool {
@@ -298,62 +332,111 @@ class TextExpanderManager {
     private func getDefaultSnippetsList() -> [TextExpansionSnippet] {
         return [
             // === DATE/TIME ===
-            TextExpansionSnippet(trigger: ":date", replacement: "{date}"),
-            TextExpansionSnippet(trigger: ":time", replacement: "{time}"),
-            TextExpansionSnippet(trigger: ":now", replacement: "{date} {time}"),
-            TextExpansionSnippet(trigger: ":isodate", replacement: "{isodate}"),
+            TextExpansionSnippet(trigger: ":date", replacement: "{date}", groupName: "Date & Time"),
+            TextExpansionSnippet(trigger: ":time", replacement: "{time}", groupName: "Date & Time"),
+            TextExpansionSnippet(trigger: ":now", replacement: "{date} {time}", groupName: "Date & Time"),
+            TextExpansionSnippet(trigger: ":isodate", replacement: "{isodate}", groupName: "Date & Time"),
+            TextExpansionSnippet(trigger: ":tomorrow", replacement: "{date:+1d:yyyy-MM-dd}", groupName: "Date & Time"),
+            TextExpansionSnippet(trigger: ":nextweek", replacement: "{date:+1w:EEEE, MMM d}", groupName: "Date & Time"),
+
+            // === TEMPLATE SNIPPETS (fill-in fields, popups, macros) ===
+            TextExpansionSnippet(
+                trigger: ":hello",
+                replacement: "Hi {field:Name:there},\n\n{cursor}\n\nBest,\nYour Name",
+                groupName: "Templates"
+            ),
+            TextExpansionSnippet(
+                trigger: ":reply",
+                replacement: "Hi {field:Name},\n\nThanks for reaching out about {field:Topic}. {cursor}\n\nLet me know if you have any questions.\n\nBest regards,\nYour Name",
+                groupName: "Templates"
+            ),
+            TextExpansionSnippet(
+                trigger: ":meet",
+                replacement: "Hi {field:Name},\n\nI'd like to schedule a {popup:Duration:15|30|45|60}-minute meeting on {date:+3d:EEEE, MMM d}. {cursor}\n\nDoes that work for you?\n\nThanks,\nYour Name",
+                groupName: "Templates"
+            ),
+            TextExpansionSnippet(
+                trigger: ":ticket",
+                replacement: "Ticket: {field:Title}\nPriority: {popup:Priority:Low|Medium|High|Urgent}\nDate: {date:yyyy-MM-dd}\n\nDescription:\n{area:Details:Describe the issue here.}\n\n{cursor}",
+                groupName: "Templates"
+            ),
+            TextExpansionSnippet(
+                trigger: ":status",
+                replacement: "Status update ({date:yyyy-MM-dd}):\n\nDone:\n{area:Done:- }\n\nNext:\n{area:Next:- }\n\nBlockers:\n{area:Blockers:None}\n\n{cursor}",
+                groupName: "Templates"
+            ),
+            TextExpansionSnippet(
+                trigger: ":intro",
+                replacement: "Hi {field:Name},\n\n{popup:Tone:I hope this message finds you well.|Hope you're doing well.|Quick note for you.} {cursor}\n\nThanks,\nYour Name",
+                groupName: "Templates"
+            ),
+            TextExpansionSnippet(
+                trigger: ":paste",
+                replacement: "{clipboard}{cursor}",
+                groupName: "Templates"
+            ),
+            TextExpansionSnippet(
+                trigger: ":id",
+                replacement: "ref-{uuid}{cursor}",
+                groupName: "Templates"
+            ),
+            TextExpansionSnippet(
+                trigger: ":pr",
+                replacement: "## Summary\n{area:Summary:What changed and why.}\n\n## Test plan\n{area:TestPlan:- [ ] }\n\n{cursor}",
+                groupName: "Templates"
+            ),
             
             // === CONTACT (customize these) ===
-            TextExpansionSnippet(trigger: ":email", replacement: "your.email@example.com"),
-            TextExpansionSnippet(trigger: ":phone", replacement: "+1 (555) 123-4567"),
-            TextExpansionSnippet(trigger: ":addr", replacement: "123 Main Street\nCity, State 12345"),
+            TextExpansionSnippet(trigger: ":email", replacement: "your.email@example.com", groupName: "Contact"),
+            TextExpansionSnippet(trigger: ":phone", replacement: "+1 (555) 123-4567", groupName: "Contact"),
+            TextExpansionSnippet(trigger: ":addr", replacement: "123 Main Street\nCity, State 12345", groupName: "Contact"),
             
             // === COMMON PHRASES ===
-            TextExpansionSnippet(trigger: ":ty", replacement: "Thank you"),
-            TextExpansionSnippet(trigger: ":tyvm", replacement: "Thank you very much!"),
-            TextExpansionSnippet(trigger: ":br", replacement: "Best regards,"),
-            TextExpansionSnippet(trigger: ":kr", replacement: "Kind regards,"),
-            TextExpansionSnippet(trigger: ":lmk", replacement: "Let me know if you have any questions."),
-            TextExpansionSnippet(trigger: ":pfa", replacement: "Please find attached"),
-            TextExpansionSnippet(trigger: ":fyi", replacement: "For your information"),
-            TextExpansionSnippet(trigger: ":sig", replacement: "Best regards,\n\nYour Name\nyour.email@example.com"),
-            TextExpansionSnippet(trigger: ":oof", replacement: "I'm currently out of the office with limited access to email. I will respond to your message when I return."),
+            TextExpansionSnippet(trigger: ":ty", replacement: "Thank you", groupName: "Phrases"),
+            TextExpansionSnippet(trigger: ":tyvm", replacement: "Thank you very much!", groupName: "Phrases"),
+            TextExpansionSnippet(trigger: ":br", replacement: "Best regards,", groupName: "Phrases"),
+            TextExpansionSnippet(trigger: ":kr", replacement: "Kind regards,", groupName: "Phrases"),
+            TextExpansionSnippet(trigger: ":lmk", replacement: "Let me know if you have any questions.", groupName: "Phrases"),
+            TextExpansionSnippet(trigger: ":pfa", replacement: "Please find attached", groupName: "Phrases"),
+            TextExpansionSnippet(trigger: ":fyi", replacement: "For your information", groupName: "Phrases"),
+            TextExpansionSnippet(trigger: ":sig", replacement: "Best regards,\n\nYour Name\nyour.email@example.com", groupName: "Phrases"),
+            TextExpansionSnippet(trigger: ":oof", replacement: "I'm currently out of the office with limited access to email. I will respond to your message when I return.", groupName: "Phrases"),
             
             // === CODE COMMENTS ===
-            TextExpansionSnippet(trigger: ":todo", replacement: "// TODO: "),
-            TextExpansionSnippet(trigger: ":fixme", replacement: "// FIXME: "),
-            TextExpansionSnippet(trigger: ":hack", replacement: "// HACK: "),
-            TextExpansionSnippet(trigger: ":note", replacement: "// NOTE: "),
-            TextExpansionSnippet(trigger: ":bug", replacement: "// BUG: "),
-            TextExpansionSnippet(trigger: ":warn", replacement: "// WARNING: "),
+            TextExpansionSnippet(trigger: ":todo", replacement: "// TODO: {cursor}", groupName: "Code"),
+            TextExpansionSnippet(trigger: ":fixme", replacement: "// FIXME: {cursor}", groupName: "Code"),
+            TextExpansionSnippet(trigger: ":hack", replacement: "// HACK: {cursor}", groupName: "Code"),
+            TextExpansionSnippet(trigger: ":note", replacement: "// NOTE: {cursor}", groupName: "Code"),
+            TextExpansionSnippet(trigger: ":bug", replacement: "// BUG: {cursor}", groupName: "Code"),
+            TextExpansionSnippet(trigger: ":warn", replacement: "// WARNING: {cursor}", groupName: "Code"),
             
             // === DEBUGGING ===
-            TextExpansionSnippet(trigger: ":clog", replacement: "console.log()"),
-            TextExpansionSnippet(trigger: ":cerr", replacement: "console.error()"),
-            TextExpansionSnippet(trigger: ":cdir", replacement: "console.dir()"),
-            TextExpansionSnippet(trigger: ":pprint", replacement: "print()"),
-            TextExpansionSnippet(trigger: ":dbg", replacement: "debugger;"),
+            TextExpansionSnippet(trigger: ":clog", replacement: "console.log({cursor})", groupName: "Code"),
+            TextExpansionSnippet(trigger: ":cerr", replacement: "console.error({cursor})", groupName: "Code"),
+            TextExpansionSnippet(trigger: ":cdir", replacement: "console.dir({cursor})", groupName: "Code"),
+            TextExpansionSnippet(trigger: ":pprint", replacement: "print({cursor})", groupName: "Code"),
+            TextExpansionSnippet(trigger: ":dbg", replacement: "debugger;", groupName: "Code"),
             
             // === GIT COMMANDS ===
-            TextExpansionSnippet(trigger: ":gaa", replacement: "git add -A"),
-            TextExpansionSnippet(trigger: ":gcm", replacement: "git commit -m \"\""),
-            TextExpansionSnippet(trigger: ":gp", replacement: "git push"),
-            TextExpansionSnippet(trigger: ":gpl", replacement: "git pull"),
-            TextExpansionSnippet(trigger: ":gco", replacement: "git checkout "),
-            TextExpansionSnippet(trigger: ":gst", replacement: "git status"),
-            TextExpansionSnippet(trigger: ":gbr", replacement: "git branch"),
-            TextExpansionSnippet(trigger: ":glog", replacement: "git log --oneline -10"),
-            TextExpansionSnippet(trigger: ":gdf", replacement: "git diff"),
-            TextExpansionSnippet(trigger: ":grh", replacement: "git reset --hard HEAD"),
+            TextExpansionSnippet(trigger: ":gaa", replacement: "git add -A", groupName: "Git"),
+            TextExpansionSnippet(trigger: ":gcm", replacement: "git commit -m \"{cursor}\"", groupName: "Git"),
+            TextExpansionSnippet(trigger: ":gp", replacement: "git push", groupName: "Git"),
+            TextExpansionSnippet(trigger: ":gpl", replacement: "git pull", groupName: "Git"),
+            TextExpansionSnippet(trigger: ":gco", replacement: "git checkout {cursor}", groupName: "Git"),
+            TextExpansionSnippet(trigger: ":gst", replacement: "git status", groupName: "Git"),
+            TextExpansionSnippet(trigger: ":gbr", replacement: "git branch", groupName: "Git"),
+            TextExpansionSnippet(trigger: ":glog", replacement: "git log --oneline -10", groupName: "Git"),
+            TextExpansionSnippet(trigger: ":gdf", replacement: "git diff", groupName: "Git"),
+            TextExpansionSnippet(trigger: ":grh", replacement: "git reset --hard HEAD", groupName: "Git"),
             
             // === CODE BLOCKS ===
-            TextExpansionSnippet(trigger: ":try", replacement: "try {\n    \n} catch (error) {\n    console.error(error);\n}"),
-            TextExpansionSnippet(trigger: ":ife", replacement: "if () {\n    \n} else {\n    \n}"),
-            TextExpansionSnippet(trigger: ":afn", replacement: "() => {\n    \n}"),
-            TextExpansionSnippet(trigger: ":fn", replacement: "function () {\n    \n}"),
-            TextExpansionSnippet(trigger: ":fore", replacement: ".forEach((item) => {\n    \n})"),
-            TextExpansionSnippet(trigger: ":map", replacement: ".map((item) => {\n    \n})"),
-            TextExpansionSnippet(trigger: ":filt", replacement: ".filter((item) => {\n    \n})"),
+            TextExpansionSnippet(trigger: ":try", replacement: "try {\n    {cursor}\n} catch (error) {\n    console.error(error);\n}", groupName: "Code"),
+            TextExpansionSnippet(trigger: ":ife", replacement: "if ({cursor}) {\n    \n} else {\n    \n}", groupName: "Code"),
+            TextExpansionSnippet(trigger: ":afn", replacement: "() => {\n    {cursor}\n}", groupName: "Code"),
+            TextExpansionSnippet(trigger: ":fn", replacement: "function () {\n    {cursor}\n}", groupName: "Code"),
+            TextExpansionSnippet(trigger: ":fore", replacement: ".forEach((item) => {\n    {cursor}\n})", groupName: "Code"),
+            TextExpansionSnippet(trigger: ":map", replacement: ".map((item) => {\n    {cursor}\n})", groupName: "Code"),
+            TextExpansionSnippet(trigger: ":filt", replacement: ".filter((item) => {\n    {cursor}\n})", groupName: "Code"),
             
             // === PLACEHOLDER TEXT ===
             TextExpansionSnippet(trigger: ":lorem", replacement: "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."),

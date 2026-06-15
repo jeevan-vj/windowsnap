@@ -120,9 +120,15 @@ class TextExpanderWindow: NSWindowController, NSTableViewDelegate, NSTableViewDa
         
         let replacementColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("replacement"))
         replacementColumn.title = "Replacement"
-        replacementColumn.width = 350
+        replacementColumn.width = 250
         replacementColumn.minWidth = 150
         tableView.addTableColumn(replacementColumn)
+
+        let groupColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("group"))
+        groupColumn.title = "Group"
+        groupColumn.width = 100
+        groupColumn.minWidth = 80
+        tableView.addTableColumn(groupColumn)
         
         scrollView.documentView = tableView
         contentView.addSubview(scrollView)
@@ -322,7 +328,7 @@ class TextExpanderWindow: NSWindowController, NSTableViewDelegate, NSTableViewDa
         alert.addButton(withTitle: "Save")
         alert.addButton(withTitle: "Cancel")
         
-        let accessoryView = NSView(frame: NSRect(x: 0, y: 0, width: 350, height: 140))
+        let accessoryView = NSView(frame: NSRect(x: 0, y: 0, width: 350, height: 160))
         
         let triggerLabel = NSTextField(labelWithString: "Trigger:")
         triggerLabel.frame = NSRect(x: 0, y: 110, width: 80, height: 20)
@@ -337,7 +343,7 @@ class TextExpanderWindow: NSWindowController, NSTableViewDelegate, NSTableViewDa
         replacementLabel.frame = NSRect(x: 0, y: 75, width: 80, height: 20)
         accessoryView.addSubview(replacementLabel)
         
-        let replacementScrollView = NSScrollView(frame: NSRect(x: 85, y: 20, width: 265, height: 80))
+        let replacementScrollView = NSScrollView(frame: NSRect(x: 85, y: 40, width: 265, height: 80))
         replacementScrollView.hasVerticalScroller = true
         replacementScrollView.borderType = .bezelBorder
         
@@ -348,9 +354,18 @@ class TextExpanderWindow: NSWindowController, NSTableViewDelegate, NSTableViewDa
         replacementTextView.string = snippet?.replacement ?? ""
         replacementScrollView.documentView = replacementTextView
         accessoryView.addSubview(replacementScrollView)
-        
-        let hintLabel = NSTextField(labelWithString: "Use {date}, {time}, {isodate} for dynamic values")
-        hintLabel.frame = NSRect(x: 85, y: 0, width: 265, height: 16)
+
+        let groupLabel = NSTextField(labelWithString: "Group:")
+        groupLabel.frame = NSRect(x: 0, y: 10, width: 80, height: 20)
+        accessoryView.addSubview(groupLabel)
+
+        let groupField = NSTextField(frame: NSRect(x: 85, y: 8, width: 265, height: 24))
+        groupField.stringValue = snippet?.groupName ?? ""
+        groupField.placeholderString = "Work"
+        accessoryView.addSubview(groupField)
+
+        let hintLabel = NSTextField(labelWithString: "Use {date}, {time}, {cursor}, {field:Name}, {popup:Day:Mon|Tue|Wed}")
+        hintLabel.frame = NSRect(x: 85, y: -10, width: 265, height: 16)
         hintLabel.font = NSFont.systemFont(ofSize: 10)
         hintLabel.textColor = .secondaryLabelColor
         accessoryView.addSubview(hintLabel)
@@ -362,6 +377,8 @@ class TextExpanderWindow: NSWindowController, NSTableViewDelegate, NSTableViewDa
         if alert.runModal() == .alertFirstButtonReturn {
             let trigger = triggerField.stringValue.trimmingCharacters(in: .whitespaces)
             let replacement = replacementTextView.string
+            let groupName = groupField.stringValue.trimmingCharacters(in: .whitespaces)
+            let normalizedGroup = groupName.isEmpty ? nil : groupName
             
             guard TextExpanderManager.shared.validateTrigger(trigger) else {
                 let errorAlert = NSAlert()
@@ -382,7 +399,11 @@ class TextExpanderWindow: NSWindowController, NSTableViewDelegate, NSTableViewDa
             }
             
             if let existingSnippet = snippet {
-                let updated = existingSnippet.withUpdate(trigger: trigger, replacement: replacement)
+                let updated = existingSnippet.withUpdate(
+                    trigger: trigger,
+                    replacement: replacement,
+                    groupName: .some(normalizedGroup)
+                )
                 if !TextExpanderManager.shared.updateSnippet(updated) {
                     let errorAlert = NSAlert()
                     errorAlert.messageText = "Update Failed"
@@ -391,7 +412,11 @@ class TextExpanderWindow: NSWindowController, NSTableViewDelegate, NSTableViewDa
                     errorAlert.runModal()
                 }
             } else {
-                let newSnippet = TextExpansionSnippet(trigger: trigger, replacement: replacement)
+                let newSnippet = TextExpansionSnippet(
+                    trigger: trigger,
+                    replacement: replacement,
+                    groupName: normalizedGroup
+                )
                 if !TextExpanderManager.shared.addSnippet(newSnippet) {
                     let errorAlert = NSAlert()
                     errorAlert.messageText = "Add Failed"
@@ -434,9 +459,14 @@ class TextExpanderWindow: NSWindowController, NSTableViewDelegate, NSTableViewDa
             
         case "replacement":
             let preview = snippet.replacement.replacingOccurrences(of: "\n", with: " ↵ ")
-            let truncated = preview.count > 80 ? String(preview.prefix(80)) + "..." : preview
+            let truncated = preview.count > 50 ? String(preview.prefix(50)) + "..." : preview
             let textField = NSTextField(labelWithString: truncated)
             textField.textColor = snippet.isEnabled ? .labelColor : .secondaryLabelColor
+            return textField
+
+        case "group":
+            let textField = NSTextField(labelWithString: snippet.groupName ?? "Ungrouped")
+            textField.textColor = snippet.isEnabled ? .secondaryLabelColor : .tertiaryLabelColor
             return textField
             
         default:

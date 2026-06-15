@@ -244,6 +244,14 @@ class PreferencesWindow: NSWindowController {
         let manageButton = NSButton(title: "Manage Snippets...", target: self, action: #selector(openTextExpanderWindow))
         manageButton.frame = NSRect(x: 40, y: yPos, width: 150, height: 30)
         view.addSubview(manageButton)
+        yPos -= 45
+
+        let stats = TextExpanderManager.shared.getUsageStats()
+        let statsLabel = NSTextField(wrappingLabelWithString: "Usage: \(stats.expansionCount) expansions • \(stats.charactersSaved) characters saved • \(stats.timeSavedEstimate())")
+        statsLabel.frame = NSRect(x: 40, y: yPos - 20, width: 400, height: 40)
+        statsLabel.textColor = .secondaryLabelColor
+        statsLabel.font = NSFont.systemFont(ofSize: 12)
+        view.addSubview(statsLabel)
         
         return view
     }

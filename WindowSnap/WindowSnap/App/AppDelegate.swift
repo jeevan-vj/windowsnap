@@ -9,6 +9,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var workspaceManager: WorkspaceManager?
     private var clipboardManager: ClipboardManager?
     private var clipboardHistoryWindow: ClipboardHistoryWindow?
+    private var snippetPickerWindow: SnippetPickerWindow?
     private var textExpanderManager: TextExpanderManager?
     private var textExpansionEngine: TextExpansionEngine?
     private var healthCheckTimer: Timer?
@@ -161,6 +162,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if !success {
             print("Failed to register clipboard history shortcut: cmd+shift+v")
         }
+
+        let snippetPickerSuccess = shortcutManager.registerGlobalShortcut("cmd+shift+;") { [weak self] in
+            self?.showSnippetPicker()
+        }
+        if !snippetPickerSuccess {
+            print("Failed to register snippet picker shortcut: cmd+shift+;")
+        }
         
         // Start clipboard monitoring
         clipboardManager?.startMonitoring()
@@ -180,6 +188,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         print("   📏 Make Smaller: ⌃⌥⇧←")
         print("   🎯 Window Throw: ⌃⌥⌘Space")
         print("   📋 Clipboard History: ⌘⇧V")
+        print("   📝 Snippet Picker: ⌘⇧;")
         print("   📺 Region Share: ⌃⌘R")
         print("   📝 Text Expander: Type trigger + Tab")
     }
@@ -204,6 +213,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         clipboardHistoryWindow?.showWindow()
+    }
+
+    private func showSnippetPicker() {
+        if snippetPickerWindow == nil {
+            snippetPickerWindow = SnippetPickerWindow()
+            snippetPickerWindow?.onSnippetSelected = { [weak self] snippet in
+                self?.textExpansionEngine?.performExpansion(snippet: snippet)
+            }
+        }
+
+        if snippetPickerWindow?.isVisible == true {
+            snippetPickerWindow?.orderOut(nil)
+            return
+        }
+
+        snippetPickerWindow?.presentNearMouse()
     }
     
     // MARK: - Sleep/Wake Handling
