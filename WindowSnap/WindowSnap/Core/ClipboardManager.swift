@@ -90,11 +90,11 @@ class ClipboardManager: NSObject {
     }
     
     func getHistory() -> [ClipboardHistoryItem] {
-        // Sort with pinned items first, then unpinned items
-        // Within each group, sort by timestamp (newest first)
-        let pinned = history.filter { $0.isPinned }.sorted { $0.timestamp > $1.timestamp }
-        let unpinned = history.filter { !$0.isPinned }.sorted { $0.timestamp > $1.timestamp }
-        return pinned + unpinned
+        Self.sortHistory(history)
+    }
+
+    static func sortHistory(_ items: [ClipboardHistoryItem]) -> [ClipboardHistoryItem] {
+        ClipboardHistoryFilterModel.sortPinnedFirst(items)
     }
     
     func clearHistory() {

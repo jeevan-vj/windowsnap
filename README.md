@@ -229,12 +229,16 @@ swift test
 ### Testing
 
 ```bash
-# Test basic functionality
-swift test_simple.swift
+cd WindowSnap
 
-# Test window detection
+# Unit tests (clipboard filter logic, previews, sorting)
+swift test
 
-swift -I .build/debug test_windows.swift
+# Run app in bundle context for UI verification
+bash scripts/quick-run.sh
+
+# Manual clipboard history smoke test
+bash ../test_clipboard_history.sh
 ```
 
 ### Contributing

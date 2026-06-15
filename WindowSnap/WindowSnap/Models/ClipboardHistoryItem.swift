@@ -32,6 +32,10 @@ struct ClipboardHistoryItem {
         self.isPinned = isPinned
     }
     
+    static func makePreview(from content: String, type: ClipboardItemType) -> String {
+        generatePreview(from: content, type: type)
+    }
+
     private static func generatePreview(from content: String, type: ClipboardItemType) -> String {
         switch type {
         case .text:
