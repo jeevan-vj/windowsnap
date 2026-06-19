@@ -58,7 +58,7 @@ class ClipboardHistoryWindow: NSWindow {
         title = ""
         titlebarAppearsTransparent = true
         level = .floating
-        isMovableByWindowBackground = false
+        isMovableByWindowBackground = true
         backgroundColor = .clear
         isReleasedWhenClosed = false
         minSize = NSSize(width: 360, height: 380)
