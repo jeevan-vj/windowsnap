@@ -32,6 +32,8 @@ mkdir -p "$UNIVERSAL_DIR"
 echo -e "${GREEN}✓${NC} Cleaned build directories"
 echo ""
 
+cd "$ROOT_DIR"
+
 # Build for Apple Silicon (ARM64)
 echo -e "${YELLOW}[2/5]${NC} Building for Apple Silicon (ARM64)..."
 if swift build \

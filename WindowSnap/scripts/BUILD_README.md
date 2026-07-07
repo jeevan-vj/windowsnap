@@ -104,12 +104,14 @@ VERSION="1.3.0" ./scripts/build-universal-bundle.sh
 
 ---
 
-### 3. `build_bundle.sh` (Original)
+### 3. `build_bundle.sh` (Compatibility Wrapper)
 
-**Purpose:** Original single-architecture bundle builder
-**Output:** Builds for current Mac's architecture only
+**Purpose:** Backward-compatible entrypoint for scripts and docs that still call `build_bundle.sh`
+**Output:** Delegates to `build-universal-bundle.sh`
 
-**Note:** This is kept for backward compatibility. For distribution, use `build-universal-bundle.sh` instead.
+**Note:** This intentionally no longer builds for only the current Mac's architecture. Distribution builds must remain universal so the app runs natively on both Apple Silicon and Intel Macs.
+
+See also: `../docs/INTEL_MAC_COMPATIBILITY.md`
 
 ---
 
