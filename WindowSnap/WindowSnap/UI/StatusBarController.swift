@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 
 class StatusBarController {
+    var onShowAccessibilitySetup: (() -> Void)?
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private var preferencesWindow: PreferencesWindow?
     private var textExpanderWindow: TextExpanderWindow?
@@ -105,6 +106,10 @@ class StatusBarController {
         }
         
         // Settings and Info
+        let accessibilityItem = NSMenuItem(title: "Accessibility Setup…", action: #selector(showAccessibilitySetup), keyEquivalent: "")
+        accessibilityItem.target = self
+        menu.addItem(accessibilityItem)
+
         let preferencesItem = NSMenuItem(title: "Preferences...", action: #selector(showPreferences), keyEquivalent: ",")
         preferencesItem.target = self
         menu.addItem(preferencesItem)
@@ -161,6 +166,10 @@ class StatusBarController {
         preferencesWindow?.showWindow(nil)
         preferencesWindow?.window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @objc private func showAccessibilitySetup() {
+        onShowAccessibilitySetup?()
     }
     
     @objc private func showCustomPositions() {
