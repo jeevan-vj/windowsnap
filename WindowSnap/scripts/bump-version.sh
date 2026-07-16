@@ -6,6 +6,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 VERSION_FILE="$ROOT_DIR/VERSION"
+BUILD_FILE="$ROOT_DIR/BUILD_NUMBER"
 
 if [[ ! -f "$VERSION_FILE" ]]; then
   echo "❌ VERSION file not found at $VERSION_FILE" >&2
@@ -19,8 +20,8 @@ if [[ -z "$CURRENT_VERSION" ]]; then
   exit 1
 fi
 
-# Validate current version format (semantic versioning)
-if [[ ! "$CURRENT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?(\+[a-zA-Z0-9.-]+)?$ ]]; then
+# Validate current release version before changing either authoritative file.
+if [[ ! "$CURRENT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$ ]]; then
   echo "❌ Invalid version format: $CURRENT_VERSION" >&2
   echo "   Expected format: MAJOR.MINOR.PATCH (e.g., 1.2.0)" >&2
   exit 1
@@ -52,21 +53,27 @@ case "$BUMP_TYPE" in
     ;;
 esac
 
-# Update VERSION file
+CURRENT_BUILD="$(tr -d '[:space:]' < "$BUILD_FILE")"
+[[ "$CURRENT_BUILD" =~ ^[1-9][0-9]*$ ]] || { echo "❌ Invalid BUILD_NUMBER: $CURRENT_BUILD" >&2; exit 1; }
+NEW_BUILD=$((CURRENT_BUILD + 1))
+
+# Update the authoritative files only after every input has been validated.
 echo "$NEW_VERSION" > "$VERSION_FILE"
+echo "$NEW_BUILD" > "$BUILD_FILE"
 
 # Update Info.plist if it exists
 PLIST_FILE="$ROOT_DIR/WindowSnap/App/Info.plist"
 if [[ -f "$PLIST_FILE" ]]; then
   /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $NEW_VERSION" "$PLIST_FILE" 2>/dev/null || true
+  /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $NEW_BUILD" "$PLIST_FILE" 2>/dev/null || true
   echo "✅ Updated Info.plist"
 fi
 
 echo "✅ Version bumped: $CURRENT_VERSION → $NEW_VERSION"
+echo "✅ Build bumped: $CURRENT_BUILD → $NEW_BUILD"
 echo ""
 echo "Next steps:"
 echo "  1. Review changes: git diff"
-echo "  2. Commit version bump: git add VERSION WindowSnap/WindowSnap/App/Info.plist && git commit -m \"Bump version to $NEW_VERSION\""
+echo "  2. Commit version bump: git add VERSION BUILD_NUMBER WindowSnap/App/Info.plist && git commit -m \"Bump version to $NEW_VERSION\""
 echo "  3. Tag release: git tag -a v$NEW_VERSION -m \"Release v$NEW_VERSION\""
 echo "  4. Build: ./scripts/build-universal-bundle.sh"
-

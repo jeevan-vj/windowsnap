@@ -10,9 +10,8 @@ Versions follow the format: `MAJOR.MINOR.PATCH`
 - **MINOR**: Incremented for backwards-compatible functionality additions
 - **PATCH**: Incremented for backwards-compatible bug fixes
 
-Optional pre-release and build metadata are supported:
+Optional pre-release versions are supported:
 - `1.2.0-alpha.1` (pre-release)
-- `1.2.0+build.123` (build metadata)
 
 ## Version Management
 
@@ -40,13 +39,16 @@ Use the `bump-version.sh` script to increment versions:
 ```
 
 The script will:
-1. Update `WindowSnap/VERSION`
-2. Update `WindowSnap/WindowSnap/App/Info.plist` (CFBundleShortVersionString)
-3. Display next steps for committing and tagging
+1. Update the authoritative `WindowSnap/VERSION`
+2. Increment the authoritative `WindowSnap/BUILD_NUMBER`
+3. Synchronize the reviewed version/build mirrors in `Info.plist`
+4. Display next steps for committing and tagging
 
 ### Manual Version Updates
 
-You can also manually edit `WindowSnap/VERSION`:
+Prefer the bump script. If you manually edit `WindowSnap/VERSION`, synchronize
+the plist mirror and increment `BUILD_NUMBER`, then run
+`scripts/validate-configuration.sh`.
 
 ```bash
 echo "1.3.0" > WindowSnap/VERSION
@@ -60,9 +62,9 @@ All build scripts automatically read from `WindowSnap/VERSION`:
 - `build-universal-bundle.sh`
 - `distribute.sh`
 
-The build number (`CFBundleVersion`) is automatically generated:
-- Uses git commit count if in a git repository
-- Falls back to timestamp format (`YYYYMMDDHHMMSS`) otherwise
+The production build number (`CFBundleVersion`) comes from the checked-in
+`BUILD_NUMBER`. It must be incremented for every published release. This avoids
+non-monotonic values from shallow Git clones, rebases, or wall-clock fallbacks.
 
 ## Git Integration
 
@@ -72,7 +74,7 @@ After bumping the version, create a git tag:
 
 ```bash
 # After bumping version
-git add WindowSnap/VERSION WindowSnap/WindowSnap/App/Info.plist
+git add WindowSnap/VERSION WindowSnap/BUILD_NUMBER WindowSnap/WindowSnap/App/Info.plist
 git commit -m "Bump version to 1.3.0"
 git tag -a v1.3.0 -m "Release v1.3.0"
 git push origin main --tags
@@ -91,7 +93,7 @@ git describe --tags              # Latest tag with commit info
 
 The version appears in:
 - `CFBundleShortVersionString`: Semantic version (from VERSION file)
-- `CFBundleVersion`: Build number (git commit count or timestamp)
+- `CFBundleVersion`: Monotonic production build number from `BUILD_NUMBER`
 
 You can check the version of a built app:
 
@@ -109,4 +111,3 @@ You can check the version of a built app:
    - Minor for new features (backwards compatible)
    - Major for breaking changes
 4. **Update changelog**: Document changes in release notes when bumping versions
-
