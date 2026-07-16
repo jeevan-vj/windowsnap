@@ -48,35 +48,11 @@ A native macOS window management application that allows you to quickly arrange 
 
 ### Download Pre-Built App
 
-**⚠️ Important: First-Time Opening on macOS**
+Download the latest ZIP or DMG from [GitHub Releases](https://github.com/jeevan-vj/windowsnap/releases).
+Public artifacts are universal (Apple Silicon and Intel), Developer ID signed, and notarized by Apple.
+If macOS rejects a downloaded release, stop and report the release filename and macOS version in a GitHub issue.
 
-When you first open WindowSnap, macOS may show a security warning:
-> "WindowSnap.app" cannot be opened because Apple cannot verify it is free of malware.
-
-This happens because the app isn't notarized by Apple. **The app is safe** - it's just not signed with an Apple Developer certificate ($99/year).
-
-**To open the app, use ONE of these methods:**
-
-**Method 1 - Right-Click Open (Easiest):**
-1. Right-click (or Control+click) on `WindowSnap.app`
-2. Select **"Open"** from the menu
-3. Click **"Open"** in the confirmation dialog
-4. macOS will remember this choice
-
-**Method 2 - Remove Quarantine Flag:**
-```bash
-xattr -d com.apple.quarantine /Applications/WindowSnap.app
-```
-
-**Method 3 - System Settings (macOS Ventura+):**
-1. Try to open the app (it will be blocked)
-2. Go to **System Settings** → **Privacy & Security**
-3. Scroll to see "WindowSnap was blocked"
-4. Click **"Open Anyway"**
-
----
-
-### Option 1: Build from Source (Recommended)
+### Build from Source
 
 Building from source ensures you trust the code:
 
@@ -86,15 +62,15 @@ Building from source ensures you trust the code:
    cd windowsnap
    ```
 
-2. **Build the app bundle:**
+2. **Build a local-only app bundle:**
    ```bash
    cd WindowSnap
-   bash scripts/build_bundle.sh
+   bash scripts/build-adhoc-release.sh
    ```
 
 3. **Install to Applications:**
    ```bash
-   cp -R dist/WindowSnap.app /Applications/
+   cp -R dist/local-only/WindowSnap.app /Applications/
    ```
 
 4. **Launch:**
@@ -297,47 +273,33 @@ Copyright © 2025 WindowSnap. All rights reserved.
 
 ### For Developers: Signing & Notarization
 
-To eliminate the security warning for users, you need to **code sign** and **notarize** your app with Apple:
+Public artifacts must use the canonical fail-closed release pipeline:
 
-**Quick Start:**
 ```bash
-# 1. Set your Apple Developer credentials
 export CODESIGN_ID="Developer ID Application: Your Name (TEAMID)"
-export NOTARY_PROFILE="your-notary-profile"
-
-# 2. Build and sign
+export NOTARY_PROFILE="windowsnap-notary"
 cd WindowSnap
-bash scripts/build_bundle.sh
-
-# 3. Notarize (removes user warnings)
-bash scripts/sign-and-notarize.sh
+./scripts/release.sh
 ```
 
 **📖 For complete instructions, see:** [DISTRIBUTION_GUIDE.md](DISTRIBUTION_GUIDE.md)
 
 The guide covers:
 - Getting Apple Developer certificate
-- Setting up notarization
-- Automated signing with GitHub Actions
-- Cost-free alternatives (Homebrew, build from source)
+- Securely setting up a Keychain notarization profile
+- Producing and verifying universal ZIP and DMG artifacts
+- Running the clean-machine smoke test
 
-### Quick Distribution (Without Signing)
+### Local Testing Package
 
-For testing or personal use:
+For testing on the development Mac only:
 
 ```bash
 cd WindowSnap
-bash scripts/distribute.sh
+./scripts/build-adhoc-release.sh
 ```
 
-This creates:
-- `dist/WindowSnap.app` - Application bundle
-- `dist/WindowSnap.dmg` - Disk image
-- `dist/WindowSnap.zip` - Zip archive
-- `dist/install.sh` - Installation script
-- `dist/README.txt` - User instructions (includes workarounds)
-
-**Note:** Users will need to use the right-click method to open the app.
+Local artifacts are isolated under `dist/local-only/` and must not be uploaded to a public release.
 
 ## Future Improvements
 - Migrate deprecated `NSUserNotification` to `UNUserNotificationCenter` or custom HUD.

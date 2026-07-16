@@ -152,23 +152,11 @@ echo -e "${YELLOW}[7/7]${NC} Code signing..."
 ENTITLEMENTS_FILE="$ROOT_DIR/WindowSnap.entitlements"
 if [[ -n "${CODESIGN_ID:-}" ]]; then
   echo "   Signing with identity: $CODESIGN_ID"
-  SIGN_ARGS=(
-    --force
-    --sign "$CODESIGN_ID"
-    --options runtime
-    --timestamp
-    --deep
-  )
-  if [[ -f "$ENTITLEMENTS_FILE" ]]; then
-    SIGN_ARGS+=(--entitlements "$ENTITLEMENTS_FILE")
-  fi
-  SIGN_ARGS+=("$APP_DIR")
-  
-  if codesign "${SIGN_ARGS[@]}"; then
+  if "$ROOT_DIR/scripts/sign-nested-components.sh" "$APP_DIR" "$CODESIGN_ID" "$ENTITLEMENTS_FILE"; then
     echo -e "${GREEN}✓${NC} Code signing successful"
 
     # Verify signature
-    codesign --verify --verbose "$APP_DIR"
+    codesign --verify --strict --verbose=2 "$APP_DIR"
 
     # Show signature info
     echo ""
