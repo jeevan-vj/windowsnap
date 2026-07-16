@@ -4,10 +4,13 @@ import Foundation
 class PreferencesWindow: NSWindowController {
     
     private var textExpanderWindow: TextExpanderWindow?
+    private weak var clipboardPauseCheckbox: NSButton?
+    private var clipboardPauseObserver: ClipboardPauseStateObserver?
     
     override init(window: NSWindow?) {
         super.init(window: window)
         setupWindow()
+        observeClipboardPauseState()
     }
     
     convenience init() {
@@ -23,6 +26,7 @@ class PreferencesWindow: NSWindowController {
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         setupWindow()
+        observeClipboardPauseState()
     }
     
     private func setupWindow() {
@@ -57,6 +61,11 @@ class PreferencesWindow: NSWindowController {
         shortcutsTab.label = "Shortcuts"
         shortcutsTab.view = createShortcutsTab()
         tabView.addTabViewItem(shortcutsTab)
+
+        let clipboardTab = NSTabViewItem(identifier: "clipboard")
+        clipboardTab.label = "Clipboard"
+        clipboardTab.view = createClipboardTab()
+        tabView.addTabViewItem(clipboardTab)
         
         // Text Expander tab
         let textExpanderTab = NSTabViewItem(identifier: "textexpander")
@@ -149,6 +158,70 @@ class PreferencesWindow: NSWindowController {
         
         return view
     }
+
+    private func createClipboardTab() -> NSView {
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: 480, height: 350))
+        var yPos: CGFloat = 305
+
+        let titleLabel = NSTextField(labelWithString: "Clipboard History & Privacy")
+        titleLabel.font = NSFont.boldSystemFont(ofSize: 16)
+        titleLabel.frame = NSRect(x: 20, y: yPos, width: 440, height: 25)
+        view.addSubview(titleLabel)
+        yPos -= 50
+
+        let localOnlyLabel = NSTextField(wrappingLabelWithString: "Clipboard history stays on this Mac and is never uploaded. Items marked private by password managers are not recorded, and sensitive-data filtering is always on.")
+        localOnlyLabel.frame = NSRect(x: 20, y: yPos - 48, width: 440, height: 55)
+        localOnlyLabel.textColor = .secondaryLabelColor
+        view.addSubview(localOnlyLabel)
+        yPos -= 80
+
+        let retentionLabel = NSTextField(labelWithString: "Keep unpinned history:")
+        retentionLabel.frame = NSRect(x: 20, y: yPos, width: 165, height: 24)
+        view.addSubview(retentionLabel)
+
+        let retentionPopup = NSPopUpButton(frame: NSRect(x: 190, y: yPos - 4, width: 150, height: 28))
+        for option in ClipboardHistoryRetention.allCases {
+            retentionPopup.addItem(withTitle: option.displayName)
+            retentionPopup.lastItem?.representedObject = option.rawValue
+        }
+        if let selectedIndex = ClipboardHistoryRetention.allCases.firstIndex(of: ClipboardManager.shared.retention) {
+            retentionPopup.selectItem(at: selectedIndex)
+        }
+        retentionPopup.target = self
+        retentionPopup.action = #selector(changeClipboardRetention(_:))
+        retentionPopup.setAccessibilityLabel("Clipboard history retention")
+        view.addSubview(retentionPopup)
+        yPos -= 55
+
+        let pauseCheckbox = NSButton(
+            checkboxWithTitle: "Pause clipboard history monitoring",
+            target: self,
+            action: #selector(toggleClipboardMonitoring(_:))
+        )
+        pauseCheckbox.frame = NSRect(x: 20, y: yPos, width: 310, height: 25)
+        pauseCheckbox.state = ClipboardManager.shared.isMonitoringPaused ? .on : .off
+        pauseCheckbox.setAccessibilityLabel("Pause clipboard history monitoring")
+        view.addSubview(pauseCheckbox)
+        clipboardPauseCheckbox = pauseCheckbox
+        yPos -= 55
+
+        let clearButton = NSButton(
+            title: "Clear All History…",
+            target: self,
+            action: #selector(clearClipboardHistory(_:))
+        )
+        clearButton.frame = NSRect(x: 20, y: yPos, width: 160, height: 30)
+        clearButton.setAccessibilityLabel("Clear all clipboard history")
+        view.addSubview(clearButton)
+
+        let pinnedLabel = NSTextField(wrappingLabelWithString: "Pinned items do not expire automatically. Clear All removes pinned items too.")
+        pinnedLabel.frame = NSRect(x: 195, y: yPos - 5, width: 265, height: 40)
+        pinnedLabel.textColor = .secondaryLabelColor
+        pinnedLabel.font = NSFont.systemFont(ofSize: 11)
+        view.addSubview(pinnedLabel)
+
+        return view
+    }
     
     @objc private func toggleLaunchAtLogin(_ sender: NSButton) {
         let enable = sender.state == .on
@@ -176,6 +249,39 @@ class PreferencesWindow: NSWindowController {
     
     @objc private func openAccessibilitySettings() {
         AccessibilityPermissions.openSecurityPreferences()
+    }
+
+    @objc private func changeClipboardRetention(_ sender: NSPopUpButton) {
+        guard let rawValue = sender.selectedItem?.representedObject as? String,
+              let retention = ClipboardHistoryRetention(rawValue: rawValue) else { return }
+        ClipboardManager.shared.retention = retention
+    }
+
+    @objc private func toggleClipboardMonitoring(_ sender: NSButton) {
+        if sender.state == .on {
+            ClipboardManager.shared.pauseMonitoring()
+        } else {
+            ClipboardManager.shared.resumeMonitoring()
+        }
+    }
+
+    private func observeClipboardPauseState() {
+        clipboardPauseObserver = ClipboardPauseStateObserver { [weak self] isPaused in
+            let update: () -> Void = { self?.clipboardPauseCheckbox?.state = isPaused ? .on : .off }
+            if Thread.isMainThread { update() } else { DispatchQueue.main.async(execute: update) }
+        }
+    }
+
+    @objc private func clearClipboardHistory(_ sender: NSButton) {
+        let alert = NSAlert()
+        alert.messageText = "Clear Clipboard History"
+        alert.informativeText = "Remove all clipboard history from memory and this Mac? This includes pinned items and cannot be undone."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Clear All")
+        alert.addButton(withTitle: "Cancel")
+        if alert.runModal() == .alertFirstButtonReturn {
+            ClipboardManager.shared.clearHistory()
+        }
     }
     
     private func getLaunchAtLoginState() -> NSControl.StateValue {

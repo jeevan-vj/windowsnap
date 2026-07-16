@@ -18,7 +18,11 @@ class PreferencesManager: AccessibilityOnboardingStoring {
             "DefaultMargin": 10.0,
             "HasShownLaunchAtLoginPrompt": false,
             "HasCompletedAccessibilityOnboarding": false,
-            "IsFirstRun": true
+            "IsFirstRun": true,
+            ClipboardManager.retentionDefaultsKey: ClipboardHistoryRetention.sevenDays.rawValue,
+            ClipboardManager.pausedDefaultsKey: false,
+            ClipboardManager.explicitRetentionChoiceDefaultsKey: false,
+            ClipboardManager.migratedHistoryProtectionDefaultsKey: false
         ]
         
         userDefaults.register(defaults: defaults)
