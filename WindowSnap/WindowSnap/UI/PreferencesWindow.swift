@@ -6,6 +6,8 @@ class PreferencesWindow: NSWindowController {
     private var textExpanderWindow: TextExpanderWindow?
     private weak var clipboardPauseCheckbox: NSButton?
     private var clipboardPauseObserver: ClipboardPauseStateObserver?
+    private weak var launchAtLoginCheckbox: NSButton?
+    private weak var launchAtLoginStatusLabel: NSTextField?
     
     override init(window: NSWindow?) {
         super.init(window: window)
@@ -37,6 +39,21 @@ class PreferencesWindow: NSWindowController {
         window.isRestorable = false
         
         setupContentView()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(applicationDidBecomeActive),
+            name: NSApplication.didBecomeActiveNotification,
+            object: nil
+        )
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    override func showWindow(_ sender: Any?) {
+        super.showWindow(sender)
+        refreshLaunchAtLoginControl()
     }
     
     private func setupContentView() {
@@ -91,7 +108,17 @@ class PreferencesWindow: NSWindowController {
         launchAtLoginCheckbox.frame = NSRect(x: 20, y: yPos, width: 300, height: 25)
         launchAtLoginCheckbox.state = getLaunchAtLoginState()
         view.addSubview(launchAtLoginCheckbox)
-        yPos -= 40
+        self.launchAtLoginCheckbox = launchAtLoginCheckbox
+        yPos -= 22
+
+        let launchAtLoginStatusLabel = NSTextField(wrappingLabelWithString: "")
+        launchAtLoginStatusLabel.frame = NSRect(x: 40, y: yPos - 28, width: 410, height: 32)
+        launchAtLoginStatusLabel.font = NSFont.systemFont(ofSize: 11)
+        launchAtLoginStatusLabel.textColor = .secondaryLabelColor
+        view.addSubview(launchAtLoginStatusLabel)
+        self.launchAtLoginStatusLabel = launchAtLoginStatusLabel
+        updateLaunchAtLoginControl(for: LaunchAtLoginManager.shared.refreshStatus())
+        yPos -= 48
         
         // Show notifications checkbox
         let showNotificationsCheckbox = NSButton(checkboxWithTitle: "Show notifications when windows are snapped", target: self, action: #selector(toggleNotifications(_:)))
@@ -228,17 +255,20 @@ class PreferencesWindow: NSWindowController {
         
         do {
             try LaunchAtLoginManager.shared.setEnabled(enable)
+            updateLaunchAtLoginControl(for: LaunchAtLoginManager.shared.refreshStatus())
         } catch {
             // Show error alert if setting failed
             let alert = NSAlert()
             alert.messageText = "Failed to update launch at login setting"
             alert.informativeText = error.localizedDescription
             alert.alertStyle = .warning
-            alert.addButton(withTitle: "OK")
-            alert.runModal()
+            alert.addButton(withTitle: "Open Login Items Settings")
+            alert.addButton(withTitle: "Cancel")
+            if alert.runModal() == .alertFirstButtonReturn {
+                openLoginItemsSettings()
+            }
             
-            // Revert checkbox state
-            sender.state = enable ? .off : .on
+            refreshLaunchAtLoginControl()
         }
     }
     
@@ -286,6 +316,35 @@ class PreferencesWindow: NSWindowController {
     
     private func getLaunchAtLoginState() -> NSControl.StateValue {
         return LaunchAtLoginManager.shared.isEnabled ? .on : .off
+    }
+
+    @objc private func applicationDidBecomeActive() {
+        guard window?.isVisible == true else { return }
+        refreshLaunchAtLoginControl()
+    }
+
+    private func refreshLaunchAtLoginControl() {
+        updateLaunchAtLoginControl(for: LaunchAtLoginManager.shared.refreshStatus())
+    }
+
+    private func updateLaunchAtLoginControl(for status: LaunchAtLoginSystemStatus) {
+        launchAtLoginCheckbox?.state = status.isEnabled ? .on : .off
+
+        switch status {
+        case .enabled, .disabled:
+            launchAtLoginStatusLabel?.stringValue = ""
+        case .requiresApproval:
+            launchAtLoginStatusLabel?.stringValue = "Approval required in System Settings > General > Login Items."
+        case .notFound:
+            launchAtLoginStatusLabel?.stringValue = "Move WindowSnap to Applications, reopen it, and try again."
+        case .unknown:
+            launchAtLoginStatusLabel?.stringValue = "Login item status is unavailable. Reopen System Settings and try again."
+        }
+    }
+
+    private func openLoginItemsSettings() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.LoginItems-Settings.extension") else { return }
+        NSWorkspace.shared.open(url)
     }
     
     private func getNotificationsState() -> NSControl.StateValue {

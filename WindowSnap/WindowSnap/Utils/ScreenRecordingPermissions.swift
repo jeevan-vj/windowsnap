@@ -2,7 +2,6 @@ import Foundation
 import AppKit
 import ScreenCaptureKit
 
-@available(macOS 12.3, *)
 class ScreenRecordingPermissions {
     
     private static var hasShownRestartAlert = false

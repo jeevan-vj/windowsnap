@@ -16,12 +16,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var healthCheckTimer: Timer?
     private var pendingWakeRecovery: DispatchWorkItem?
     private var isRecoveringFromWake = false
-    @available(macOS 12.3, *)
-    private var regionShareController: RegionShareController? {
-        get { _regionShareController as? RegionShareController }
-        set { _regionShareController = newValue }
-    }
-    private var _regionShareController: AnyObject?
+    private var regionShareController: RegionShareController?
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupMenuBarApp()
@@ -167,10 +162,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         clipboardManager?.startMonitoring()
         
         // REGION SHARE FEATURE: Register region share shortcut
-        if #available(macOS 12.3, *) {
-            regionShareController = RegionShareController.shared
-            regionShareController?.registerShortcut(with: shortcutManager)
-        }
+        regionShareController = RegionShareController.shared
+        regionShareController?.registerShortcut(with: shortcutManager)
         
         print("🎯 PRODUCTIVITY SHORTCUTS REGISTERED:")
         print("   ⏪ Undo: ⌘⌥Z")
@@ -363,15 +356,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     // MARK: - Launch at Login
     private func initializeLaunchAtLogin() {
-        // Sync the actual system state with our preferences
-        let systemIsEnabled = LaunchAtLoginManager.shared.isEnabled
-        let preferencesState = PreferencesManager.shared.launchAtLogin
-        
-        // If there's a mismatch, use the system state as the source of truth
-        if systemIsEnabled != preferencesState {
-            PreferencesManager.shared.launchAtLogin = systemIsEnabled
-            print("🔄 Synced launch at login preference with system state: \(systemIsEnabled)")
-        }
+        // Read-only synchronization: launching WindowSnap never registers a login item.
+        let status = LaunchAtLoginManager.shared.refreshStatus()
+        print("🔄 Synced launch at login preference with system state: \(status)")
     }
     
     private func showLaunchAtLoginPromptIfNeeded() {

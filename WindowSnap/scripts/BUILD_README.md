@@ -283,14 +283,14 @@ arch -x86_64 ./.build/universal/WindowSnap  # Native
 
 ### Build Requirements
 
-- **macOS:** 12.0+ (for building)
+- **macOS:** 13.0+ (for building)
 - **Xcode:** 14.0+ or Command Line Tools
 - **Swift:** 5.9+
 - **Disk Space:** ~500 MB for build artifacts
 
 ### Runtime Requirements
 
-- **macOS:** 12.0 (Monterey) or later
+- **macOS:** 13.0 (Ventura) or later
 - **Architecture:** ARM64 or x86_64
 - **Permissions:** Accessibility access required
 

@@ -75,7 +75,7 @@ else
 <key>CFBundleShortVersionString</key><string>${VERSION}</string>
 <key>CFBundleVersion</key><string>${BUILD}</string>
 <key>CFBundleIconFile</key><string>AppIcon</string>
-<key>LSMinimumSystemVersion</key><string>12.0</string>
+<key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>LSUIElement</key><true/>
 </dict></plist>
 EOF
@@ -100,7 +100,7 @@ if command -v xcrun >/dev/null && [[ -d "$ASSETS_DIR" ]]; then
   if xcrun actool "$ASSETS_DIR" \
     --compile "$RESOURCES_DIR" \
     --platform macosx \
-    --minimum-deployment-target 12.0 \
+    --minimum-deployment-target 13.0 \
     --app-icon AppIcon \
     --output-partial-info-plist "$TMP_ASSET_BUILD/asset.plist" 2>&1; then
     echo "   ✅ Asset catalog compiled successfully"
