@@ -2,7 +2,10 @@ import Foundation
 import ApplicationServices
 import AppKit
 
-class AccessibilityPermissions {
+final class AccessibilityPermissions: AccessibilityPermissionProviding {
+    static let shared = AccessibilityPermissions()
+
+    private init() {}
     
     static func hasPermissions() -> Bool {
         let trusted = AXIsProcessTrusted()
@@ -22,6 +25,18 @@ class AccessibilityPermissions {
     static func requestPermissions() {
         let options = [kAXTrustedCheckOptionPrompt.takeRetainedValue(): true] as CFDictionary
         AXIsProcessTrustedWithOptions(options)
+    }
+
+    func currentStatus() -> AccessibilityAuthorizationStatus {
+        .init(isTrusted: AXIsProcessTrusted())
+    }
+
+    func requestPermission() {
+        Self.requestPermissions()
+    }
+
+    func openSystemSettings() {
+        Self.openSecurityPreferences()
     }
     
     static func showPermissionsAlert() {
@@ -62,5 +77,11 @@ class AccessibilityPermissions {
             showPermissionsAlert()
             return false
         }
+    }
+}
+
+private extension AccessibilityAuthorizationStatus {
+    init(isTrusted: Bool) {
+        self = isTrusted ? .granted : .notGranted
     }
 }

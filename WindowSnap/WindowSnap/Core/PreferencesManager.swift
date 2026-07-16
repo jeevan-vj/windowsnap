@@ -1,6 +1,6 @@
 import Foundation
 
-class PreferencesManager {
+class PreferencesManager: AccessibilityOnboardingStoring {
     static let shared = PreferencesManager()
     
     private let userDefaults = UserDefaults.standard
@@ -17,6 +17,7 @@ class PreferencesManager {
             "AnimationDuration": 0.3,
             "DefaultMargin": 10.0,
             "HasShownLaunchAtLoginPrompt": false,
+            "HasCompletedAccessibilityOnboarding": false,
             "IsFirstRun": true
         ]
         
@@ -70,6 +71,11 @@ class PreferencesManager {
     var hasShownLaunchAtLoginPrompt: Bool {
         get { userDefaults.bool(forKey: "HasShownLaunchAtLoginPrompt") }
         set { userDefaults.set(newValue, forKey: "HasShownLaunchAtLoginPrompt") }
+    }
+
+    var hasCompletedAccessibilityOnboarding: Bool {
+        get { userDefaults.bool(forKey: "HasCompletedAccessibilityOnboarding") }
+        set { userDefaults.set(newValue, forKey: "HasCompletedAccessibilityOnboarding") }
     }
     
     func markFirstRunComplete() {

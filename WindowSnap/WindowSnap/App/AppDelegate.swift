@@ -12,6 +12,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var snippetPickerWindow: SnippetPickerWindow?
     private var textExpanderManager: TextExpanderManager?
     private var textExpansionEngine: TextExpansionEngine?
+    private var accessibilityOnboardingWindow: AccessibilityOnboardingWindowController?
     private var healthCheckTimer: Timer?
     private var pendingWakeRecovery: DispatchWorkItem?
     private var isRecoveringFromWake = false
@@ -24,7 +25,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupMenuBarApp()
-        requestAccessibilityPermissions()
         initializeManagers()
         setupSleepWakeNotifications()
         startHealthCheck()
@@ -32,19 +32,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Initialize launch at login state
         initializeLaunchAtLogin()
         
-        // Show launch at login prompt if needed (first run)
-        showLaunchAtLoginPromptIfNeeded()
-        
         // Set up notification observers
         setupNotificationObservers()
-        
-        // Check screen recording permission status
-        checkScreenRecordingPermissionOnLaunch()
-    }
-    
-    private func checkScreenRecordingPermissionOnLaunch() {
-        if #available(macOS 12.3, *) {
-            ScreenRecordingPermissions.checkPermissionStatusOnLaunch()
+
+        // Explain Accessibility before any system prompt. Optional permissions remain feature-triggered.
+        if !setupAccessibilityOnboarding() {
+            showLaunchAtLoginPromptIfNeeded()
         }
     }
     
@@ -60,24 +53,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
     }
     
-    private func requestAccessibilityPermissions() {
-        // Check and prompt for permissions if needed
-        if !AccessibilityPermissions.hasPermissions() {
-            print("⚠️ WindowSnap requires accessibility permissions to function properly.")
-            print("   Prompting for permissions...")
-            
-            // This will show the system permission dialog
-            AccessibilityPermissions.requestPermissions()
-            
-            // Give user time to grant permissions, then check again
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                if !AccessibilityPermissions.hasPermissions() {
-                    print("   You can also grant permissions manually via System Preferences -> Security & Privacy -> Privacy -> Accessibility")
-                }
-            }
-        }
-    }
-    
     private func initializeManagers() {
         windowManager = WindowManager.shared
         shortcutManager = ShortcutManager()
@@ -90,6 +65,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         setupDefaultShortcuts()
         setupTextExpander()
+    }
+
+    @discardableResult
+    private func setupAccessibilityOnboarding() -> Bool {
+        let model = AccessibilityOnboardingModel(
+            permissionProvider: AccessibilityPermissions.shared,
+            store: PreferencesManager.shared
+        )
+        let controller = AccessibilityOnboardingWindowController(model: model)
+        controller.onDismiss = { [weak self] in
+            self?.showLaunchAtLoginPromptIfNeeded()
+        }
+        accessibilityOnboardingWindow = controller
+        statusBarController?.onShowAccessibilitySetup = { [weak self] in
+            self?.accessibilityOnboardingWindow?.present()
+        }
+        return controller.presentIfNeeded()
     }
     
     private func setupTextExpander() {
@@ -303,9 +295,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         print("🔄 Reinitializing WindowSnap after wake...")
         
         if !AccessibilityPermissions.hasPermissions() {
-            print("⚠️ Accessibility permissions lost after wake - requesting again")
-            requestAccessibilityPermissions()
+            print("⚠️ Accessibility permissions unavailable after wake; use Accessibility Setup from the menu to retry")
         }
+        accessibilityOnboardingWindow?.refreshPermissionStatus()
         
         if let windowManager = windowManager, !windowManager.testAccessibility() {
             print("🔧 WindowManager accessibility lost after wake - resetting...")
