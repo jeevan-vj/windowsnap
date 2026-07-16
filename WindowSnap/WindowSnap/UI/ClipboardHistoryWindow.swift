@@ -18,16 +18,32 @@ class ClipboardHistoryWindow: NSWindow {
     private var filterBar: ClipboardHistoryFilterBar!
     private var footerView: ClipboardHistoryFooterView!
 
-    private var history: [ClipboardHistoryItem] = []
-    private var filteredHistory: [ClipboardHistoryItem] = []
-    private var displayItems: [ClipboardHistorySectionItem] = []
-    private var selectedIndex: Int = 0
+    private let presentationCache = ClipboardHistoryPresentationCache()
+    private var history: [ClipboardHistoryItem] {
+        get { presentationCache.history }
+        set { presentationCache.history = newValue }
+    }
+    private var filteredHistory: [ClipboardHistoryItem] {
+        get { presentationCache.filteredHistory }
+        set { presentationCache.filteredHistory = newValue }
+    }
+    private var displayItems: [ClipboardHistorySectionItem] {
+        get { presentationCache.displayItems }
+        set { presentationCache.displayItems = newValue }
+    }
+    private var selectedIndex: Int {
+        get { presentationCache.selectedIndex }
+        set { presentationCache.selectedIndex = newValue }
+    }
     private var previousApp: NSRunningApplication?
     private var quickLookPopover: NSPopover?
 
     private var searchWorkItem: DispatchWorkItem?
     private var refreshTimer: Timer?
-    private var lastHistoryCount: Int = 0
+    private var lastHistoryCount: Int {
+        get { presentationCache.lastHistoryCount }
+        set { presentationCache.lastHistoryCount = newValue }
+    }
     private var prefersSearchFocus = true
     private var localKeyMonitor: Any?
 
@@ -95,6 +111,9 @@ class ClipboardHistoryWindow: NSWindow {
 
         contentView = visualEffectView
         setupUI()
+        presentationCache.onPurge = { [weak self] in
+            self?.handleHistoryPurged()
+        }
         acceptsMouseMovedEvents = true
         loadHistory()
     }
@@ -299,6 +318,17 @@ class ClipboardHistoryWindow: NSWindow {
     private func loadHistory() {
         history = ClipboardManager.shared.getHistory()
         applySearchFilter()
+        updateUI()
+    }
+
+    private func handleHistoryPurged() {
+        searchWorkItem?.cancel()
+        searchWorkItem = nil
+        quickLookPopover?.performClose(nil)
+        quickLookPopover = nil
+        searchBar.resetSearch()
+        filterBar.resetFilters()
+        tableView.reloadData()
         updateUI()
     }
 

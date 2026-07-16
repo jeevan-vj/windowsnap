@@ -32,7 +32,7 @@
 - **Respectful**: Remembers user choice and doesn't re-prompt
 
 #### 🔧 Technical Features
-- **Cross-Platform**: Works on macOS 12+ with version-specific APIs
+- **Supported Platform**: Uses `SMAppService.mainApp` on macOS 13+
 - **Error Handling**: Graceful handling of permission issues
 - **State Management**: Proper tracking of first-run and prompt status
 - **Integration**: Seamless connection to existing preferences system
@@ -106,7 +106,7 @@ You can change this setting later in Preferences.
 4. ✅ **Error handling when system call fails**
 5. ✅ **Prompt doesn't show on subsequent launches**
 6. ✅ **Integration with existing preferences system**
-7. ✅ **Cross-platform compatibility (macOS 12+)**
+7. ✅ **Native login-item integration (macOS 13+)**
 
 ## 📝 Next Steps
 

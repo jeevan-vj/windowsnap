@@ -91,10 +91,11 @@ lipo -info ./.build/universal/WindowSnap
 ./scripts/build-universal-bundle.sh
 ```
 
-**Signed build (for distribution):**
+**Production distribution:**
 ```bash
 CODESIGN_ID="Developer ID Application: Your Name (TEAM_ID)" \
-  ./scripts/build-universal-bundle.sh
+NOTARY_PROFILE="windowsnap-notary" \
+  ./scripts/release.sh
 ```
 
 **Custom version:**
@@ -109,7 +110,7 @@ VERSION="1.3.0" ./scripts/build-universal-bundle.sh
 **Purpose:** Backward-compatible entrypoint for scripts and docs that still call `build_bundle.sh`
 **Output:** Delegates to `build-universal-bundle.sh`
 
-**Note:** This intentionally no longer builds for only the current Mac's architecture. Distribution builds must remain universal so the app runs natively on both Apple Silicon and Intel Macs.
+**Note:** This intentionally no longer builds for only the current Mac's architecture. Distribution builds must remain universal so the app runs natively on both Apple Silicon and Intel Macs. It must not be used to create public artifacts — for local packages use `build-adhoc-release.sh`; for production use `release.sh`.
 
 See also: `../docs/INTEL_MAC_COMPATIBILITY.md`
 
@@ -186,42 +187,15 @@ See also: `../docs/INTEL_MAC_COMPATIBILITY.md`
 
 ### For Public Release
 
-1. **Build Universal Bundle**
-   ```bash
-   ./scripts/build-universal-bundle.sh
-   ```
+Do not assemble public artifacts from individual build scripts. Follow the canonical, fail-closed workflow in the repository `DISTRIBUTION_GUIDE.md`:
 
-2. **Code Sign**
-   ```bash
-   CODESIGN_ID="Developer ID Application: Your Name (TEAM_ID)" \
-     ./scripts/build-universal-bundle.sh
-   ```
+```bash
+CODESIGN_ID="Developer ID Application: Your Name (TEAM_ID)" \
+NOTARY_PROFILE="windowsnap-notary" \
+  ./scripts/release.sh
+```
 
-3. **Notarize** (required for distribution outside App Store)
-   ```bash
-   xcrun notarytool submit dist/WindowSnap.zip \
-     --apple-id your@email.com \
-     --team-id TEAM_ID \
-     --keychain-profile "notarytool-password" \
-     --wait
-   ```
-
-4. **Staple Notarization**
-   ```bash
-   xcrun stapler staple dist/WindowSnap.app
-   ```
-
-5. **Verify**
-   ```bash
-   spctl -a -v dist/WindowSnap.app
-   # Should output: accepted
-   ```
-
-6. **Create Final ZIP**
-   ```bash
-   cd dist
-   zip -r WindowSnap-v1.2.0-Universal.zip WindowSnap.app
-   ```
+Use `./scripts/build-adhoc-release.sh` only for local testing. Its output is isolated under `dist/local-only/` and must not be published.
 
 ---
 
@@ -311,14 +285,14 @@ arch -x86_64 ./.build/universal/WindowSnap  # Native
 
 ### Build Requirements
 
-- **macOS:** 12.0+ (for building)
+- **macOS:** 13.0+ (for building)
 - **Xcode:** 14.0+ or Command Line Tools
 - **Swift:** 5.9+
 - **Disk Space:** ~500 MB for build artifacts
 
 ### Runtime Requirements
 
-- **macOS:** 12.0 (Monterey) or later
+- **macOS:** 13.0 (Ventura) or later
 - **Architecture:** ARM64 or x86_64
 - **Permissions:** Accessibility access required
 

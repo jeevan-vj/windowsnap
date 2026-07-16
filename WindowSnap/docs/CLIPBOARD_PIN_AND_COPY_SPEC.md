@@ -27,7 +27,8 @@ This specification defines the implementation of two features for the clipboard 
 - Visual indicator: Subtle background tint or border for pinned items
 
 #### Data Persistence Requirements
-- Pin state must be saved to UserDefaults along with other clipboard history data
+- Pin state is saved with clipboard history under Application Support; see
+  `CLIPBOARD_HISTORY_PRIVACY.md` for storage, migration, and retention rules.
 - Pin state must be loaded when app starts
 - Pin state must survive history clearing operations (user decision needed - for now, clearing clears all including pinned)
 
@@ -311,7 +312,9 @@ func getHistory() -> [ClipboardHistoryItem] {
 
 ## 10. Performance Considerations
 
-- Sorting operation is O(n log n) but n is limited to 50 items (maxHistoryItems)
+- Sorting operation is O(n log n). The 50-item capacity is a soft total limit:
+  pinned entries are never evicted, and newest unpinned entries use the remaining
+  slots. More than 50 pinned entries may therefore be retained.
 - Pin state changes trigger save operation (debounced)
 - UI updates are lightweight (button state changes)
 - No performance impact expected
@@ -330,4 +333,3 @@ func getHistory() -> [ClipboardHistoryItem] {
 - Pin count limit
 - Drag to reorder pinned items
 - Pin shortcuts for specific items
-

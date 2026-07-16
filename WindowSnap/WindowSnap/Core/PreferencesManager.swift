@@ -1,6 +1,6 @@
 import Foundation
 
-class PreferencesManager {
+class PreferencesManager: AccessibilityOnboardingStoring {
     static let shared = PreferencesManager()
     
     private let userDefaults = UserDefaults.standard
@@ -17,7 +17,12 @@ class PreferencesManager {
             "AnimationDuration": 0.3,
             "DefaultMargin": 10.0,
             "HasShownLaunchAtLoginPrompt": false,
-            "IsFirstRun": true
+            "HasCompletedAccessibilityOnboarding": false,
+            "IsFirstRun": true,
+            ClipboardManager.retentionDefaultsKey: ClipboardHistoryRetention.sevenDays.rawValue,
+            ClipboardManager.pausedDefaultsKey: false,
+            ClipboardManager.explicitRetentionChoiceDefaultsKey: false,
+            ClipboardManager.migratedHistoryProtectionDefaultsKey: false
         ]
         
         userDefaults.register(defaults: defaults)
@@ -70,6 +75,11 @@ class PreferencesManager {
     var hasShownLaunchAtLoginPrompt: Bool {
         get { userDefaults.bool(forKey: "HasShownLaunchAtLoginPrompt") }
         set { userDefaults.set(newValue, forKey: "HasShownLaunchAtLoginPrompt") }
+    }
+
+    var hasCompletedAccessibilityOnboarding: Bool {
+        get { userDefaults.bool(forKey: "HasCompletedAccessibilityOnboarding") }
+        set { userDefaults.set(newValue, forKey: "HasCompletedAccessibilityOnboarding") }
     }
     
     func markFirstRunComplete() {

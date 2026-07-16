@@ -107,8 +107,12 @@ class LaunchAtLoginPrompt {
         alert.alertStyle = .warning
         alert.messageText = "Error"
         alert.informativeText = message
-        alert.addButton(withTitle: "OK")
-        alert.runModal()
+        alert.addButton(withTitle: "Open Login Items Settings")
+        alert.addButton(withTitle: "Cancel")
+        if alert.runModal() == .alertFirstButtonReturn,
+           let url = URL(string: "x-apple.systempreferences:com.apple.LoginItems-Settings.extension") {
+            NSWorkspace.shared.open(url)
+        }
     }
     
     private func showPreferencesInfo() {

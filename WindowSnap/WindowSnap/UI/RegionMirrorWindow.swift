@@ -1,7 +1,6 @@
 import AppKit
 import Foundation
 
-@available(macOS 12.3, *)
 class RegionMirrorWindow: NSWindow {
     
     private var captureEngine: RegionCaptureEngine?
@@ -335,7 +334,6 @@ class RegionMirrorWindow: NSWindow {
     override var canBecomeMain: Bool { true }
 }
 
-@available(macOS 12.3, *)
 extension RegionMirrorWindow: NSWindowDelegate {
     func windowWillClose(_ notification: Notification) {
         // #region agent log
@@ -368,7 +366,6 @@ extension RegionMirrorWindow: NSWindowDelegate {
     }
 }
 
-@available(macOS 12.3, *)
 extension RegionMirrorWindow: RegionCaptureDelegate {
     func captureEngine(_ engine: RegionCaptureEngine, didOutputFrame image: CGImage) {
         let staleEngine = !isCurrentEngine(engine)
@@ -444,7 +441,6 @@ extension RegionMirrorWindow: RegionCaptureDelegate {
     }
 }
 
-@available(macOS 12.3, *)
 extension RegionMirrorWindow: NSToolbarDelegate {
     private static let selectNewRegionItemID = NSToolbarItem.Identifier("SelectNewRegion")
     

@@ -12,19 +12,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var snippetPickerWindow: SnippetPickerWindow?
     private var textExpanderManager: TextExpanderManager?
     private var textExpansionEngine: TextExpansionEngine?
+    private var accessibilityOnboardingWindow: AccessibilityOnboardingWindowController?
     private var healthCheckTimer: Timer?
     private var pendingWakeRecovery: DispatchWorkItem?
     private var isRecoveringFromWake = false
-    @available(macOS 12.3, *)
-    private var regionShareController: RegionShareController? {
-        get { _regionShareController as? RegionShareController }
-        set { _regionShareController = newValue }
-    }
-    private var _regionShareController: AnyObject?
+    private var regionShareController: RegionShareController?
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupMenuBarApp()
-        requestAccessibilityPermissions()
         initializeManagers()
         setupSleepWakeNotifications()
         startHealthCheck()
@@ -32,19 +27,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Initialize launch at login state
         initializeLaunchAtLogin()
         
-        // Show launch at login prompt if needed (first run)
-        showLaunchAtLoginPromptIfNeeded()
-        
         // Set up notification observers
         setupNotificationObservers()
-        
-        // Check screen recording permission status
-        checkScreenRecordingPermissionOnLaunch()
-    }
-    
-    private func checkScreenRecordingPermissionOnLaunch() {
-        if #available(macOS 12.3, *) {
-            ScreenRecordingPermissions.checkPermissionStatusOnLaunch()
+
+        // Explain Accessibility before any system prompt. Optional permissions remain feature-triggered.
+        if !setupAccessibilityOnboarding() {
+            showLaunchAtLoginPromptIfNeeded()
         }
     }
     
@@ -60,24 +48,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
     }
     
-    private func requestAccessibilityPermissions() {
-        // Check and prompt for permissions if needed
-        if !AccessibilityPermissions.hasPermissions() {
-            print("⚠️ WindowSnap requires accessibility permissions to function properly.")
-            print("   Prompting for permissions...")
-            
-            // This will show the system permission dialog
-            AccessibilityPermissions.requestPermissions()
-            
-            // Give user time to grant permissions, then check again
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                if !AccessibilityPermissions.hasPermissions() {
-                    print("   You can also grant permissions manually via System Preferences -> Security & Privacy -> Privacy -> Accessibility")
-                }
-            }
-        }
-    }
-    
     private func initializeManagers() {
         windowManager = WindowManager.shared
         shortcutManager = ShortcutManager()
@@ -90,6 +60,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         setupDefaultShortcuts()
         setupTextExpander()
+    }
+
+    @discardableResult
+    private func setupAccessibilityOnboarding() -> Bool {
+        let model = AccessibilityOnboardingModel(
+            permissionProvider: AccessibilityPermissions.shared,
+            store: PreferencesManager.shared
+        )
+        let controller = AccessibilityOnboardingWindowController(model: model)
+        controller.onDismiss = { [weak self] in
+            self?.showLaunchAtLoginPromptIfNeeded()
+        }
+        accessibilityOnboardingWindow = controller
+        statusBarController?.onShowAccessibilitySetup = { [weak self] in
+            self?.accessibilityOnboardingWindow?.present()
+        }
+        return controller.presentIfNeeded()
     }
     
     private func setupTextExpander() {
@@ -175,10 +162,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         clipboardManager?.startMonitoring()
         
         // REGION SHARE FEATURE: Register region share shortcut
-        if #available(macOS 12.3, *) {
-            regionShareController = RegionShareController.shared
-            regionShareController?.registerShortcut(with: shortcutManager)
-        }
+        regionShareController = RegionShareController.shared
+        regionShareController?.registerShortcut(with: shortcutManager)
         
         print("🎯 PRODUCTIVITY SHORTCUTS REGISTERED:")
         print("   ⏪ Undo: ⌘⌥Z")
@@ -303,9 +288,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         print("🔄 Reinitializing WindowSnap after wake...")
         
         if !AccessibilityPermissions.hasPermissions() {
-            print("⚠️ Accessibility permissions lost after wake - requesting again")
-            requestAccessibilityPermissions()
+            print("⚠️ Accessibility permissions unavailable after wake; use Accessibility Setup from the menu to retry")
         }
+        accessibilityOnboardingWindow?.refreshPermissionStatus()
         
         if let windowManager = windowManager, !windowManager.testAccessibility() {
             print("🔧 WindowManager accessibility lost after wake - resetting...")
@@ -371,15 +356,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     // MARK: - Launch at Login
     private func initializeLaunchAtLogin() {
-        // Sync the actual system state with our preferences
-        let systemIsEnabled = LaunchAtLoginManager.shared.isEnabled
-        let preferencesState = PreferencesManager.shared.launchAtLogin
-        
-        // If there's a mismatch, use the system state as the source of truth
-        if systemIsEnabled != preferencesState {
-            PreferencesManager.shared.launchAtLogin = systemIsEnabled
-            print("🔄 Synced launch at login preference with system state: \(systemIsEnabled)")
-        }
+        // Read-only synchronization: launching WindowSnap never registers a login item.
+        let status = LaunchAtLoginManager.shared.refreshStatus()
+        print("🔄 Synced launch at login preference with system state: \(status)")
     }
     
     private func showLaunchAtLoginPromptIfNeeded() {

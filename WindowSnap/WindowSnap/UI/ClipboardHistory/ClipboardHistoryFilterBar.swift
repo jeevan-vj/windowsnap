@@ -100,4 +100,9 @@ final class ClipboardHistoryFilterBar: NSView {
             }
         }
     }
+
+    func resetFilters() {
+        activeTypeFilters.removeAll()
+        updateChipAppearances()
+    }
 }

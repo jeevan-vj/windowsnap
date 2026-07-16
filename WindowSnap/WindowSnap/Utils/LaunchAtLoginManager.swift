@@ -1,89 +1,181 @@
 import Foundation
 import ServiceManagement
 
-class LaunchAtLoginManager {
-    static let shared = LaunchAtLoginManager()
-    
-    private init() {}
-    
-    // App bundle identifier
-    private var bundleIdentifier: String {
-        return Bundle.main.bundleIdentifier ?? "com.jeevanwijerathna.windowsnap"
-    }
-    
-    // Check if app is set to launch at login
-    var isEnabled: Bool {
-        get {
-            if #available(macOS 13.0, *) {
-                return SMAppService.mainApp.status == .enabled
-            } else {
-                return isEnabledLegacy()
-            }
+enum LaunchAtLoginSystemStatus: Equatable {
+    case enabled
+    case disabled
+    case requiresApproval
+    case notFound
+    case unknown
+
+    init(_ status: SMAppService.Status) {
+        switch status {
+        case .enabled:
+            self = .enabled
+        case .notRegistered:
+            self = .disabled
+        case .requiresApproval:
+            self = .requiresApproval
+        case .notFound:
+            self = .notFound
+        @unknown default:
+            self = .unknown
         }
     }
-    
-    // Enable or disable launch at login
-    func setEnabled(_ enabled: Bool) throws {
-        if #available(macOS 13.0, *) {
-            try setEnabledModern(enabled)
-        } else {
-            try setEnabledLegacy(enabled)
-        }
-        
-        // Update preferences via UserDefaults directly to avoid circular import
-        UserDefaults.standard.set(enabled, forKey: "LaunchAtLogin")
+
+    var isEnabled: Bool { self == .enabled }
+}
+
+protocol LaunchAtLoginService: AnyObject {
+    var status: LaunchAtLoginSystemStatus { get }
+    func register() throws
+    func unregister() throws
+}
+
+protocol LaunchAtLoginPreferenceStoring: AnyObject {
+    var launchAtLogin: Bool { get set }
+}
+
+extension PreferencesManager: LaunchAtLoginPreferenceStoring {}
+
+private final class MainAppLaunchAtLoginService: LaunchAtLoginService {
+    var status: LaunchAtLoginSystemStatus {
+        LaunchAtLoginSystemStatus(SMAppService.mainApp.status)
     }
-    
-    // Modern approach for macOS 13+
-    @available(macOS 13.0, *)
-    private func setEnabledModern(_ enabled: Bool) throws {
-        if enabled {
-            if SMAppService.mainApp.status == .enabled {
-                return // Already enabled
-            }
-            try SMAppService.mainApp.register()
-        } else {
-            if SMAppService.mainApp.status != .enabled {
-                return // Already disabled
-            }
-            try SMAppService.mainApp.unregister()
-        }
+
+    func register() throws {
+        try SMAppService.mainApp.register()
     }
-    
-    // Legacy approach for macOS 12 and earlier
-    private func setEnabledLegacy(_ enabled: Bool) throws {
-        let success: Bool
-        if enabled {
-            // Suppress deprecation warning for backward compatibility
-            success = SMLoginItemSetEnabled(bundleIdentifier as CFString, true)
-        } else {
-            // Suppress deprecation warning for backward compatibility
-            success = SMLoginItemSetEnabled(bundleIdentifier as CFString, false)
-        }
-        
-        if !success {
-            throw LaunchAtLoginError.failedToSetState
-        }
-    }
-    
-    private func isEnabledLegacy() -> Bool {
-        // For older systems, we'll use a simpler approach
-        // Check UserDefaults as the source of truth for legacy systems
-        return UserDefaults.standard.bool(forKey: "LaunchAtLogin")
+
+    func unregister() throws {
+        try SMAppService.mainApp.unregister()
     }
 }
 
-// MARK: - Error Types
-enum LaunchAtLoginError: Error, LocalizedError {
-    case failedToSetState
-    case unsupportedSystem
-    
+final class LaunchAtLoginManager {
+    static let shared = LaunchAtLoginManager(
+        service: MainAppLaunchAtLoginService(),
+        preferences: PreferencesManager.shared
+    )
+
+    private let service: LaunchAtLoginService
+    private let preferences: LaunchAtLoginPreferenceStoring
+
+    init(service: LaunchAtLoginService, preferences: LaunchAtLoginPreferenceStoring) {
+        self.service = service
+        self.preferences = preferences
+    }
+
+    var status: LaunchAtLoginSystemStatus {
+        service.status
+    }
+
+    var isEnabled: Bool {
+        status.isEnabled
+    }
+
+    /// Reads the real system registration and mirrors it into the cached preference.
+    /// This method never registers a login item; registration requires `setEnabled(true)`.
+    @discardableResult
+    func refreshStatus() -> LaunchAtLoginSystemStatus {
+        let actualStatus = status
+        preferences.launchAtLogin = actualStatus.isEnabled
+        return actualStatus
+    }
+
+    func setEnabled(_ enabled: Bool) throws {
+        if enabled {
+            try enable()
+        } else {
+            try disable()
+        }
+    }
+
+    private func enable() throws {
+        switch status {
+        case .enabled:
+            preferences.launchAtLogin = true
+            return
+        case .requiresApproval:
+            preferences.launchAtLogin = false
+            throw LaunchAtLoginError.requiresApproval
+        case .notFound:
+            preferences.launchAtLogin = false
+            throw LaunchAtLoginError.serviceNotFound
+        case .disabled, .unknown:
+            break
+        }
+
+        do {
+            try service.register()
+        } catch {
+            preferences.launchAtLogin = status.isEnabled
+            throw LaunchAtLoginError.registrationFailed(underlying: error)
+        }
+
+        try validateEnabledStatus()
+    }
+
+    private func validateEnabledStatus() throws {
+        switch refreshStatus() {
+        case .enabled:
+            return
+        case .requiresApproval:
+            throw LaunchAtLoginError.requiresApproval
+        case .notFound:
+            throw LaunchAtLoginError.serviceNotFound
+        case .disabled, .unknown:
+            throw LaunchAtLoginError.registrationDidNotEnable
+        }
+    }
+
+    private func disable() throws {
+        switch status {
+        case .disabled, .notFound:
+            preferences.launchAtLogin = false
+            return
+        case .enabled, .requiresApproval, .unknown:
+            break
+        }
+
+        do {
+            try service.unregister()
+        } catch {
+            preferences.launchAtLogin = status.isEnabled
+            throw LaunchAtLoginError.unregistrationFailed(underlying: error)
+        }
+
+        switch refreshStatus() {
+        case .disabled, .notFound:
+            return
+        case .enabled, .requiresApproval, .unknown:
+            throw LaunchAtLoginError.unregistrationDidNotDisable
+        }
+    }
+}
+
+enum LaunchAtLoginError: LocalizedError {
+    case requiresApproval
+    case serviceNotFound
+    case registrationFailed(underlying: Error)
+    case registrationDidNotEnable
+    case unregistrationFailed(underlying: Error)
+    case unregistrationDidNotDisable
+
     var errorDescription: String? {
         switch self {
-        case .failedToSetState:
-            return "Failed to update launch at login setting"
-        case .unsupportedSystem:
-            return "This system version is not supported"
+        case .requiresApproval:
+            return "WindowSnap needs your approval in System Settings > General > Login Items. Allow WindowSnap, then return to Preferences."
+        case .serviceNotFound:
+            return "macOS could not find WindowSnap as an installed application. Move WindowSnap to the Applications folder, reopen it, and try again."
+        case .registrationFailed(let error):
+            return "WindowSnap could not be added to Login Items (\(error.localizedDescription)). Check System Settings > General > Login Items and try again."
+        case .registrationDidNotEnable:
+            return "macOS did not enable WindowSnap. Check System Settings > General > Login Items and try again."
+        case .unregistrationFailed(let error):
+            return "WindowSnap could not be removed from Login Items (\(error.localizedDescription)). Remove it in System Settings > General > Login Items."
+        case .unregistrationDidNotDisable:
+            return "macOS still reports WindowSnap as enabled. Remove it in System Settings > General > Login Items."
         }
     }
 }

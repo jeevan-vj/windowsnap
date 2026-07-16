@@ -2,12 +2,16 @@ import AppKit
 import Foundation
 
 class StatusBarController {
+    var onShowAccessibilitySetup: (() -> Void)?
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private var preferencesWindow: PreferencesWindow?
     private var textExpanderWindow: TextExpanderWindow?
+    private var pauseClipboardMenuItem: NSMenuItem?
+    private var clipboardPauseObserver: ClipboardPauseStateObserver?
     
     init() {
         setupStatusBar()
+        observeClipboardPauseState()
     }
     
     private func setupStatusBar() {
@@ -91,25 +95,43 @@ class StatusBarController {
         let textExpanderItem = NSMenuItem(title: "Text Expander", action: nil, keyEquivalent: "")
         textExpanderItem.submenu = textExpanderMenu
         menu.addItem(textExpanderItem)
+
+        let clipboardMenu = NSMenu()
+        let pauseClipboardItem = NSMenuItem(
+            title: "Pause History",
+            action: #selector(toggleClipboardHistory(_:)),
+            keyEquivalent: ""
+        )
+        pauseClipboardItem.target = self
+        pauseClipboardItem.state = ClipboardManager.shared.isMonitoringPaused ? .on : .off
+        pauseClipboardItem.setAccessibilityLabel("Pause clipboard history monitoring")
+        clipboardMenu.addItem(pauseClipboardItem)
+        self.pauseClipboardMenuItem = pauseClipboardItem
+
+        let clipboardItem = NSMenuItem(title: "Clipboard History", action: nil, keyEquivalent: "")
+        clipboardItem.submenu = clipboardMenu
+        menu.addItem(clipboardItem)
         
         // REGION SHARE FEATURE: Screen region sharing for video calls
-        if #available(macOS 12.3, *) {
-            let regionShareMenu = NSMenu()
-            
-            let showRegionItem = NSMenuItem(title: "Show Region Share", action: #selector(showRegionShare), keyEquivalent: "")
-            showRegionItem.target = self
-            regionShareMenu.addItem(showRegionItem)
-            
-            let newRegionItem = NSMenuItem(title: "Select New Region...", action: #selector(selectNewRegion), keyEquivalent: "")
-            newRegionItem.target = self
-            regionShareMenu.addItem(newRegionItem)
-            
-            let regionShareItem = NSMenuItem(title: "Region Share", action: nil, keyEquivalent: "")
-            regionShareItem.submenu = regionShareMenu
-            menu.addItem(regionShareItem)
-        }
+        let regionShareMenu = NSMenu()
+
+        let showRegionItem = NSMenuItem(title: "Show Region Share", action: #selector(showRegionShare), keyEquivalent: "")
+        showRegionItem.target = self
+        regionShareMenu.addItem(showRegionItem)
+
+        let newRegionItem = NSMenuItem(title: "Select New Region...", action: #selector(selectNewRegion), keyEquivalent: "")
+        newRegionItem.target = self
+        regionShareMenu.addItem(newRegionItem)
+
+        let regionShareItem = NSMenuItem(title: "Region Share", action: nil, keyEquivalent: "")
+        regionShareItem.submenu = regionShareMenu
+        menu.addItem(regionShareItem)
         
         // Settings and Info
+        let accessibilityItem = NSMenuItem(title: "Accessibility Setup…", action: #selector(showAccessibilitySetup), keyEquivalent: "")
+        accessibilityItem.target = self
+        menu.addItem(accessibilityItem)
+
         let preferencesItem = NSMenuItem(title: "Preferences...", action: #selector(showPreferences), keyEquivalent: ",")
         preferencesItem.target = self
         menu.addItem(preferencesItem)
@@ -167,6 +189,10 @@ class StatusBarController {
         preferencesWindow?.window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
+
+    @objc private func showAccessibilitySetup() {
+        onShowAccessibilitySetup?()
+    }
     
     @objc private func showCustomPositions() {
         let customPositionsWindow = CustomPositionsWindow()
@@ -195,6 +221,23 @@ class StatusBarController {
             TextExpansionEngine.shared.stop()
         }
     }
+
+    @objc private func toggleClipboardHistory(_ sender: NSMenuItem) {
+        if ClipboardManager.shared.isMonitoringPaused {
+            ClipboardManager.shared.resumeMonitoring()
+            sender.state = .off
+        } else {
+            ClipboardManager.shared.pauseMonitoring()
+            sender.state = .on
+        }
+    }
+
+    private func observeClipboardPauseState() {
+        clipboardPauseObserver = ClipboardPauseStateObserver { [weak self] isPaused in
+            let update: () -> Void = { self?.pauseClipboardMenuItem?.state = isPaused ? .on : .off }
+            if Thread.isMainThread { update() } else { DispatchQueue.main.async(execute: update) }
+        }
+    }
     
     @objc private func showTextExpanderSettings() {
         if textExpanderWindow == nil {
@@ -205,12 +248,10 @@ class StatusBarController {
         NSApp.activate(ignoringOtherApps: true)
     }
     
-    @available(macOS 12.3, *)
     @objc private func showRegionShare() {
         RegionShareController.shared.showRegionShare()
     }
     
-    @available(macOS 12.3, *)
     @objc private func selectNewRegion() {
         RegionShareController.shared.selectNewRegion()
     }
