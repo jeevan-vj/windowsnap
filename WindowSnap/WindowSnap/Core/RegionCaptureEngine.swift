@@ -4,13 +4,11 @@ import CoreMedia
 import CoreImage
 import AppKit
 
-@available(macOS 12.3, *)
 protocol RegionCaptureDelegate: AnyObject {
     func captureEngine(_ engine: RegionCaptureEngine, didOutputFrame image: CGImage)
     func captureEngine(_ engine: RegionCaptureEngine, didFailWithError error: Error)
 }
 
-@available(macOS 12.3, *)
 class RegionCaptureEngine: NSObject {
     private static let lastStopLock = NSLock()
     private static var lastStopCompletedAtMs: Int?
@@ -334,7 +332,6 @@ class RegionCaptureEngine: NSObject {
     }
 }
 
-@available(macOS 12.3, *)
 extension RegionCaptureEngine: SCStreamDelegate {
     func stream(_ stream: SCStream, didStopWithError error: Error) {
         // #region agent log
@@ -369,7 +366,6 @@ extension RegionCaptureEngine: SCStreamDelegate {
     }
 }
 
-@available(macOS 12.3, *)
 private class CaptureStreamOutput: NSObject, SCStreamOutput {
     private let handler: (CMSampleBuffer) -> Void
     

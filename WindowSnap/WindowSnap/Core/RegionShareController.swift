@@ -1,7 +1,6 @@
 import Foundation
 import AppKit
 
-@available(macOS 12.3, *)
 class RegionShareController: NSObject {
     
     static let shared = RegionShareController()
@@ -224,7 +223,6 @@ class RegionShareController: NSObject {
     }
 }
 
-@available(macOS 12.3, *)
 extension RegionShareController: RegionSelectionDelegate {
     func regionSelectionDidComplete(displayID: CGDirectDisplayID, rect: CGRect) {
         guard !didHandleSelection else { return }

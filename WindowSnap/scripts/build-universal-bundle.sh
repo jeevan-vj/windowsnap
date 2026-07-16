@@ -104,7 +104,7 @@ else
 <key>CFBundleShortVersionString</key><string>${VERSION}</string>
 <key>CFBundleVersion</key><string>${BUILD}</string>
 <key>CFBundleIconFile</key><string>AppIcon</string>
-<key>LSMinimumSystemVersion</key><string>12.0</string>
+<key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>LSUIElement</key><true/>
 </dict></plist>
 EOF
@@ -128,7 +128,7 @@ if command -v xcrun >/dev/null && [[ -d "$ASSETS_DIR" ]]; then
   if xcrun actool "$ASSETS_DIR" \
     --compile "$RESOURCES_DIR" \
     --platform macosx \
-    --minimum-deployment-target 12.0 \
+    --minimum-deployment-target 13.0 \
     --app-icon AppIcon \
     --output-partial-info-plist "$TMP_ASSET_BUILD/asset.plist" 2>&1; then
     echo -e "${GREEN}✓${NC} Asset catalog compiled"
@@ -203,7 +203,7 @@ echo -e "  App Bundle:     ${GREEN}$APP_DIR${NC}"
 echo -e "  Archive:        ${GREEN}$DIST_DIR/${APP_NAME}.zip${NC}"
 echo ""
 echo -e "${BLUE}Supported Systems:${NC}"
-echo -e "  ${GREEN}✓${NC} macOS 12.0 (Monterey) or later"
+echo -e "  ${GREEN}✓${NC} macOS 13.0 (Ventura) or later"
 echo -e "  ${GREEN}✓${NC} Apple Silicon (M1/M2/M3/M4)"
 echo -e "  ${GREEN}✓${NC} Intel (x86_64)"
 echo ""

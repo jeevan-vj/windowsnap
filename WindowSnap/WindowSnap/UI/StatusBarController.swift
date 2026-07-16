@@ -108,21 +108,19 @@ class StatusBarController {
         menu.addItem(clipboardItem)
         
         // REGION SHARE FEATURE: Screen region sharing for video calls
-        if #available(macOS 12.3, *) {
-            let regionShareMenu = NSMenu()
-            
-            let showRegionItem = NSMenuItem(title: "Show Region Share", action: #selector(showRegionShare), keyEquivalent: "")
-            showRegionItem.target = self
-            regionShareMenu.addItem(showRegionItem)
-            
-            let newRegionItem = NSMenuItem(title: "Select New Region...", action: #selector(selectNewRegion), keyEquivalent: "")
-            newRegionItem.target = self
-            regionShareMenu.addItem(newRegionItem)
-            
-            let regionShareItem = NSMenuItem(title: "Region Share", action: nil, keyEquivalent: "")
-            regionShareItem.submenu = regionShareMenu
-            menu.addItem(regionShareItem)
-        }
+        let regionShareMenu = NSMenu()
+
+        let showRegionItem = NSMenuItem(title: "Show Region Share", action: #selector(showRegionShare), keyEquivalent: "")
+        showRegionItem.target = self
+        regionShareMenu.addItem(showRegionItem)
+
+        let newRegionItem = NSMenuItem(title: "Select New Region...", action: #selector(selectNewRegion), keyEquivalent: "")
+        newRegionItem.target = self
+        regionShareMenu.addItem(newRegionItem)
+
+        let regionShareItem = NSMenuItem(title: "Region Share", action: nil, keyEquivalent: "")
+        regionShareItem.submenu = regionShareMenu
+        menu.addItem(regionShareItem)
         
         // Settings and Info
         let accessibilityItem = NSMenuItem(title: "Accessibility Setup…", action: #selector(showAccessibilitySetup), keyEquivalent: "")
@@ -245,12 +243,10 @@ class StatusBarController {
         NSApp.activate(ignoringOtherApps: true)
     }
     
-    @available(macOS 12.3, *)
     @objc private func showRegionShare() {
         RegionShareController.shared.showRegionShare()
     }
     
-    @available(macOS 12.3, *)
     @objc private func selectNewRegion() {
         RegionShareController.shared.selectNewRegion()
     }

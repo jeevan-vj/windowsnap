@@ -40,7 +40,7 @@ A native macOS window management application that allows you to quickly arrange 
 
 ## Requirements
 
-- **macOS**: 12.0 (Monterey) or later
+- **macOS**: 13.0 (Ventura) or later
 - **Architecture**: Intel x64 or Apple Silicon (ARM64)
 - **Permissions**: Accessibility access (required)
 
@@ -168,7 +168,7 @@ WindowSnap/
 ## Troubleshooting
 
 ### App Won't Start
-- Check that you have macOS 12.0 or later
+- Check that you have macOS 13.0 or later
 - Ensure accessibility permissions are granted
 - Try rebuilding the project
 

@@ -1,6 +1,6 @@
 # Accessibility onboarding manual verification
 
-These checks exercise macOS TCC behavior that cannot be simulated reliably by unit tests. Run them with a bundled build of WindowSnap on each supported major macOS version (macOS 12 and later).
+These checks exercise macOS TCC behavior that cannot be simulated reliably by unit tests. Run them with a bundled build of WindowSnap on each supported major macOS version (macOS 13 and later).
 
 ## Preparation
 
