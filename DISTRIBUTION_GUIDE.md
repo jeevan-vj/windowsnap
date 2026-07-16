@@ -20,6 +20,12 @@ Public releases must be universal, signed with a Developer ID Application certif
    export NOTARY_PROFILE="windowsnap-notary"
    ```
 
+4. Configure a GitHub repository ruleset with tag protection for `v*`: restrict
+   creation to release maintainers and prevent tag updates or deletion. Release
+   tags should be immutable after they are pushed. The release script rechecks
+   the remote tag immediately before publishing, but server-side protection is
+   the primary defense against accidental or malicious tag movement.
+
 Do not commit certificates, private keys, passwords, profile exports, or notarization credentials. The scripts intentionally do not print credentials or Keychain contents.
 
 ## Canonical command
