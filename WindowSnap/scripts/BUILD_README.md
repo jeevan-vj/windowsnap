@@ -91,10 +91,11 @@ lipo -info ./.build/universal/WindowSnap
 ./scripts/build-universal-bundle.sh
 ```
 
-**Signed build (for distribution):**
+**Production distribution:**
 ```bash
 CODESIGN_ID="Developer ID Application: Your Name (TEAM_ID)" \
-  ./scripts/build-universal-bundle.sh
+NOTARY_PROFILE="windowsnap-notary" \
+  ./scripts/release.sh
 ```
 
 **Custom version:**
@@ -104,12 +105,12 @@ VERSION="1.3.0" ./scripts/build-universal-bundle.sh
 
 ---
 
-### 3. `build_bundle.sh` (Original)
+### 3. `build_bundle.sh` (Legacy local builder)
 
 **Purpose:** Original single-architecture bundle builder
 **Output:** Builds for current Mac's architecture only
 
-**Note:** This is kept for backward compatibility. For distribution, use `build-universal-bundle.sh` instead.
+**Note:** This is kept for local development compatibility. It must not be used to create public artifacts. For local packages use `build-adhoc-release.sh`; for production use `release.sh`.
 
 ---
 

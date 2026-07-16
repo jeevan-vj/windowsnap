@@ -5,14 +5,13 @@ Public releases must be universal, signed with a Developer ID Application certif
 ## One-time setup
 
 1. Install a valid `Developer ID Application` certificate in the login Keychain.
-2. Store notarization credentials in Keychain without adding credentials to the repository or shell history:
+2. Store notarization credentials in Keychain without adding credentials to the command line, repository, or shell history:
 
    ```bash
-   xcrun notarytool store-credentials "windowsnap-notary" \
-     --apple-id "APPLE_ID" \
-     --team-id "TEAM_ID" \
-     --password "APP_SPECIFIC_PASSWORD"
+   xcrun notarytool store-credentials "windowsnap-notary"
    ```
+
+   Follow the secure interactive prompts for Apple ID, team ID, and the app-specific password. The secret is entered without being embedded in the command and is saved by `notarytool` in Keychain.
 
 3. Export only the identity and Keychain profile names:
 

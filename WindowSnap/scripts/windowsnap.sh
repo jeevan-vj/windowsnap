@@ -19,9 +19,9 @@ show_menu() {
     echo "  4) Generate app icons"
     echo ""
     echo "Distribution:"
-    echo "  5) Create distribution package"
-    echo "  6) Build app bundle only"
-    echo "  7) Create DMG only"
+    echo "  5) Create verified production candidates"
+    echo "  6) Build local-only ad-hoc package"
+    echo "  7) Show release documentation"
     echo ""
     echo "Installation:"
     echo "  8) Quick install (build + install to /Applications)"
@@ -40,8 +40,9 @@ clean_build() {
 }
 
 install_existing() {
-    if [[ ! -d "$ROOT_DIR/dist/${APP_NAME}.app" ]]; then
-        echo "❌ No built app found. Run option 5 first to build the app bundle."
+    local local_app="$ROOT_DIR/dist/local-only/${APP_NAME}.app"
+    if [[ ! -d "$local_app" ]]; then
+        echo "❌ No local-only app found. Run option 6 first."
         return 1
     fi
     
@@ -49,7 +50,7 @@ install_existing() {
     if [[ -d "/Applications/${APP_NAME}.app" ]]; then
         rm -rf "/Applications/${APP_NAME}.app"
     fi
-    cp -R "$ROOT_DIR/dist/${APP_NAME}.app" "/Applications/"
+    cp -R "$local_app" "/Applications/"
     chmod +x "/Applications/${APP_NAME}.app/Contents/MacOS/${APP_NAME}"
     echo "✅ Installation complete!"
 }
@@ -87,20 +88,15 @@ while true; do
             bash "$SCRIPTS_DIR/generate-icons.sh"
             ;;
         5)
-            echo "📦 Creating distribution package..."
-            bash "$SCRIPTS_DIR/distribute.sh"
+            echo "📦 Creating signed, notarized, and verified production candidates..."
+            bash "$SCRIPTS_DIR/release.sh"
             ;;
         6)
-            echo "🏗️  Building app bundle..."
-            bash "$SCRIPTS_DIR/build_bundle.sh"
+            echo "🏗️  Building local-only package..."
+            bash "$SCRIPTS_DIR/build-adhoc-release.sh"
             ;;
         7)
-            echo "💿 Creating DMG..."
-            if [[ ! -d "$ROOT_DIR/dist/${APP_NAME}.app" ]]; then
-                echo "❌ No app bundle found. Building first..."
-                bash "$SCRIPTS_DIR/build_bundle.sh"
-            fi
-            bash "$SCRIPTS_DIR/package_dmg.sh"
+            echo "Production releases are documented in ../DISTRIBUTION_GUIDE.md"
             ;;
         8)
             echo "⚡ Quick install..."

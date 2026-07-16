@@ -62,15 +62,15 @@ Building from source ensures you trust the code:
    cd windowsnap
    ```
 
-2. **Build the app bundle:**
+2. **Build a local-only app bundle:**
    ```bash
    cd WindowSnap
-   bash scripts/build_bundle.sh
+   bash scripts/build-adhoc-release.sh
    ```
 
 3. **Install to Applications:**
    ```bash
-   cp -R dist/WindowSnap.app /Applications/
+   cp -R dist/local-only/WindowSnap.app /Applications/
    ```
 
 4. **Launch:**
@@ -273,47 +273,33 @@ Copyright © 2025 WindowSnap. All rights reserved.
 
 ### For Developers: Signing & Notarization
 
-To eliminate the security warning for users, you need to **code sign** and **notarize** your app with Apple:
+Public artifacts must use the canonical fail-closed release pipeline:
 
-**Quick Start:**
 ```bash
-# 1. Set your Apple Developer credentials
 export CODESIGN_ID="Developer ID Application: Your Name (TEAMID)"
-export NOTARY_PROFILE="your-notary-profile"
-
-# 2. Build and sign
+export NOTARY_PROFILE="windowsnap-notary"
 cd WindowSnap
-bash scripts/build_bundle.sh
-
-# 3. Notarize (removes user warnings)
-bash scripts/sign-and-notarize.sh
+./scripts/release.sh
 ```
 
 **📖 For complete instructions, see:** [DISTRIBUTION_GUIDE.md](DISTRIBUTION_GUIDE.md)
 
 The guide covers:
 - Getting Apple Developer certificate
-- Setting up notarization
-- Automated signing with GitHub Actions
-- Cost-free alternatives (Homebrew, build from source)
+- Securely setting up a Keychain notarization profile
+- Producing and verifying universal ZIP and DMG artifacts
+- Running the clean-machine smoke test
 
-### Quick Distribution (Without Signing)
+### Local Testing Package
 
-For testing or personal use:
+For testing on the development Mac only:
 
 ```bash
 cd WindowSnap
-bash scripts/distribute.sh
+./scripts/build-adhoc-release.sh
 ```
 
-This creates:
-- `dist/WindowSnap.app` - Application bundle
-- `dist/WindowSnap.dmg` - Disk image
-- `dist/WindowSnap.zip` - Zip archive
-- `dist/install.sh` - Installation script
-- `dist/README.txt` - User instructions (includes workarounds)
-
-**Note:** Users will need to use the right-click method to open the app.
+Local artifacts are isolated under `dist/local-only/` and must not be uploaded to a public release.
 
 ## Future Improvements
 - Migrate deprecated `NSUserNotification` to `UNUserNotificationCenter` or custom HUD.

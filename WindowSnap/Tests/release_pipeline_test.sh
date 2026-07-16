@@ -57,6 +57,20 @@ assert_not_contains "$SCRIPTS_DIR/build-adhoc-release.sh" 'GitHub Release|ready 
 assert_not_contains "$ROOT_DIR/../README.md" 'xattr[[:space:]]+-d|Open Anyway|bypass Gatekeeper|isn.t notarized' "README does not instruct users to bypass Gatekeeper"
 assert_contains "$ROOT_DIR/../DISTRIBUTION_GUIDE.md" 'scripts/release\.sh' "distribution guide names one canonical command"
 assert_contains "$ROOT_DIR/../DISTRIBUTION_GUIDE.md" 'clean-machine|Clean-machine' "distribution guide includes a clean-machine smoke test"
+assert_not_contains "$ROOT_DIR/../DISTRIBUTION_GUIDE.md" '--password[[:space:]]+"?[^[:space:]]+|APP_SPECIFIC_PASSWORD' "distribution guide never places notarization passwords in command arguments"
+assert_contains "$ROOT_DIR/../DISTRIBUTION_GUIDE.md" 'interactive|prompt' "distribution guide uses interactive Keychain credential setup"
+
+WORKFLOW="$ROOT_DIR/../.github/workflows/release-macos.yml"
+assert_not_contains "$WORKFLOW" 'notarize-dist\.sh|softprops/action-gh-release' "live workflow has no retired or duplicate release path"
+assert_contains "$WORKFLOW" 'scripts/release\.sh[[:space:]]+--publish' "live workflow delegates publishing to the canonical release command"
+assert_contains "$WORKFLOW" 'notarytool store-credentials' "live workflow creates the canonical notarytool Keychain profile"
+
+assert_not_contains "$ROOT_DIR/../README.md" 'scripts/(build_bundle|sign-and-notarize|distribute|package_dmg)\.sh|right-click method' "README contains no legacy distribution or Gatekeeper-bypass instructions"
+assert_not_contains "$SCRIPTS_DIR/package_dmg.sh" 'hdiutil create|codesign.*continuing|NOTARIZE_DMG_STEPS' "legacy package_dmg route cannot create unverified artifacts"
+assert_contains "$SCRIPTS_DIR/package_dmg.sh" 'release\.sh' "legacy package_dmg route delegates users to the canonical release"
+assert_not_contains "$SCRIPTS_DIR/windowsnap.sh" 'distribute\.sh|package_dmg\.sh|build_bundle\.sh' "management console exposes no unsafe distribution routes"
+assert_contains "$SCRIPTS_DIR/windowsnap.sh" 'release\.sh' "management console delegates production candidates to canonical release"
+assert_contains "$SCRIPTS_DIR/windowsnap.sh" 'build-adhoc-release\.sh' "management console delegates local packages to local-only build"
 
 if env -u CODESIGN_ID -u NOTARY_PROFILE "$SCRIPTS_DIR/release.sh" --skip-notarize >/dev/null 2>&1; then
   fail "removed skip-notarize option is rejected"
