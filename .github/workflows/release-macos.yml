@@ -33,13 +33,27 @@ jobs:
       - name: Resolve checkout ref
         id: checkout_ref
         shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REQUESTED_TAG: ${{ github.event.inputs.tag }}
+          TRIGGER_REF: ${{ github.ref }}
         run: |
           set -euo pipefail
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "ref=refs/tags/${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            tag="$REQUESTED_TAG"
           else
-            echo "ref=${{ github.ref }}" >> "$GITHUB_OUTPUT"
+            [[ "$TRIGGER_REF" =~ ^refs/tags/(v[0-9]+\.[0-9]+\.[0-9]+)$ ]] || {
+              echo "Release ref must be an exact vX.Y.Z tag." >&2
+              exit 1
+            }
+            tag="${BASH_REMATCH[1]}"
           fi
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "Release tag must use the exact vX.Y.Z format." >&2
+            exit 1
+          }
+          echo "ref=refs/tags/$tag" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@v4
         with:
@@ -49,13 +63,11 @@ jobs:
       - name: Resolve release tag
         id: meta
         shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.checkout_ref.outputs.tag }}
         run: |
           set -euo pipefail
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            tag="${{ github.event.inputs.tag }}"
-          else
-            tag="${GITHUB_REF#refs/tags/}"
-          fi
+          tag="$RELEASE_TAG"
           expected="v$(tr -d '[:space:]' < WindowSnap/VERSION)"
           [[ "$tag" == "$expected" ]] || {
             echo "Tag $tag does not match WindowSnap/VERSION ($expected)." >&2

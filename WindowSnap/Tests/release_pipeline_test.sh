@@ -23,6 +23,48 @@ assert_executable() {
   if [[ -x "$file" ]]; then pass "$description"; else fail "$description"; fi
 }
 
+workflow_run_blocks_contain() {
+  local file="$1" pattern="$2"
+  awk '
+    /^[[:space:]]+run:[[:space:]]*\|[[:space:]]*$/ {
+      in_run = 1
+      match($0, /^[[:space:]]*/)
+      run_indent = RLENGTH
+      next
+    }
+    in_run {
+      if ($0 ~ /^[[:space:]]*$/) {
+        print
+        next
+      }
+      match($0, /^[[:space:]]*/)
+      if (RLENGTH <= run_indent) {
+        in_run = 0
+        next
+      }
+      print
+    }
+  ' "$file" | grep -Eq -- "$pattern"
+}
+
+assert_workflow_run_not_contains() {
+  local file="$1" pattern="$2" description="$3"
+  if workflow_run_blocks_contain "$file" "$pattern"; then fail "$description"; else pass "$description"; fi
+}
+
+assert_publish_preflight_fails_with() {
+  local repo="$1" expected="$2" description="$3"
+  local output
+  if output="$(cd "$repo" && env -u CODESIGN_ID -u NOTARY_PROFILE ./scripts/release.sh --publish 2>&1)"; then
+    fail "$description"
+  elif grep -Fq -- "$expected" <<<"$output"; then
+    pass "$description"
+  else
+    printf 'Expected error containing: %s\nActual output:\n%s\n' "$expected" "$output" >&2
+    fail "$description"
+  fi
+}
+
 assert_executable "$SCRIPTS_DIR/release.sh" "canonical release command is executable"
 assert_executable "$SCRIPTS_DIR/sign-nested-components.sh" "explicit nested signing helper exists"
 assert_executable "$SCRIPTS_DIR/verify-release.sh" "release artifact verifier exists"
@@ -64,6 +106,58 @@ WORKFLOW="$ROOT_DIR/../.github/workflows/release-macos.yml"
 assert_not_contains "$WORKFLOW" 'notarize-dist\.sh|softprops/action-gh-release' "live workflow has no retired or duplicate release path"
 assert_contains "$WORKFLOW" 'scripts/release\.sh[[:space:]]+--publish' "live workflow delegates publishing to the canonical release command"
 assert_contains "$WORKFLOW" 'notarytool store-credentials' "live workflow creates the canonical notarytool Keychain profile"
+assert_workflow_run_not_contains "$WORKFLOW" '\$\{\{[[:space:]]*(github\.event\.inputs\.tag|github\.ref)[[:space:]]*\}\}' "untrusted GitHub context is never interpolated directly into run scripts"
+assert_contains "$WORKFLOW" 'REQUESTED_TAG:[[:space:]]*\$\{\{[[:space:]]*github\.event\.inputs\.tag[[:space:]]*\}\}' "manual tag input enters the shell only through an environment variable"
+assert_contains "$WORKFLOW" 'TRIGGER_REF:[[:space:]]*\$\{\{[[:space:]]*github\.ref[[:space:]]*\}\}' "push ref enters the shell only through an environment variable"
+assert_contains "$WORKFLOW" '\^v\[0-9\]\+\\\.\[0-9\]\+\\\.\[0-9\]\+\$' "workflow strictly validates release tags as vX.Y.Z"
+
+workflow_mutant="$(mktemp)"
+cp "$WORKFLOW" "$workflow_mutant"
+sed 's/tag="\$REQUESTED_TAG"/tag="${{ github.event.inputs.tag }}"/' "$WORKFLOW" > "$workflow_mutant"
+if workflow_run_blocks_contain "$workflow_mutant" '\$\{\{[[:space:]]*github\.event\.inputs\.tag[[:space:]]*\}\}'; then
+  pass "workflow injection mutation is detected by the policy test"
+else
+  fail "workflow injection mutation is detected by the policy test"
+fi
+rm -f "$workflow_mutant"
+
+assert_contains "$SCRIPTS_DIR/release.sh" 'git .*status --porcelain' "publish requires a clean working tree"
+assert_contains "$SCRIPTS_DIR/release.sh" 'git .*ls-remote' "publish verifies the release tag on origin"
+assert_contains "$SCRIPTS_DIR/release.sh" '--verify-tag' "GitHub release creation refuses to invent a missing tag"
+
+preflight_tmp="$(mktemp -d)"
+remote_repo="$preflight_tmp/remote.git"
+work_repo="$preflight_tmp/work"
+git init --bare "$remote_repo" >/dev/null
+git init "$work_repo" >/dev/null
+git -C "$work_repo" config user.name "WindowSnap Test"
+git -C "$work_repo" config user.email "windowsnap-test@example.invalid"
+mkdir -p "$work_repo/scripts"
+cp "$SCRIPTS_DIR/release.sh" "$work_repo/scripts/release.sh"
+chmod +x "$work_repo/scripts/release.sh"
+printf '9.8.7\n' > "$work_repo/VERSION"
+git -C "$work_repo" add VERSION scripts/release.sh
+git -C "$work_repo" commit -m "release fixture" >/dev/null
+release_commit="$(git -C "$work_repo" rev-parse HEAD)"
+git -C "$work_repo" tag -a v9.8.7 -m "release fixture tag"
+release_tag_object="$(git -C "$work_repo" rev-parse v9.8.7)"
+git -C "$work_repo" remote add origin "$remote_repo"
+git -C "$work_repo" push origin HEAD:refs/heads/main refs/tags/v9.8.7 >/dev/null
+
+printf 'dirty\n' >> "$work_repo/untracked.txt"
+assert_publish_preflight_fails_with "$work_repo" "clean working tree" "publish rejects untracked or modified files"
+rm -f "$work_repo/untracked.txt"
+
+git --git-dir="$remote_repo" update-ref -d refs/tags/v9.8.7
+assert_publish_preflight_fails_with "$work_repo" "Remote tag v9.8.7 does not exist" "publish rejects a missing remote release tag without network access"
+git --git-dir="$remote_repo" update-ref refs/tags/v9.8.7 "$release_tag_object"
+assert_publish_preflight_fails_with "$work_repo" "Set CODESIGN_ID" "publish accepts a clean checkout at the exact annotated remote tag commit"
+
+printf 'next\n' > "$work_repo/NEXT"
+git -C "$work_repo" add NEXT
+git -C "$work_repo" commit -m "commit after tag" >/dev/null
+assert_publish_preflight_fails_with "$work_repo" "HEAD must exactly match remote tag v9.8.7" "publish rejects HEAD when it differs from the remote tag commit"
+rm -rf "$preflight_tmp"
 
 assert_not_contains "$ROOT_DIR/../README.md" 'scripts/(build_bundle|sign-and-notarize|distribute|package_dmg)\.sh|right-click method' "README contains no legacy distribution or Gatekeeper-bypass instructions"
 assert_not_contains "$SCRIPTS_DIR/package_dmg.sh" 'hdiutil create|codesign.*continuing|NOTARIZE_DMG_STEPS' "legacy package_dmg route cannot create unverified artifacts"

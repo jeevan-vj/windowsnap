@@ -9,6 +9,31 @@ set -euo pipefail
 die() { echo "ERROR: $*" >&2; exit 1; }
 require_command() { command -v "$1" >/dev/null 2>&1 || die "Required command not found: $1"; }
 
+validate_publish_source() {
+  local tag="v$VERSION"
+  local status remote_refs remote_commit head_commit
+
+  git -C "$ROOT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1 || \
+    die "Publishing requires a Git working tree"
+  status="$(git -C "$ROOT_DIR" status --porcelain --untracked-files=normal)"
+  [[ -z "$status" ]] || die "Publishing requires a clean working tree"
+
+  if ! remote_refs="$(git -C "$ROOT_DIR" ls-remote --exit-code origin \
+      "refs/tags/$tag" "refs/tags/$tag^{}" 2>/dev/null)"; then
+    die "Remote tag $tag does not exist on origin"
+  fi
+  remote_commit="$(printf '%s\n' "$remote_refs" | \
+    awk '$2 ~ /\^\{\}$/ { print $1; exit }')"
+  if [[ -z "$remote_commit" ]]; then
+    remote_commit="$(printf '%s\n' "$remote_refs" | awk 'NR == 1 { print $1 }')"
+  fi
+  [[ -n "$remote_commit" ]] || die "Remote tag $tag does not resolve to a commit"
+
+  head_commit="$(git -C "$ROOT_DIR" rev-parse HEAD)"
+  [[ "$head_commit" == "$remote_commit" ]] || \
+    die "HEAD must exactly match remote tag $tag ($remote_commit)"
+}
+
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
 PRODUCTION_DIR="$DIST_DIR/production"
@@ -28,6 +53,14 @@ for arg in "$@"; do
   esac
 done
 
+VERSION="$(tr -d '[:space:]' < "$ROOT_DIR/VERSION")"
+[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$ ]] || die "Invalid VERSION: $VERSION"
+
+if [[ "$PUBLISH" == true ]]; then
+  require_command git
+  validate_publish_source
+fi
+
 [[ "${CODESIGN_ID:-}" == Developer\ ID\ Application:* ]] || \
   die "Set CODESIGN_ID to an installed Developer ID Application identity"
 [[ -n "${NOTARY_PROFILE:-}" ]] || \
@@ -45,9 +78,6 @@ if [[ "$PUBLISH" == true ]]; then
   require_command gh
   gh auth status >/dev/null 2>&1 || die "GitHub CLI authentication is required for --publish"
 fi
-
-VERSION="$(tr -d '[:space:]' < "$ROOT_DIR/VERSION")"
-[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$ ]] || die "Invalid VERSION: $VERSION"
 
 echo "Building WindowSnap $VERSION for production"
 rm -rf "$DIST_DIR"
@@ -77,7 +107,7 @@ cp "$SOURCE_DMG" "$PRODUCTION_DIR/$DMG_NAME"
 
 echo "Verified production artifacts: $PRODUCTION_DIR"
 if [[ "$PUBLISH" == true ]]; then
-  release_args=(release create "v$VERSION" --title "WindowSnap $VERSION" --generate-notes)
+  release_args=(release create "v$VERSION" --verify-tag --title "WindowSnap $VERSION" --generate-notes)
   [[ "$DRAFT" == true ]] && release_args+=(--draft)
   release_args+=(
     "$PRODUCTION_DIR/$ZIP_NAME"
