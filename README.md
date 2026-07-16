@@ -48,35 +48,11 @@ A native macOS window management application that allows you to quickly arrange 
 
 ### Download Pre-Built App
 
-**⚠️ Important: First-Time Opening on macOS**
+Download the latest ZIP or DMG from [GitHub Releases](https://github.com/jeevan-vj/windowsnap/releases).
+Public artifacts are universal (Apple Silicon and Intel), Developer ID signed, and notarized by Apple.
+If macOS rejects a downloaded release, stop and report the release filename and macOS version in a GitHub issue.
 
-When you first open WindowSnap, macOS may show a security warning:
-> "WindowSnap.app" cannot be opened because Apple cannot verify it is free of malware.
-
-This happens because the app isn't notarized by Apple. **The app is safe** - it's just not signed with an Apple Developer certificate ($99/year).
-
-**To open the app, use ONE of these methods:**
-
-**Method 1 - Right-Click Open (Easiest):**
-1. Right-click (or Control+click) on `WindowSnap.app`
-2. Select **"Open"** from the menu
-3. Click **"Open"** in the confirmation dialog
-4. macOS will remember this choice
-
-**Method 2 - Remove Quarantine Flag:**
-```bash
-xattr -d com.apple.quarantine /Applications/WindowSnap.app
-```
-
-**Method 3 - System Settings (macOS Ventura+):**
-1. Try to open the app (it will be blocked)
-2. Go to **System Settings** → **Privacy & Security**
-3. Scroll to see "WindowSnap was blocked"
-4. Click **"Open Anyway"**
-
----
-
-### Option 1: Build from Source (Recommended)
+### Build from Source
 
 Building from source ensures you trust the code:
 

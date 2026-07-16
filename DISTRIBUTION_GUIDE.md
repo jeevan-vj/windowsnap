@@ -1,212 +1,69 @@
-# WindowSnap Distribution Guide
+# WindowSnap production releases
 
-## The Gatekeeper Problem
+Public releases must be universal, signed with a Developer ID Application certificate, notarized, stapled, and verified. `WindowSnap/scripts/release.sh` is the only production release entry point. Supporting scripts are internal stages and must not be used to publish artifacts independently.
 
-When users try to open WindowSnap.app, they see:
+## One-time setup
 
-> **"WindowSnap.app" Not Opened**  
-> Apple could not verify "WindowSnap.app" is free of malware...
+1. Install a valid `Developer ID Application` certificate in the login Keychain.
+2. Store notarization credentials in Keychain without adding credentials to the repository or shell history:
 
-This happens because the app isn't **code signed** and **notarized** by Apple.
+   ```bash
+   xcrun notarytool store-credentials "windowsnap-notary" \
+     --apple-id "APPLE_ID" \
+     --team-id "TEAM_ID" \
+     --password "APP_SPECIFIC_PASSWORD"
+   ```
 
----
+3. Export only the identity and Keychain profile names:
 
-## User Workarounds (Until You Sign the App)
+   ```bash
+   export CODESIGN_ID="Developer ID Application: Your Name (TEAM_ID)"
+   export NOTARY_PROFILE="windowsnap-notary"
+   ```
 
-### Method 1: Right-Click Open (Easiest)
-1. Right-click (or Control+click) on `WindowSnap.app`
-2. Select "Open" from the menu
-3. Click "Open" in the confirmation dialog
-4. App will open and remember this choice
+Do not commit certificates, private keys, passwords, profile exports, or notarization credentials. The scripts intentionally do not print credentials or Keychain contents.
 
-### Method 2: Remove Quarantine Flag
-```bash
-# For already installed app
-xattr -d com.apple.quarantine /Applications/WindowSnap.app
+## Canonical command
 
-# Or before installing
-xattr -d com.apple.quarantine ~/Downloads/WindowSnap.app
-```
-
-### Method 3: System Settings (macOS Ventura+)
-1. Try to open the app (it will be blocked)
-2. Go to **System Settings** → **Privacy & Security**
-3. Scroll down to see "WindowSnap was blocked"
-4. Click **Open Anyway**
-
----
-
-## Proper Solution: Code Signing & Notarization
-
-To distribute without user warnings, you must:
-
-### Prerequisites
-1. **Apple Developer Account** ($99/year)
-   - Sign up at https://developer.apple.com
-
-2. **Developer ID Certificate**
-   - In Xcode: Preferences → Accounts → Manage Certificates
-   - Or create at https://developer.apple.com/account/resources/certificates
-
-3. **App-Specific Password**
-   - Create at https://appleid.apple.com
-   - Account Settings → Security → App-Specific Passwords
-
-### One-Time Setup
-
-1. **Find your signing identity:**
-```bash
-security find-identity -v -p codesigning
-```
-Copy the full "Developer ID Application: Your Name (TEAMID)" string
-
-2. **Create notarytool profile:**
-```bash
-xcrun notarytool store-credentials "windowsnap-notary" \
-  --apple-id "your@email.com" \
-  --team-id "YOUR_TEAM_ID" \
-  --password "xxxx-xxxx-xxxx-xxxx"  # app-specific password
-```
-
-### Build, Sign & Notarize
+Set the desired semantic version in `WindowSnap/VERSION`, then run:
 
 ```bash
-# Set your credentials
-export CODESIGN_ID="Developer ID Application: Your Name (TEAMID)"
-export NOTARY_PROFILE="windowsnap-notary"
-
-# Build with signing
 cd WindowSnap
-bash scripts/build_bundle.sh
-
-# Sign and notarize
-bash scripts/sign-and-notarize.sh
+./scripts/release.sh
 ```
 
-The script will:
-1. ✅ Code sign with hardened runtime
-2. ✅ Submit to Apple for notarization (~5-10 mins)
-3. ✅ Staple the notarization ticket
-4. ✅ Verify the app
+This command fails closed if signing, either architecture, notarization acceptance, stapling, strict signature checks, Gatekeeper checks, or artifact metadata checks fail. It writes reviewed candidates under `WindowSnap/dist/production/` and does not publish them automatically.
 
-After success, `dist/WindowSnap.app` will open on any Mac without warnings!
+To create a draft release from a fresh fully verified run, use:
 
----
-
-## Alternative: GitHub Actions Auto-Signing
-
-Create `.github/workflows/release.yml`:
-
-```yaml
-name: Release
-on:
-  push:
-    tags: ['v*']
-
-jobs:
-  build:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v3
-      
-      - name: Import Code Signing Certificate
-        env:
-          CERTIFICATE_BASE64: ${{ secrets.CERTIFICATE_BASE64 }}
-          CERTIFICATE_PASSWORD: ${{ secrets.CERTIFICATE_PASSWORD }}
-        run: |
-          echo "$CERTIFICATE_BASE64" | base64 --decode > certificate.p12
-          security create-keychain -p actions build.keychain
-          security unlock-keychain -p actions build.keychain
-          security import certificate.p12 -k build.keychain -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k actions build.keychain
-          rm certificate.p12
-      
-      - name: Build & Sign
-        env:
-          CODESIGN_ID: ${{ secrets.CODESIGN_ID }}
-        run: |
-          cd WindowSnap
-          bash scripts/build_bundle.sh
-      
-      - name: Notarize
-        env:
-          NOTARY_PROFILE: ${{ secrets.NOTARY_PROFILE }}
-        run: |
-          cd WindowSnap
-          bash scripts/sign-and-notarize.sh
-      
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: |
-            WindowSnap/dist/WindowSnap.app
-            WindowSnap/dist/WindowSnap.zip
-            WindowSnap/dist/WindowSnap.dmg
-```
-
-Add secrets to GitHub:
-- `CERTIFICATE_BASE64`: `base64 -i certificate.p12 | pbcopy`
-- `CERTIFICATE_PASSWORD`: P12 export password
-- `CODESIGN_ID`: "Developer ID Application: ..."
-- `NOTARY_PROFILE`: (setup with `notarytool store-credentials`)
-
----
-
-## Quick Reference
-
-### Check if app is signed:
 ```bash
-codesign --verify --verbose dist/WindowSnap.app
+./scripts/release.sh --publish --draft
 ```
 
-### Check notarization status:
+Review the draft's uploaded artifacts and smoke-test them before manually publishing the draft. Remove `--draft` only when an immediate public GitHub release is intended. There is no production option to skip notarization. Local ad-hoc builds use `./scripts/build-adhoc-release.sh` and are isolated under `dist/local-only/`; never upload them.
+
+## Automated verification
+
+Run deterministic release-policy tests without Apple credentials:
+
 ```bash
-spctl -a -vv dist/WindowSnap.app
+./tests/release_pipeline_test.sh
 ```
 
-### Get notarization logs:
-```bash
-xcrun notarytool log SUBMISSION_ID --keychain-profile windowsnap-notary
-```
+The production pipeline additionally verifies the live artifact with `lipo`, `codesign`, `stapler`, `spctl`, `ditto`, and `hdiutil`. ZIP and DMG contents must match the expected `CFBundleShortVersionString` and `CFBundleVersion`.
 
-### Remove old signatures:
-```bash
-codesign --remove-signature dist/WindowSnap.app
-```
+## Clean-machine smoke test
 
----
+Use a supported Mac that did not build the release and has no previous WindowSnap installation or Accessibility grant.
 
-## Cost-Free Alternative: Open Source Distribution
+- Download both assets from the draft release and verify their SHA-256 files.
+- Unzip the ZIP; confirm WindowSnap launches without a Gatekeeper override.
+- Mount the DMG; drag WindowSnap to `/Applications`, eject the DMG, and launch the copied app.
+- Confirm the menu-bar icon appears.
+- Confirm first-run Accessibility permission onboarding appears and opens the correct System Settings pane.
+- Grant Accessibility permission, relaunch if prompted, and snap a normal window left, right, maximize, and center.
+- Confirm the About/version UI reports the release version and build.
+- Repeat at least once on Apple Silicon and once on Intel hardware (or the supported Intel test environment).
+- Record macOS versions, architectures, artifact checksums, and results in the release notes before publishing the draft.
 
-If you don't want to pay $99/year:
-
-1. **Add clear instructions** in README:
-   - "Right-click → Open to bypass Gatekeeper"
-   - Include screenshots
-
-2. **Homebrew Cask** (users trust Homebrew):
-```bash
-# Users install via:
-brew install --cask windowsnap
-```
-
-3. **Build from source**:
-```bash
-# Users can build themselves:
-git clone https://github.com/yourusername/windowsnap
-cd windowsnap/WindowSnap
-bash scripts/build_bundle.sh
-open dist/WindowSnap.app
-```
-
----
-
-## Summary
-
-- **For personal use**: Use workarounds above
-- **For small distribution**: Include workaround instructions
-- **For professional distribution**: Get Apple Developer account & sign/notarize
-- **For open source**: Encourage building from source or Homebrew
-
-The signing/notarization process takes ~15 minutes once set up, and completely eliminates user warnings.
-
+If any check fails, leave the release as a draft, remove its candidate assets, fix the pipeline or application, and create a fresh build. Never document a Gatekeeper workaround for a failed production artifact.

@@ -184,42 +184,15 @@ VERSION="1.3.0" ./scripts/build-universal-bundle.sh
 
 ### For Public Release
 
-1. **Build Universal Bundle**
-   ```bash
-   ./scripts/build-universal-bundle.sh
-   ```
+Do not assemble public artifacts from individual build scripts. Follow the canonical, fail-closed workflow in the repository `DISTRIBUTION_GUIDE.md`:
 
-2. **Code Sign**
-   ```bash
-   CODESIGN_ID="Developer ID Application: Your Name (TEAM_ID)" \
-     ./scripts/build-universal-bundle.sh
-   ```
+```bash
+CODESIGN_ID="Developer ID Application: Your Name (TEAM_ID)" \
+NOTARY_PROFILE="windowsnap-notary" \
+  ./scripts/release.sh
+```
 
-3. **Notarize** (required for distribution outside App Store)
-   ```bash
-   xcrun notarytool submit dist/WindowSnap.zip \
-     --apple-id your@email.com \
-     --team-id TEAM_ID \
-     --keychain-profile "notarytool-password" \
-     --wait
-   ```
-
-4. **Staple Notarization**
-   ```bash
-   xcrun stapler staple dist/WindowSnap.app
-   ```
-
-5. **Verify**
-   ```bash
-   spctl -a -v dist/WindowSnap.app
-   # Should output: accepted
-   ```
-
-6. **Create Final ZIP**
-   ```bash
-   cd dist
-   zip -r WindowSnap-v1.2.0-Universal.zip WindowSnap.app
-   ```
+Use `./scripts/build-adhoc-release.sh` only for local testing. Its output is isolated under `dist/local-only/` and must not be published.
 
 ---
 
