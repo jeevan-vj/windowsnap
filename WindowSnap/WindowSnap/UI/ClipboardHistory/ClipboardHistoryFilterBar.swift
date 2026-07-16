@@ -25,7 +25,7 @@ final class ClipboardHistoryFilterBar: NSView {
 
     private func setupView() {
         stackView.orientation = .horizontal
-        stackView.spacing = 6
+        stackView.spacing = 7
         stackView.distribution = .fill
         stackView.alignment = .centerY
         stackView.translatesAutoresizingMaskIntoConstraints = false
@@ -37,14 +37,14 @@ final class ClipboardHistoryFilterBar: NSView {
             chip.isBordered = false
             chip.wantsLayer = true
             chip.title = itemType.displayName
-            chip.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+            chip.font = NSFont.systemFont(ofSize: 10.5, weight: .medium)
             chip.contentTintColor = .secondaryLabelColor
             chip.tag = index
             chip.target = self
             chip.action = #selector(chipClicked(_:))
             chip.setAccessibilityLabel("Filter by \(itemType.displayName)")
             chip.translatesAutoresizingMaskIntoConstraints = false
-            chip.heightAnchor.constraint(equalToConstant: 24).isActive = true
+            chip.heightAnchor.constraint(equalToConstant: 22).isActive = true
             chipButtons[itemType] = chip
             stackView.addArrangedSubview(chip)
         }
@@ -87,14 +87,15 @@ final class ClipboardHistoryFilterBar: NSView {
                     .withAlphaComponent(ClipboardHistoryTheme.chipActiveBackgroundAlpha).cgColor
                 chip.layer?.borderWidth = 1
                 chip.layer?.borderColor = NSColor.controlAccentColor
-                    .withAlphaComponent(0.35).cgColor
+                    .withAlphaComponent(0.42).cgColor
                 chip.layer?.cornerRadius = ClipboardHistoryTheme.chipCornerRadius
             } else {
                 chip.contentTintColor = .secondaryLabelColor
                 chip.layer?.backgroundColor = NSColor.quaternaryLabelColor
                     .withAlphaComponent(ClipboardHistoryTheme.chipInactiveBackgroundAlpha).cgColor
-                chip.layer?.borderWidth = 0
-                chip.layer?.borderColor = nil
+                chip.layer?.borderWidth = 1
+                chip.layer?.borderColor = NSColor.separatorColor
+                    .withAlphaComponent(0.12).cgColor
                 chip.layer?.cornerRadius = ClipboardHistoryTheme.chipCornerRadius
             }
         }

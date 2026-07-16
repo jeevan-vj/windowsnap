@@ -8,7 +8,7 @@ class LaunchAtLoginManager {
     
     // App bundle identifier
     private var bundleIdentifier: String {
-        return Bundle.main.bundleIdentifier ?? "com.windowsnap.app"
+        return Bundle.main.bundleIdentifier ?? "com.jeevanwijerathna.windowsnap"
     }
     
     // Check if app is set to launch at login

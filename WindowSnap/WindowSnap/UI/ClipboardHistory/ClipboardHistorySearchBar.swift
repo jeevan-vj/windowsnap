@@ -10,6 +10,9 @@ final class NonDraggableTextField: NSTextField {
 
 final class HoverableClearButtonContainer: NSView {
     var button: NSButton?
+    var hoverTintColor: NSColor = .systemRed
+    var hoverBackgroundColor: NSColor = .systemRed
+    var defaultBackgroundAlpha: CGFloat = 0.0
     private var trackingArea: NSTrackingArea?
 
     override var mouseDownCanMoveWindow: Bool { false }
@@ -32,8 +35,8 @@ final class HoverableClearButtonContainer: NSView {
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = ClipboardHistoryTheme.animationFast
             ctx.allowsImplicitAnimation = true
-            layer?.backgroundColor = NSColor.systemRed.withAlphaComponent(0.12).cgColor
-            button?.contentTintColor = .systemRed
+            layer?.backgroundColor = hoverBackgroundColor.withAlphaComponent(0.14).cgColor
+            button?.contentTintColor = hoverTintColor
         }
     }
 
@@ -42,7 +45,7 @@ final class HoverableClearButtonContainer: NSView {
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = ClipboardHistoryTheme.animationFast
             ctx.allowsImplicitAnimation = true
-            layer?.backgroundColor = NSColor.quaternaryLabelColor.withAlphaComponent(0.12).cgColor
+            layer?.backgroundColor = NSColor.quaternaryLabelColor.withAlphaComponent(defaultBackgroundAlpha).cgColor
             button?.contentTintColor = .secondaryLabelColor
         }
     }
@@ -75,6 +78,7 @@ final class ClipboardHistorySearchBar: NSView {
     let closeButton = NSButton()
     private let searchContainerView = SearchInputContainerView()
     private let clearButtonContainer = HoverableClearButtonContainer()
+    private let closeButtonContainer = HoverableClearButtonContainer()
     private let searchIconView = NSImageView()
 
     override var mouseDownCanMoveWindow: Bool { false }
@@ -99,7 +103,7 @@ final class ClipboardHistorySearchBar: NSView {
         searchContainerView.layer?.borderColor = NSColor.separatorColor
             .withAlphaComponent(ClipboardHistoryTheme.searchBorderAlpha).cgColor
         searchContainerView.layer?.backgroundColor = NSColor.textBackgroundColor
-            .withAlphaComponent(0.25).cgColor
+            .withAlphaComponent(0.18).cgColor
 
         if let icon = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: "Search") {
             searchIconView.image = icon
@@ -117,62 +121,55 @@ final class ClipboardHistorySearchBar: NSView {
         searchField.drawsBackground = false
         searchField.backgroundColor = .clear
         searchField.focusRingType = .none
-        searchField.font = NSFont.systemFont(ofSize: 15)
+        searchField.font = NSFont.systemFont(ofSize: 14.5)
         searchField.target = self
         searchField.action = #selector(searchFieldChanged(_:))
         searchField.setAccessibilityLabel("Search clipboard history")
         searchField.setAccessibilityRole(.textField)
         searchContainerView.addSubview(searchField)
 
-        clearButton.bezelStyle = .texturedRounded
+        configureActionButton(clearButton, icon: "trash", label: "Clear All History", accessibilityLabel: "Clear all clipboard history")
         clearButton.target = self
         clearButton.action = #selector(clearHistoryClicked(_:))
-        clearButton.wantsLayer = true
-        clearButton.contentTintColor = .secondaryLabelColor
-        clearButton.isBordered = false
-        clearButton.imagePosition = .imageOnly
         clearButton.toolTip = "Clear All History"
-        if let image = NSImage(systemSymbolName: "trash", accessibilityDescription: "Clear All History") {
-            clearButton.image = image
-        }
-        clearButton.setAccessibilityLabel("Clear all clipboard history")
 
         clearButtonContainer.wantsLayer = true
         clearButtonContainer.layer?.backgroundColor = NSColor.quaternaryLabelColor
-            .withAlphaComponent(0.12).cgColor
-        clearButtonContainer.layer?.cornerRadius = ClipboardHistoryTheme.chipCornerRadius
+            .withAlphaComponent(clearButtonContainer.defaultBackgroundAlpha).cgColor
+        clearButtonContainer.layer?.cornerRadius = ClipboardHistoryTheme.actionButtonCornerRadius
         clearButtonContainer.button = clearButton
         clearButtonContainer.addSubview(clearButton)
 
-        closeButton.bezelStyle = .texturedRounded
+        configureActionButton(closeButton, icon: "xmark", label: "Close", accessibilityLabel: "Close clipboard history")
         closeButton.target = self
         closeButton.action = #selector(closeClicked(_:))
-        closeButton.wantsLayer = true
-        closeButton.contentTintColor = .secondaryLabelColor
-        closeButton.isBordered = false
-        closeButton.imagePosition = .imageOnly
         closeButton.toolTip = "Close"
-        if let image = NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close") {
-            closeButton.image = image
-        }
-        closeButton.setAccessibilityLabel("Close clipboard history")
+        closeButtonContainer.wantsLayer = true
+        closeButtonContainer.layer?.backgroundColor = NSColor.quaternaryLabelColor
+            .withAlphaComponent(closeButtonContainer.defaultBackgroundAlpha).cgColor
+        closeButtonContainer.layer?.cornerRadius = ClipboardHistoryTheme.actionButtonCornerRadius
+        closeButtonContainer.hoverTintColor = .labelColor
+        closeButtonContainer.hoverBackgroundColor = .quaternaryLabelColor
+        closeButtonContainer.button = closeButton
+        closeButtonContainer.addSubview(closeButton)
 
         addSubview(searchContainerView)
         addSubview(clearButtonContainer)
-        addSubview(closeButton)
+        addSubview(closeButtonContainer)
 
         searchContainerView.translatesAutoresizingMaskIntoConstraints = false
         searchIconView.translatesAutoresizingMaskIntoConstraints = false
         searchField.translatesAutoresizingMaskIntoConstraints = false
         clearButtonContainer.translatesAutoresizingMaskIntoConstraints = false
         clearButton.translatesAutoresizingMaskIntoConstraints = false
+        closeButtonContainer.translatesAutoresizingMaskIntoConstraints = false
         closeButton.translatesAutoresizingMaskIntoConstraints = false
 
         NSLayoutConstraint.activate([
             searchContainerView.topAnchor.constraint(equalTo: topAnchor),
             searchContainerView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            searchContainerView.trailingAnchor.constraint(equalTo: clearButtonContainer.leadingAnchor, constant: -8),
-            searchContainerView.heightAnchor.constraint(equalToConstant: 40),
+            searchContainerView.trailingAnchor.constraint(equalTo: clearButtonContainer.leadingAnchor, constant: -ClipboardHistoryTheme.searchActionSpacing),
+            searchContainerView.heightAnchor.constraint(equalToConstant: ClipboardHistoryTheme.searchHeight),
             searchContainerView.bottomAnchor.constraint(equalTo: bottomAnchor),
 
             searchIconView.leadingAnchor.constraint(equalTo: searchContainerView.leadingAnchor, constant: 10),
@@ -186,19 +183,24 @@ final class ClipboardHistorySearchBar: NSView {
             searchField.bottomAnchor.constraint(equalTo: searchContainerView.bottomAnchor, constant: -6),
 
             clearButtonContainer.centerYAnchor.constraint(equalTo: searchContainerView.centerYAnchor),
-            clearButtonContainer.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor, constant: -8),
-            clearButtonContainer.widthAnchor.constraint(equalToConstant: 36),
-            clearButtonContainer.heightAnchor.constraint(equalToConstant: 36),
+            clearButtonContainer.trailingAnchor.constraint(equalTo: closeButtonContainer.leadingAnchor, constant: -ClipboardHistoryTheme.searchActionSpacing),
+            clearButtonContainer.widthAnchor.constraint(equalToConstant: ClipboardHistoryTheme.searchActionButtonSize),
+            clearButtonContainer.heightAnchor.constraint(equalToConstant: ClipboardHistoryTheme.searchActionButtonSize),
 
             clearButton.centerXAnchor.constraint(equalTo: clearButtonContainer.centerXAnchor),
             clearButton.centerYAnchor.constraint(equalTo: clearButtonContainer.centerYAnchor),
-            clearButton.widthAnchor.constraint(equalToConstant: 20),
-            clearButton.heightAnchor.constraint(equalToConstant: 20),
+            clearButton.widthAnchor.constraint(equalToConstant: ClipboardHistoryTheme.searchActionIconSize),
+            clearButton.heightAnchor.constraint(equalToConstant: ClipboardHistoryTheme.searchActionIconSize),
 
-            closeButton.centerYAnchor.constraint(equalTo: searchContainerView.centerYAnchor),
-            closeButton.trailingAnchor.constraint(equalTo: trailingAnchor),
-            closeButton.widthAnchor.constraint(equalToConstant: 28),
-            closeButton.heightAnchor.constraint(equalToConstant: 28),
+            closeButtonContainer.centerYAnchor.constraint(equalTo: searchContainerView.centerYAnchor),
+            closeButtonContainer.trailingAnchor.constraint(equalTo: trailingAnchor),
+            closeButtonContainer.widthAnchor.constraint(equalToConstant: ClipboardHistoryTheme.searchActionButtonSize),
+            closeButtonContainer.heightAnchor.constraint(equalToConstant: ClipboardHistoryTheme.searchActionButtonSize),
+
+            closeButton.centerXAnchor.constraint(equalTo: closeButtonContainer.centerXAnchor),
+            closeButton.centerYAnchor.constraint(equalTo: closeButtonContainer.centerYAnchor),
+            closeButton.widthAnchor.constraint(equalToConstant: ClipboardHistoryTheme.searchActionIconSize),
+            closeButton.heightAnchor.constraint(equalToConstant: ClipboardHistoryTheme.searchActionIconSize),
         ])
 
         NotificationCenter.default.addObserver(
@@ -232,6 +234,18 @@ final class ClipboardHistorySearchBar: NSView {
 
     func setClearButtonEnabled(_ enabled: Bool) {
         clearButton.isEnabled = enabled
+    }
+
+    private func configureActionButton(_ button: NSButton, icon: String, label: String, accessibilityLabel: String) {
+        button.bezelStyle = .texturedRounded
+        button.wantsLayer = true
+        button.contentTintColor = .secondaryLabelColor
+        button.isBordered = false
+        button.imagePosition = .imageOnly
+        if let image = NSImage(systemSymbolName: icon, accessibilityDescription: label) {
+            button.image = image
+        }
+        button.setAccessibilityLabel(accessibilityLabel)
     }
 
     func focusSearchField(selectAll: Bool = false) {

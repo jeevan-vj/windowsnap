@@ -170,20 +170,20 @@ class ClipboardHistoryWindow: NSWindow {
             searchBar.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: ClipboardHistoryTheme.contentInset),
             searchBar.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -ClipboardHistoryTheme.contentInset),
 
-            filterBar.topAnchor.constraint(equalTo: searchBar.bottomAnchor, constant: 10),
+            filterBar.topAnchor.constraint(equalTo: searchBar.bottomAnchor, constant: ClipboardHistoryTheme.filterTopSpacing),
             filterBar.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: ClipboardHistoryTheme.contentInset),
             filterBar.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -ClipboardHistoryTheme.contentInset),
-            filterBar.heightAnchor.constraint(equalToConstant: 24),
+            filterBar.heightAnchor.constraint(equalToConstant: ClipboardHistoryTheme.filterBarHeight),
 
-            scrollView.topAnchor.constraint(equalTo: filterBar.bottomAnchor, constant: 8),
+            scrollView.topAnchor.constraint(equalTo: filterBar.bottomAnchor, constant: ClipboardHistoryTheme.listTopSpacing),
             scrollView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 10),
             scrollView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -10),
-            scrollView.bottomAnchor.constraint(equalTo: footerView.topAnchor, constant: -8),
+            scrollView.bottomAnchor.constraint(equalTo: footerView.topAnchor, constant: -ClipboardHistoryTheme.footerTopSpacing),
 
             footerView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: ClipboardHistoryTheme.contentInset),
             footerView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -ClipboardHistoryTheme.contentInset),
-            footerView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -12),
-            footerView.heightAnchor.constraint(equalToConstant: 20),
+            footerView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -ClipboardHistoryTheme.footerBottomInset),
+            footerView.heightAnchor.constraint(equalToConstant: ClipboardHistoryTheme.footerHeight),
 
             emptyLabel.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
             emptyLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),

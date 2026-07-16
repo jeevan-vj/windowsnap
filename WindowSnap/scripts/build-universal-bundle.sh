@@ -5,7 +5,7 @@ set -euo pipefail
 # Creates a complete .app bundle with universal binary (ARM64 + x86_64)
 
 APP_NAME="WindowSnap"
-BUNDLE_ID="com.windowsnap.app"
+BUNDLE_ID="com.jeevanwijerathna.windowsnap"
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 # Read version from VERSION file (semantic versioning)

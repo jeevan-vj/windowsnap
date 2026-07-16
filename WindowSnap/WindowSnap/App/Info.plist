@@ -9,7 +9,7 @@
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.windowsnap.app</string>
+	<string>com.jeevanwijerathna.windowsnap</string>
 	<key>CFBundleName</key>
 	<string>WindowSnap</string>
 	<key>CFBundlePackageType</key>
@@ -17,7 +17,7 @@
 	<key>CFBundleShortVersionString</key>
 	<string>1.2.6</string>
 	<key>CFBundleVersion</key>
-	<string>40</string>
+	<string>48</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>12.0</string>
 	<key>LSUIElement</key>

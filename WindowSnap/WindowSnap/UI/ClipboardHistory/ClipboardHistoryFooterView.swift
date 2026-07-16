@@ -57,7 +57,7 @@ final class ClipboardHistoryFooterView: NSView {
             "\u{2318}C Copy",
             "esc Close",
         ]
-        shortcutHintsLabel.stringValue = hints.joined(separator: "  \u{00B7}  ")
+        shortcutHintsLabel.stringValue = hints.joined(separator: " \u{00B7} ")
     }
 
     func updateItemCount(_ text: String) {

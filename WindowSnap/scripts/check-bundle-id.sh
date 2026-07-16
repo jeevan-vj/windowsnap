@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Quick script to check if bundle ID is registered and show signing status
 
-BUNDLE_ID="com.windowsnap.app"
+BUNDLE_ID="com.jeevanwijerathna.windowsnap"
 
 echo "🔍 Checking Bundle ID Registration"
 echo "=================================="
@@ -54,6 +54,5 @@ echo "   1. Register bundle ID at: https://developer.apple.com/account/resources
 echo "   2. Or let Xcode register it automatically when you enable signing"
 echo "   3. Create certificates in Xcode: Settings → Accounts → Manage Certificates"
 echo "   4. Re-archive in Xcode with proper signing"
-
 
 

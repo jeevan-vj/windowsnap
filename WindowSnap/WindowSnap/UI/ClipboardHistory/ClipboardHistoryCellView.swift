@@ -180,8 +180,8 @@ final class ClipboardHistoryCellView: NSView {
         ]
 
         layoutConstraintsStandard = [
-            iconContainer.widthAnchor.constraint(equalToConstant: 32),
-            iconContainer.heightAnchor.constraint(equalToConstant: 32),
+            iconContainer.widthAnchor.constraint(equalToConstant: 30),
+            iconContainer.heightAnchor.constraint(equalToConstant: 30),
             iconImageView.centerXAnchor.constraint(equalTo: iconContainer.centerXAnchor),
             iconImageView.centerYAnchor.constraint(equalTo: iconContainer.centerYAnchor),
             iconImageView.widthAnchor.constraint(equalToConstant: 16),
@@ -189,8 +189,8 @@ final class ClipboardHistoryCellView: NSView {
         ]
 
         layoutConstraintsImagePreview = [
-            iconContainer.widthAnchor.constraint(equalToConstant: 56),
-            iconContainer.heightAnchor.constraint(equalToConstant: 42),
+            iconContainer.widthAnchor.constraint(equalToConstant: 52),
+            iconContainer.heightAnchor.constraint(equalToConstant: 38),
             iconImageView.leadingAnchor.constraint(equalTo: iconContainer.leadingAnchor, constant: 2),
             iconImageView.trailingAnchor.constraint(equalTo: iconContainer.trailingAnchor, constant: -2),
             iconImageView.topAnchor.constraint(equalTo: iconContainer.topAnchor, constant: 2),

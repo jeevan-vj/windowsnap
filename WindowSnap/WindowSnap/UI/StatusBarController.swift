@@ -13,14 +13,19 @@ class StatusBarController {
     private func setupStatusBar() {
         guard let button = statusItem.button else { return }
         
-        // Set the status bar icon (white icons for dark mode visibility)
-        let image = NSImage(named: "MenuBarIcon")
-        image?.isTemplate = false  // Use white icons directly, not as template
-        button.image = image
+        button.image = makeMenuBarIcon()
         button.imageScaling = .scaleProportionallyDown
         
         // Create the menu
         statusItem.menu = createContextMenu()
+    }
+
+    private func makeMenuBarIcon() -> NSImage? {
+        let image = NSImage(named: "MenuBarIcon")
+            ?? NSImage(systemSymbolName: "rectangle.3.group", accessibilityDescription: "WindowSnap")
+            ?? NSImage(systemSymbolName: "rectangle.on.rectangle", accessibilityDescription: "WindowSnap")
+        image?.isTemplate = true
+        return image
     }
     
     private func createContextMenu() -> NSMenu {
