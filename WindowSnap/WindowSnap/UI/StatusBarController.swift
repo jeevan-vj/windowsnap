@@ -6,9 +6,12 @@ class StatusBarController {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private var preferencesWindow: PreferencesWindow?
     private var textExpanderWindow: TextExpanderWindow?
+    private var pauseClipboardMenuItem: NSMenuItem?
+    private var clipboardPauseObserver: ClipboardPauseStateObserver?
     
     init() {
         setupStatusBar()
+        observeClipboardPauseState()
     }
     
     private func setupStatusBar() {
@@ -98,6 +101,7 @@ class StatusBarController {
         pauseClipboardItem.state = ClipboardManager.shared.isMonitoringPaused ? .on : .off
         pauseClipboardItem.setAccessibilityLabel("Pause clipboard history monitoring")
         clipboardMenu.addItem(pauseClipboardItem)
+        self.pauseClipboardMenuItem = pauseClipboardItem
 
         let clipboardItem = NSMenuItem(title: "Clipboard History", action: nil, keyEquivalent: "")
         clipboardItem.submenu = clipboardMenu
@@ -222,6 +226,13 @@ class StatusBarController {
         } else {
             ClipboardManager.shared.pauseMonitoring()
             sender.state = .on
+        }
+    }
+
+    private func observeClipboardPauseState() {
+        clipboardPauseObserver = ClipboardPauseStateObserver { [weak self] isPaused in
+            let update: () -> Void = { self?.pauseClipboardMenuItem?.state = isPaused ? .on : .off }
+            if Thread.isMainThread { update() } else { DispatchQueue.main.async(execute: update) }
         }
     }
     

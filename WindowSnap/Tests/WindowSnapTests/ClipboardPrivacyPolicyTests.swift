@@ -64,6 +64,41 @@ final class ClipboardPrivacyPolicyTests: XCTestCase {
         XCTAssertTrue(summary.contains("URL") || summary.contains("Text"))
     }
 
+    func testCapacityNeverEvictsPinnedItems() {
+        let pinned = (0..<55).map {
+            makeItem(content: "pinned-\($0)", timestamp: Date(timeIntervalSince1970: Double($0)), isPinned: true)
+        }
+        let unpinned = (0..<10).map {
+            makeItem(content: "recent-\($0)", timestamp: Date(timeIntervalSince1970: Double(100 + $0)), isPinned: false)
+        }
+
+        let retained = ClipboardHistoryPrivacyPolicy.enforcingCapacity(
+            pinned + unpinned,
+            maximumCount: 50
+        )
+
+        XCTAssertEqual(retained.filter(\.isPinned).count, 55)
+        XCTAssertEqual(Set(retained.filter(\.isPinned).map(\.id)), Set(pinned.map(\.id)))
+        XCTAssertTrue(retained.filter { !$0.isPinned }.isEmpty)
+    }
+
+    func testCapacityUsesRemainingSlotsForNewestUnpinnedItems() {
+        let pinned = (0..<48).map {
+            makeItem(content: "pinned-\($0)", timestamp: Date(), isPinned: true)
+        }
+        let unpinned = (0..<4).map {
+            makeItem(content: "recent-\($0)", timestamp: Date(timeIntervalSince1970: Double(100 + $0)), isPinned: false)
+        }
+
+        let retained = ClipboardHistoryPrivacyPolicy.enforcingCapacity(
+            pinned + unpinned,
+            maximumCount: 50
+        )
+
+        XCTAssertEqual(retained.filter(\.isPinned).count, 48)
+        XCTAssertEqual(Set(retained.filter { !$0.isPinned }.map(\.content)), Set(["recent-2", "recent-3"]))
+    }
+
     private func makeItem(content: String, timestamp: Date, isPinned: Bool) -> ClipboardHistoryItem {
         ClipboardHistoryItem(
             id: UUID(),

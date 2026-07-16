@@ -46,6 +46,72 @@ final class ClipboardManagerPrivacyControlsTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: store.historyURL.path))
     }
 
+    func testDefaultRetentionDoesNotDropOldLegacyEntriesBeforeExplicitChoice() throws {
+        let oldItem = ClipboardHistoryItem(
+            id: UUID(),
+            content: "old-but-not-consented",
+            type: .text,
+            timestamp: Date(timeIntervalSinceNow: -90 * 86_400),
+            preview: "old-but-not-consented",
+            isPinned: false
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        userDefaults.set(
+            try encoder.encode([oldItem]),
+            forKey: ClipboardHistoryStore.legacyDefaultsKey
+        )
+
+        let firstLaunch = makeManager()
+        XCTAssertEqual(firstLaunch.getHistory().map(\.content), ["old-but-not-consented"])
+
+        let secondLaunch = makeManager()
+        XCTAssertEqual(secondLaunch.getHistory().map(\.content), ["old-but-not-consented"])
+        XCTAssertTrue(userDefaults.bool(forKey: ClipboardManager.migratedHistoryProtectionDefaultsKey))
+
+        secondLaunch.retention = .sevenDays
+        XCTAssertTrue(secondLaunch.getHistory().isEmpty)
+        XCTAssertFalse(userDefaults.bool(forKey: ClipboardManager.migratedHistoryProtectionDefaultsKey))
+        XCTAssertTrue(userDefaults.bool(forKey: ClipboardManager.explicitRetentionChoiceDefaultsKey))
+    }
+
+    func testPauseStateChangeNotifiesAllUIObservers() {
+        let manager = makeManager()
+        var preferencesStates: [Bool] = []
+        var menuStates: [Bool] = []
+        let preferencesObserver = ClipboardPauseStateObserver { preferencesStates.append($0) }
+        let menuObserver = ClipboardPauseStateObserver { menuStates.append($0) }
+
+        manager.pauseMonitoring()
+        manager.resumeMonitoring()
+        manager.stopMonitoring()
+
+        XCTAssertEqual(preferencesStates, [true, false])
+        XCTAssertEqual(menuStates, [true, false])
+        withExtendedLifetime([preferencesObserver, menuObserver]) {}
+    }
+
+    func testManagerClearEventPurgesPresentationCacheSynchronously() throws {
+        let center = NotificationCenter()
+        let store = makeStore()
+        try store.save([makeItem(content: "cached-sensitive-value")])
+        let manager = ClipboardManager(
+            store: store,
+            userDefaults: userDefaults,
+            notificationCenter: center
+        )
+        let cache = ClipboardHistoryPresentationCache(notificationCenter: center)
+        cache.history = manager.getHistory()
+        cache.filteredHistory = cache.history
+        cache.displayItems = cache.history.map(ClipboardHistorySectionItem.item)
+
+        manager.clearHistory()
+
+        XCTAssertTrue(cache.history.isEmpty)
+        XCTAssertTrue(cache.filteredHistory.isEmpty)
+        XCTAssertTrue(cache.displayItems.isEmpty)
+    }
+
     private func makeManager() -> ClipboardManager {
         ClipboardManager(store: makeStore(), userDefaults: userDefaults)
     }

@@ -20,7 +20,9 @@ class PreferencesManager: AccessibilityOnboardingStoring {
             "HasCompletedAccessibilityOnboarding": false,
             "IsFirstRun": true,
             ClipboardManager.retentionDefaultsKey: ClipboardHistoryRetention.sevenDays.rawValue,
-            ClipboardManager.pausedDefaultsKey: false
+            ClipboardManager.pausedDefaultsKey: false,
+            ClipboardManager.explicitRetentionChoiceDefaultsKey: false,
+            ClipboardManager.migratedHistoryProtectionDefaultsKey: false
         ]
         
         userDefaults.register(defaults: defaults)

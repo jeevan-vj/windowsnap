@@ -81,6 +81,11 @@ final class ClipboardHistorySearchBar: NSView {
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
+    func resetSearch() {
+        searchField.stringValue = ""
+        setClearButtonEnabled(false)
+    }
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         setupView()

@@ -31,6 +31,8 @@ class ClipboardManager: NSObject {
 
     static let retentionDefaultsKey = "ClipboardHistoryRetention"
     static let pausedDefaultsKey = "ClipboardHistoryPaused"
+    static let explicitRetentionChoiceDefaultsKey = "ClipboardHistoryHasExplicitRetentionChoice"
+    static let migratedHistoryProtectionDefaultsKey = "ClipboardHistoryProtectMigratedItems"
     
     private let pasteboard = NSPasteboard.general
     private var history: [ClipboardHistoryItem] = []
@@ -38,6 +40,7 @@ class ClipboardManager: NSObject {
     private var monitoringTimer: DispatchSourceTimer?
     private let store: ClipboardHistoryStore
     private let userDefaults: UserDefaults
+    private let notificationCenter: NotificationCenter
 
     // Background processing queue
     private let processingQueue = DispatchQueue(label: "com.windowsnap.clipboard", qos: .userInitiated)
@@ -57,12 +60,17 @@ class ClipboardManager: NSObject {
     private let maxImageDimension: CGFloat = 1920 // Max width/height for images
 
     override convenience init() {
-        self.init(store: ClipboardHistoryStore(), userDefaults: .standard)
+        self.init(store: ClipboardHistoryStore(), userDefaults: .standard, notificationCenter: .default)
     }
 
-    init(store: ClipboardHistoryStore, userDefaults: UserDefaults) {
+    init(
+        store: ClipboardHistoryStore,
+        userDefaults: UserDefaults,
+        notificationCenter: NotificationCenter = .default
+    ) {
         self.store = store
         self.userDefaults = userDefaults
+        self.notificationCenter = notificationCenter
         super.init()
         lastChangeCount = pasteboard.changeCount
         loadHistoryFromDisk()
@@ -98,7 +106,7 @@ class ClipboardManager: NSObject {
     
     func getHistory() -> [ClipboardHistoryItem] {
         processingQueue.sync {
-            let retained = ClipboardHistoryPrivacyPolicy.retainedItems(history, retention: retention)
+            let retained = applyingRetentionIfAllowed(to: history)
             if retained.count != history.count {
                 history = retained
                 saveHistoryToDisk()
@@ -117,6 +125,8 @@ class ClipboardManager: NSObject {
         }
         set {
             userDefaults.set(newValue.rawValue, forKey: Self.retentionDefaultsKey)
+            userDefaults.set(true, forKey: Self.explicitRetentionChoiceDefaultsKey)
+            userDefaults.set(false, forKey: Self.migratedHistoryProtectionDefaultsKey)
             processingQueue.async { [weak self] in
                 guard let self else { return }
                 self.history = ClipboardHistoryPrivacyPolicy.retainedItems(
@@ -135,11 +145,13 @@ class ClipboardManager: NSObject {
     func pauseMonitoring() {
         userDefaults.set(true, forKey: Self.pausedDefaultsKey)
         stopMonitoring()
+        postNotification(name: .clipboardPauseStateDidChange, userInfo: ["isPaused": true])
     }
 
     func resumeMonitoring() {
         userDefaults.set(false, forKey: Self.pausedDefaultsKey)
         startMonitoring()
+        postNotification(name: .clipboardPauseStateDidChange, userInfo: ["isPaused": false])
     }
 
     static func sortHistory(_ items: [ClipboardHistoryItem]) -> [ClipboardHistoryItem] {
@@ -157,6 +169,7 @@ class ClipboardManager: NSObject {
                 print("Clipboard history could not be cleared: \(error.localizedDescription)")
             }
         }
+        postNotification(name: .clipboardHistoryDidClear)
     }
     
     func deleteItem(id: UUID) {
@@ -426,9 +439,10 @@ class ClipboardManager: NSObject {
         history.insert(itemToAdd, at: 0)
         
         // Limit history size
-        if history.count > maxHistoryItems {
-            history = Array(history.prefix(maxHistoryItems))
-        }
+        history = ClipboardHistoryPrivacyPolicy.enforcingCapacity(
+            history,
+            maximumCount: maxHistoryItems
+        )
 
         // Use debounced save to avoid excessive disk writes
         debouncedSaveHistoryToDisk()
@@ -560,7 +574,7 @@ class ClipboardManager: NSObject {
 
     private func saveHistoryToDisk() {
         do {
-            history = ClipboardHistoryPrivacyPolicy.retainedItems(history, retention: retention)
+            history = applyingRetentionIfAllowed(to: history)
             if retention.persistsToDisk {
                 try store.save(history)
             } else {
@@ -578,10 +592,38 @@ class ClipboardManager: NSObject {
             return
         }
 
-        let loaded = store.load()
-        history = ClipboardHistoryPrivacyPolicy.retainedItems(loaded, retention: retention)
+        let result = store.loadResult()
+        if result.source == .legacy,
+           !userDefaults.bool(forKey: Self.explicitRetentionChoiceDefaultsKey) {
+            userDefaults.set(true, forKey: Self.migratedHistoryProtectionDefaultsKey)
+        }
+        let loaded = result.items
+        history = applyingRetentionIfAllowed(to: loaded)
         if history.count != loaded.count {
             saveHistoryToDisk()
+        }
+    }
+
+    private func applyingRetentionIfAllowed(
+        to items: [ClipboardHistoryItem]
+    ) -> [ClipboardHistoryItem] {
+        guard !userDefaults.bool(forKey: Self.migratedHistoryProtectionDefaultsKey) else {
+            return items
+        }
+        return ClipboardHistoryPrivacyPolicy.retainedItems(items, retention: retention)
+    }
+
+    private func postNotification(
+        name: Notification.Name,
+        userInfo: [AnyHashable: Any]? = nil
+    ) {
+        let post = { [notificationCenter] in
+            notificationCenter.post(name: name, object: nil, userInfo: userInfo)
+        }
+        if Thread.isMainThread {
+            post()
+        } else {
+            DispatchQueue.main.sync(execute: post)
         }
     }
 }

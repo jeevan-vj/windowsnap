@@ -52,6 +52,25 @@ enum ClipboardHistoryPrivacyPolicy {
         return items.filter { $0.isPinned || $0.timestamp >= cutoff }
     }
 
+    /// The capacity is a soft total limit: pinned items are never evicted. They
+    /// consume available slots first, and the newest unpinned items fill any
+    /// remaining slots. If pinned items exceed the limit, all remain persisted.
+    static func enforcingCapacity(
+        _ items: [ClipboardHistoryItem],
+        maximumCount: Int
+    ) -> [ClipboardHistoryItem] {
+        guard maximumCount >= 0 else { return items.filter(\.isPinned) }
+        let pinnedCount = items.filter(\.isPinned).count
+        let unpinnedSlots = max(0, maximumCount - pinnedCount)
+        let retainedUnpinnedIDs = Set(
+            items.filter { !$0.isPinned }
+                .sorted { $0.timestamp > $1.timestamp }
+                .prefix(unpinnedSlots)
+                .map(\.id)
+        )
+        return items.filter { $0.isPinned || retainedUnpinnedIDs.contains($0.id) }
+    }
+
     /// Sensitive filtering is deliberately not controlled by a preference. A missing
     /// or reset preference therefore cannot disable this defense-in-depth check.
     static func containsSensitiveData(_ content: String) -> Bool {
@@ -80,5 +99,34 @@ enum ClipboardHistoryPrivacyPolicy {
 enum ClipboardLogMetadata {
     static func summary(for item: ClipboardHistoryItem) -> String {
         "\(item.type.displayName) item (\(item.content.utf8.count) bytes)"
+    }
+}
+
+extension Notification.Name {
+    static let clipboardHistoryDidClear = Notification.Name("ClipboardHistoryDidClear")
+    static let clipboardPauseStateDidChange = Notification.Name("ClipboardPauseStateDidChange")
+}
+
+final class ClipboardPauseStateObserver {
+    private let notificationCenter: NotificationCenter
+    private var token: NSObjectProtocol?
+
+    init(
+        notificationCenter: NotificationCenter = .default,
+        handler: @escaping (Bool) -> Void
+    ) {
+        self.notificationCenter = notificationCenter
+        token = notificationCenter.addObserver(
+            forName: .clipboardPauseStateDidChange,
+            object: nil,
+            queue: nil
+        ) { notification in
+            guard let isPaused = notification.userInfo?["isPaused"] as? Bool else { return }
+            handler(isPaused)
+        }
+    }
+
+    deinit {
+        if let token { notificationCenter.removeObserver(token) }
     }
 }

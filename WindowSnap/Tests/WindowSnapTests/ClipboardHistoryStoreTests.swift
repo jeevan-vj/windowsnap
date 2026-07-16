@@ -86,6 +86,51 @@ final class ClipboardHistoryStoreTests: XCTestCase {
         XCTAssertEqual(store.load().map(\.content), ["valid"])
     }
 
+    func testCorruptPrimaryAndBackupRecoverLegacyBeforeRemovingDefaults() throws {
+        let legacyItems = [makeItem(content: "recoverable-legacy")]
+        userDefaults.set(try encode(legacyItems), forKey: ClipboardHistoryStore.legacyDefaultsKey)
+        let store = makeStore()
+        try FileManager.default.createDirectory(
+            at: store.historyURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("corrupt-primary".utf8).write(to: store.historyURL)
+        try Data("corrupt-backup".utf8).write(to: store.backupURL)
+
+        XCTAssertEqual(store.load().map(\.content), ["recoverable-legacy"])
+        XCTAssertEqual(makeStore().load().map(\.content), ["recoverable-legacy"])
+        XCTAssertNil(userDefaults.data(forKey: ClipboardHistoryStore.legacyDefaultsKey))
+    }
+
+    func testFailedLegacyMigrationKeepsDefaultsPayloadForRetry() throws {
+        let legacyData = try encode([makeItem(content: "retry-me")])
+        userDefaults.set(legacyData, forKey: ClipboardHistoryStore.legacyDefaultsKey)
+        let invalidBase = temporaryDirectory.appendingPathComponent("not-a-directory")
+        try Data("file".utf8).write(to: invalidBase)
+        let store = ClipboardHistoryStore(
+            applicationSupportDirectory: invalidBase,
+            userDefaults: userDefaults
+        )
+
+        XCTAssertEqual(store.load().map(\.content), ["retry-me"])
+        XCTAssertEqual(userDefaults.data(forKey: ClipboardHistoryStore.legacyDefaultsKey), legacyData)
+    }
+
+    func testCorruptLegacyPayloadIsNotRemovedWhenNoAuthoritativeSnapshotExists() throws {
+        let corruptLegacy = Data("corrupt-legacy".utf8)
+        userDefaults.set(corruptLegacy, forKey: ClipboardHistoryStore.legacyDefaultsKey)
+        let store = makeStore()
+        try FileManager.default.createDirectory(
+            at: store.historyURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("corrupt-primary".utf8).write(to: store.historyURL)
+        try Data("corrupt-backup".utf8).write(to: store.backupURL)
+
+        XCTAssertTrue(store.load().isEmpty)
+        XCTAssertEqual(userDefaults.data(forKey: ClipboardHistoryStore.legacyDefaultsKey), corruptLegacy)
+    }
+
     func testClearRemovesPrimaryBackupAndLoadedContent() throws {
         let store = makeStore()
         try store.save([makeItem(content: "first")])

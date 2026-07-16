@@ -30,31 +30,35 @@ final class ClipboardHistoryStore {
     }
 
     func load() -> [ClipboardHistoryItem] {
-        if fileManager.fileExists(atPath: historyURL.path) {
-            defer { userDefaults.removeObject(forKey: legacyDefaultsKey) }
-            if let items = decodeFile(at: historyURL) {
-                return items
-            }
-            if let recovered = decodeFile(at: backupURL) {
-                try? write(recovered, rotateBackup: false)
-                return recovered
-            }
-            return []
+        loadResult().items
+    }
+
+    func loadResult() -> ClipboardHistoryLoadResult {
+        if let items = decodeFile(at: historyURL) {
+            userDefaults.removeObject(forKey: legacyDefaultsKey)
+            return ClipboardHistoryLoadResult(items: items, source: .primary)
+        }
+
+        if let recovered = decodeFile(at: backupURL) {
+            try? write(recovered, rotateBackup: false)
+            userDefaults.removeObject(forKey: legacyDefaultsKey)
+            return ClipboardHistoryLoadResult(items: recovered, source: .backup)
         }
 
         guard let legacyData = userDefaults.data(forKey: legacyDefaultsKey),
               let legacyItems = decode(legacyData) else {
-            return []
+            // A corrupt legacy payload remains available for a future recovery
+            // path; it is never deleted merely because new storage is corrupt.
+            return ClipboardHistoryLoadResult(items: [], source: .empty)
         }
 
         do {
             try save(legacyItems)
             userDefaults.removeObject(forKey: legacyDefaultsKey)
-            return legacyItems
         } catch {
             // Keep the legacy payload so migration can be retried without data loss.
-            return legacyItems
         }
+        return ClipboardHistoryLoadResult(items: legacyItems, source: .legacy)
     }
 
     func save(_ items: [ClipboardHistoryItem]) throws {
@@ -118,4 +122,16 @@ final class ClipboardHistoryStore {
             ofItemAtPath: url.path
         )
     }
+}
+
+struct ClipboardHistoryLoadResult {
+    enum Source {
+        case primary
+        case backup
+        case legacy
+        case empty
+    }
+
+    let items: [ClipboardHistoryItem]
+    let source: Source
 }

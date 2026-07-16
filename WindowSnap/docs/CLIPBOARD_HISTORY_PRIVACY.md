@@ -31,9 +31,17 @@ first launch after upgrading, WindowSnap:
 4. removes the UserDefaults payload only after the file write succeeds.
 
 If migration cannot write the new file, the legacy payload remains in place so
-the migration can be retried. If both a new file and a legacy payload exist, the
-new file is authoritative and the stale legacy payload is removed, preventing
-duplicate entries.
+the migration can be retried. A corrupt legacy payload also remains untouched
+when neither primary nor backup is authoritative. When primary and backup are
+both corrupt but legacy data is valid, WindowSnap first writes that recovered
+legacy snapshot atomically and only then removes it from UserDefaults. If a new
+file decodes successfully, it is authoritative and the stale legacy payload is
+removed, preventing duplicate entries.
+
+The seven-day default is not applied destructively to migrated history. Old
+unpinned entries are protected across restarts until the user explicitly chooses
+a retention option. That choice ends migration protection and applies the
+selected cleanup policy.
 
 ## Capture and retention rules
 
@@ -45,11 +53,18 @@ duplicate entries.
 - Retention choices are session only, 1 day, 7 days (default), and 30 days.
 - Time-based cleanup removes expired unpinned entries. Pinned entries remain
   until unpinned, deleted, or removed with **Clear All History**.
+- The 50-item capacity is a soft total limit. Pinned entries are never silently
+  evicted; they consume slots first, and the newest unpinned entries fill the
+  remainder. If more than 50 entries are pinned, every pinned entry remains.
 - Session-only history remains in memory until WindowSnap quits and is never
   written to disk.
-- Pausing monitoring is persistent and prevents new captures until resumed.
+- Pausing monitoring is persistent and prevents new captures until resumed. The
+  Preferences checkbox and menu-bar item observe the same state-change event and
+  remain synchronized.
 - **Clear All History** removes in-memory history, the primary file, the backup,
-  and any remaining legacy payload.
+  and any remaining legacy payload. It also synchronously purges the history
+  window's source, filtered, and display caches and resets search and filters so
+  cleared content cannot remain visible or copyable.
 
 Production log messages may include an item type and byte count, but never
 clipboard text, URLs, rich text, image data, thumbnails, or previews.

@@ -312,7 +312,9 @@ func getHistory() -> [ClipboardHistoryItem] {
 
 ## 10. Performance Considerations
 
-- Sorting operation is O(n log n) but n is limited to 50 items (maxHistoryItems)
+- Sorting operation is O(n log n). The 50-item capacity is a soft total limit:
+  pinned entries are never evicted, and newest unpinned entries use the remaining
+  slots. More than 50 pinned entries may therefore be retained.
 - Pin state changes trigger save operation (debounced)
 - UI updates are lightweight (button state changes)
 - No performance impact expected

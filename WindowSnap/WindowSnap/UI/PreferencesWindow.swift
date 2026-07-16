@@ -4,10 +4,13 @@ import Foundation
 class PreferencesWindow: NSWindowController {
     
     private var textExpanderWindow: TextExpanderWindow?
+    private weak var clipboardPauseCheckbox: NSButton?
+    private var clipboardPauseObserver: ClipboardPauseStateObserver?
     
     override init(window: NSWindow?) {
         super.init(window: window)
         setupWindow()
+        observeClipboardPauseState()
     }
     
     convenience init() {
@@ -23,6 +26,7 @@ class PreferencesWindow: NSWindowController {
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         setupWindow()
+        observeClipboardPauseState()
     }
     
     private func setupWindow() {
@@ -198,6 +202,7 @@ class PreferencesWindow: NSWindowController {
         pauseCheckbox.state = ClipboardManager.shared.isMonitoringPaused ? .on : .off
         pauseCheckbox.setAccessibilityLabel("Pause clipboard history monitoring")
         view.addSubview(pauseCheckbox)
+        clipboardPauseCheckbox = pauseCheckbox
         yPos -= 55
 
         let clearButton = NSButton(
@@ -257,6 +262,13 @@ class PreferencesWindow: NSWindowController {
             ClipboardManager.shared.pauseMonitoring()
         } else {
             ClipboardManager.shared.resumeMonitoring()
+        }
+    }
+
+    private func observeClipboardPauseState() {
+        clipboardPauseObserver = ClipboardPauseStateObserver { [weak self] isPaused in
+            let update: () -> Void = { self?.clipboardPauseCheckbox?.state = isPaused ? .on : .off }
+            if Thread.isMainThread { update() } else { DispatchQueue.main.async(execute: update) }
         }
     }
 
