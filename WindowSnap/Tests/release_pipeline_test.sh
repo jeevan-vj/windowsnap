@@ -92,6 +92,7 @@ assert_contains "$SCRIPTS_DIR/verify-release.sh" 'spctl.*DMG_PATH' "Gatekeeper a
 assert_contains "$SCRIPTS_DIR/verify-release.sh" 'stapler validate' "stapled tickets are validated"
 assert_contains "$SCRIPTS_DIR/verify-release.sh" 'CFBundleShortVersionString' "artifact versions are compared"
 assert_contains "$SCRIPTS_DIR/verify-release.sh" 'CFBundleVersion' "artifact build numbers are compared"
+assert_contains "$SCRIPTS_DIR/verify-release.sh" 'validate-configuration\.sh.*--bundle.*--signed' "signed artifact configuration and entitlements are validated"
 
 assert_contains "$SCRIPTS_DIR/build-adhoc-release.sh" 'local-only' "ad-hoc artifacts are isolated as local-only"
 assert_not_contains "$SCRIPTS_DIR/build-adhoc-release.sh" 'GitHub Release|ready for GitHub|gh release' "ad-hoc artifacts are not presented as publishable"

@@ -5,7 +5,6 @@ set -euo pipefail
 # Creates a complete .app bundle with universal binary (ARM64 + x86_64)
 
 APP_NAME="WindowSnap"
-BUNDLE_ID="com.windowsnap.app"
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 # Read version from VERSION file (semantic versioning)
@@ -23,16 +22,17 @@ if [[ -z "$VERSION" ]]; then
 fi
 
 # Validate semantic version format
-if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?(\+[a-zA-Z0-9.-]+)?$ ]]; then
-  echo "⚠️  Warning: Version '$VERSION' doesn't match semantic versioning format (MAJOR.MINOR.PATCH)" >&2
+if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$ ]]; then
+  echo "❌ Version '$VERSION' must use release SemVer (MAJOR.MINOR.PATCH[-PRERELEASE])" >&2
+  exit 1
 fi
 
-# Build number: use git commit count if available, otherwise timestamp
-if command -v git >/dev/null && git rev-parse --git-dir >/dev/null 2>&1; then
-  BUILD=$(git rev-list --count HEAD 2>/dev/null || echo "$(date +%Y%m%d%H%M%S)")
-else
-  BUILD="$(date +%Y%m%d%H%M%S)"
-fi
+# BUILD_NUMBER is deliberately checked in and incremented for every production
+# release. This is stable in shallow clones and makes monotonicity reviewable.
+BUILD_FILE="$ROOT_DIR/BUILD_NUMBER"
+[[ -f "$BUILD_FILE" ]] || { echo "❌ BUILD_NUMBER file not found" >&2; exit 1; }
+BUILD="$(tr -d '[:space:]' < "$BUILD_FILE")"
+[[ "$BUILD" =~ ^[1-9][0-9]*$ ]] || { echo "❌ BUILD_NUMBER must be a positive integer" >&2; exit 1; }
 
 DIST_DIR="$ROOT_DIR/dist"
 APP_DIR="$DIST_DIR/${APP_NAME}.app"
@@ -87,28 +87,11 @@ echo ""
 
 # Create Info.plist
 echo -e "${YELLOW}[4/7]${NC} Creating Info.plist..."
-if [[ -f "$PLIST_SOURCE" ]]; then
-  /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD" "$PLIST_SOURCE" 2>/dev/null || true
-  /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$PLIST_SOURCE" 2>/dev/null || true
-  cp "$PLIST_SOURCE" "$CONTENTS_DIR/Info.plist"
-else
-  cat > "$CONTENTS_DIR/Info.plist" <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-<key>CFBundleName</key><string>${APP_NAME}</string>
-<key>CFBundleDisplayName</key><string>${APP_NAME}</string>
-<key>CFBundleExecutable</key><string>${APP_NAME}</string>
-<key>CFBundleIdentifier</key><string>${BUNDLE_ID}</string>
-<key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>${VERSION}</string>
-<key>CFBundleVersion</key><string>${BUILD}</string>
-<key>CFBundleIconFile</key><string>AppIcon</string>
-<key>LSMinimumSystemVersion</key><string>13.0</string>
-<key>LSUIElement</key><true/>
-</dict></plist>
-EOF
-fi
+[[ -f "$PLIST_SOURCE" ]] || { echo "❌ Info.plist template not found" >&2; exit 1; }
+cp "$PLIST_SOURCE" "$CONTENTS_DIR/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD" "$CONTENTS_DIR/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$CONTENTS_DIR/Info.plist"
+"$ROOT_DIR/scripts/validate-configuration.sh" --bundle "$APP_DIR"
 echo -e "${GREEN}✓${NC} Info.plist created"
 echo ""
 

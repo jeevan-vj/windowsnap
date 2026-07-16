@@ -258,7 +258,7 @@ RegisterEventHotKey(keyCode, modifiers, hotKeyID, GetApplicationEventTarget(), 0
 
 ## License
 
-Copyright © 2025 WindowSnap. All rights reserved.
+Copyright © 2026 WindowSnap. All rights reserved.
 
 ## Version History
 

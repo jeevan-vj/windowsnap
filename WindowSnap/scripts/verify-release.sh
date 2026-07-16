@@ -30,6 +30,7 @@ verify_app() {
   build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$candidate/Contents/Info.plist")"
   [[ "$version" == "$EXPECTED_VERSION" ]] || die "$label version $version != $EXPECTED_VERSION"
   [[ "$build" == "$EXPECTED_BUILD" ]] || die "$label build $build != $EXPECTED_BUILD"
+  "$(cd "$(dirname "$0")" && pwd)/validate-configuration.sh" --bundle "$candidate" --signed
 }
 
 tmp_dir="$(mktemp -d -t windowsnap-release-verify.XXXXXX)"
