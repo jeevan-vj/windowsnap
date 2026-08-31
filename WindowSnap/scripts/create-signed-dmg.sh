@@ -12,8 +12,10 @@ DMG_PATH="$DIST_DIR/$APP_NAME-$VERSION-macOS-notarized.dmg"
 SOURCE_DIR="$DIST_DIR/dmg-source"
 
 [[ -d "$APP_PATH" ]] || die "Missing $APP_PATH"
-[[ "${CODESIGN_ID:-}" == Developer\ ID\ Application:* ]] || die "CODESIGN_ID must name a Developer ID Application identity"
+[[ -n "${CODESIGN_ID:-}" ]] || die "CODESIGN_ID must name a Developer ID Application identity or fingerprint"
 [[ -n "${NOTARY_PROFILE:-}" ]] || die "NOTARY_PROFILE must name a notarytool Keychain profile"
+
+CODESIGN_ID="$("$ROOT_DIR/scripts/resolve-developer-id.sh" "$CODESIGN_ID")"
 
 rm -rf "$SOURCE_DIR" "$DMG_PATH"
 mkdir -p "$SOURCE_DIR"

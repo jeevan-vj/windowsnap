@@ -99,6 +99,18 @@ struct WorkspaceArrangement: Codable, Identifiable, Equatable {
     var hasShortcut: Bool {
         return shortcut?.isEmpty == false
     }
+
+    func updatingMetadata(name: String, shortcut: String?) -> WorkspaceArrangement {
+        WorkspaceArrangement(
+            id: id,
+            name: name,
+            appLayouts: appLayouts,
+            createdDate: createdDate,
+            lastUsed: lastUsed,
+            shortcut: shortcut,
+            description: description
+        )
+    }
     
     /// Get all unique app bundle identifiers in this workspace
     var appBundleIdentifiers: [String] {
@@ -110,11 +122,14 @@ struct WorkspaceArrangement: Codable, Identifiable, Equatable {
 class WorkspaceManager {
     static let shared = WorkspaceManager()
     
-    private let userDefaults = UserDefaults.standard
+    private let userDefaults: UserDefaults
     private let storageKey = "WindowSnap_WorkspaceArrangements"
     private var arrangements: [WorkspaceArrangement] = []
+    private weak var shortcutManager: ShortcutManager?
+    private var inactiveShortcutIDs: Set<UUID> = []
     
-    private init() {
+    init(userDefaults: UserDefaults = .standard) {
+        self.userDefaults = userDefaults
         loadArrangements()
     }
     
@@ -137,25 +152,51 @@ class WorkspaceManager {
     }
     
     /// Save workspace arrangements to UserDefaults
-    private func saveArrangements() {
+    @discardableResult
+    private func saveArrangements() -> Bool {
         do {
             let data = try JSONEncoder().encode(arrangements)
             userDefaults.set(data, forKey: storageKey)
             print("💾 Saved \(arrangements.count) workspace arrangements")
+            return true
         } catch {
             print("❌ Failed to save workspace arrangements: \(error)")
+            return false
         }
+    }
+
+    func configure(shortcutManager: ShortcutManager) {
+        self.shortcutManager = shortcutManager
+        inactiveShortcutIDs.removeAll()
+        for arrangement in arrangements where arrangement.hasShortcut {
+            if registerShortcut(for: arrangement) == .registered { continue }
+            inactiveShortcutIDs.insert(arrangement.id)
+        }
+    }
+
+    func isShortcutActive(for arrangement: WorkspaceArrangement) -> Bool {
+        !arrangement.hasShortcut || !inactiveShortcutIDs.contains(arrangement.id)
     }
     
     // MARK: - Workspace Capture
     
     /// Capture the current workspace state
     func captureCurrentWorkspace(name: String, shortcut: String? = nil) -> WorkspaceArrangement? {
+        switch captureCurrentWorkspaceResult(name: name, shortcut: shortcut) {
+        case .success(let arrangement): return arrangement
+        case .failure: return nil
+        }
+    }
+
+    func captureCurrentWorkspaceResult(
+        name: String,
+        shortcut: String? = nil
+    ) -> Result<WorkspaceArrangement, ManagedConfigurationError> {
         print("📸 Capturing current workspace: '\(name)'")
         
         guard let windowManager = getCurrentWindowManager() else {
             print("❌ WindowManager not available")
-            return nil
+            return .failure(.nothingToCapture)
         }
         
         let allWindows = windowManager.getAllWindows()
@@ -199,7 +240,7 @@ class WorkspaceManager {
         
         guard !appLayoutsArray.isEmpty else {
             print("❌ No windows found to capture")
-            return nil
+            return .failure(.nothingToCapture)
         }
         
         let arrangement = WorkspaceArrangement(
@@ -208,10 +249,15 @@ class WorkspaceManager {
             shortcut: shortcut
         )
         
-        addArrangement(arrangement)
+        switch addArrangement(arrangement) {
+        case .success:
+            break
+        case .failure(let error):
+            return .failure(error)
+        }
         
         print("✅ Captured workspace with \(appLayoutsArray.count) apps and \(allWindows.count) windows")
-        return arrangement
+        return .success(arrangement)
     }
     
     // MARK: - Workspace Restoration
@@ -302,29 +348,43 @@ class WorkspaceManager {
     // MARK: - Arrangement Management
     
     /// Add a new workspace arrangement
-    func addArrangement(_ arrangement: WorkspaceArrangement) {
+    @discardableResult
+    func addArrangement(_ arrangement: WorkspaceArrangement) -> Result<Void, ManagedConfigurationError> {
         // Check for duplicate names
         if arrangements.contains(where: { $0.name == arrangement.name }) {
             print("⚠️ Workspace arrangement with name '\(arrangement.name)' already exists")
-            return
+            return .failure(.duplicateName)
         }
         
         // Check for duplicate shortcuts
         if let shortcut = arrangement.shortcut,
            arrangements.contains(where: { $0.shortcut == shortcut }) {
             print("⚠️ Workspace arrangement with shortcut '\(shortcut)' already exists")
-            return
+            return .failure(.duplicateShortcut)
+        }
+
+        if let shortcut = arrangement.shortcut {
+            guard shortcutManager?.isValidShortcutSyntax(shortcut) == true else {
+                return .failure(.invalidShortcut)
+            }
+            let registration = registerShortcut(for: arrangement)
+            guard registration == .registered else {
+                return .failure(.shortcutUnavailable(registration.failureMessage ?? "That shortcut is unavailable."))
+            }
         }
         
         arrangements.append(arrangement)
-        saveArrangements()
+        guard saveArrangements() else {
+            arrangements.removeAll { $0.id == arrangement.id }
+            if let shortcut = arrangement.shortcut { unregisterShortcut(shortcut) }
+            return .failure(.persistenceFailed)
+        }
         
         print("✅ Added workspace arrangement: '\(arrangement.name)'")
         
         // Register shortcut if provided
-        if arrangement.hasShortcut {
-            registerShortcut(for: arrangement)
-        }
+        inactiveShortcutIDs.remove(arrangement.id)
+        return .success(())
     }
     
     /// Remove a workspace arrangement
@@ -348,28 +408,53 @@ class WorkspaceManager {
     }
     
     /// Update an existing workspace arrangement
-    func updateArrangement(_ updatedArrangement: WorkspaceArrangement) {
+    @discardableResult
+    func updateArrangement(_ updatedArrangement: WorkspaceArrangement) -> Result<Void, ManagedConfigurationError> {
         guard let index = arrangements.firstIndex(where: { $0.id == updatedArrangement.id }) else {
             print("❌ Workspace arrangement with ID \(updatedArrangement.id) not found")
-            return
+            return .failure(.persistenceFailed)
         }
         
         let oldArrangement = arrangements[index]
         
-        // Unregister old shortcut
-        if let oldShortcut = oldArrangement.shortcut {
-            unregisterShortcut(oldShortcut)
+        if arrangements.contains(where: { $0.id != updatedArrangement.id && $0.name == updatedArrangement.name }) {
+            return .failure(.duplicateName)
         }
-        
+        if let shortcut = updatedArrangement.shortcut,
+           arrangements.contains(where: { $0.id != updatedArrangement.id && $0.shortcut == shortcut }) {
+            return .failure(.duplicateShortcut)
+        }
+
+        let shortcutChanged = oldArrangement.shortcut != updatedArrangement.shortcut
+        if shortcutChanged {
+            if let newShortcut = updatedArrangement.shortcut,
+               shortcutManager?.isValidShortcutSyntax(newShortcut) != true {
+                return .failure(.invalidShortcut)
+            }
+            if let oldShortcut = oldArrangement.shortcut { unregisterShortcut(oldShortcut) }
+            if updatedArrangement.hasShortcut {
+                let registration = registerShortcut(for: updatedArrangement)
+                guard registration == .registered else {
+                    _ = registerShortcut(for: oldArrangement)
+                    return .failure(.shortcutUnavailable(registration.failureMessage ?? "That shortcut is unavailable."))
+                }
+            }
+        }
+
         arrangements[index] = updatedArrangement
-        saveArrangements()
-        
-        // Register new shortcut
-        if updatedArrangement.hasShortcut {
-            registerShortcut(for: updatedArrangement)
+        guard saveArrangements() else {
+            arrangements[index] = oldArrangement
+            if shortcutChanged {
+                if let newShortcut = updatedArrangement.shortcut { unregisterShortcut(newShortcut) }
+                _ = registerShortcut(for: oldArrangement)
+            }
+            return .failure(.persistenceFailed)
         }
+
+        inactiveShortcutIDs.remove(updatedArrangement.id)
         
         print("📝 Updated workspace arrangement: '\(updatedArrangement.name)'")
+        return .success(())
     }
     
     /// Get all workspace arrangements
@@ -504,17 +589,17 @@ class WorkspaceManager {
     // MARK: - Shortcut Management
     
     /// Register a global shortcut for a workspace arrangement
-    private func registerShortcut(for arrangement: WorkspaceArrangement) {
-        guard let shortcut = arrangement.shortcut else { return }
-        
-        // TODO: Integrate with ShortcutManager
-        // This will be implemented when we integrate with the main app
-        print("🔗 Would register shortcut '\(shortcut)' for workspace '\(arrangement.name)'")
+    private func registerShortcut(for arrangement: WorkspaceArrangement) -> ShortcutRegistrationResult {
+        guard let shortcut = arrangement.shortcut else { return .registered }
+        guard let shortcutManager else { return .systemRejected(-1) }
+        return shortcutManager.registerGlobalShortcutDetailed(shortcut) { [weak self] in
+            guard let current = self?.getArrangement(id: arrangement.id) else { return }
+            self?.executeArrangement(current)
+        }
     }
     
     /// Unregister a global shortcut
     private func unregisterShortcut(_ shortcut: String) {
-        // TODO: Integrate with ShortcutManager
-        print("🔗 Would unregister shortcut '\(shortcut)'")
+        shortcutManager?.unregisterShortcut(shortcut)
     }
 }

@@ -33,7 +33,7 @@ final class HoverableClearButtonContainer: NSView {
     override func mouseEntered(with event: NSEvent) {
         super.mouseEntered(with: event)
         NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = ClipboardHistoryTheme.animationFast
+            ctx.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : ClipboardHistoryTheme.animationFast
             ctx.allowsImplicitAnimation = true
             layer?.backgroundColor = hoverBackgroundColor.withAlphaComponent(0.14).cgColor
             button?.contentTintColor = hoverTintColor
@@ -43,11 +43,17 @@ final class HoverableClearButtonContainer: NSView {
     override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
         NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = ClipboardHistoryTheme.animationFast
+            ctx.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : ClipboardHistoryTheme.animationFast
             ctx.allowsImplicitAnimation = true
             layer?.backgroundColor = NSColor.quaternaryLabelColor.withAlphaComponent(defaultBackgroundAlpha).cgColor
             button?.contentTintColor = .secondaryLabelColor
         }
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        layer?.backgroundColor = NSColor.quaternaryLabelColor.withAlphaComponent(defaultBackgroundAlpha).cgColor
+        button?.contentTintColor = .secondaryLabelColor
     }
 }
 
@@ -117,7 +123,7 @@ final class ClipboardHistorySearchBar: NSView {
         searchIconView.imageScaling = .scaleProportionallyDown
         searchContainerView.addSubview(searchIconView)
 
-        searchField.placeholderString = "Search Clipboard..."
+        searchField.placeholderString = "Search Clipboard…"
         searchField.isEditable = true
         searchField.isSelectable = true
         searchField.isEnabled = true
@@ -283,7 +289,7 @@ final class ClipboardHistorySearchBar: NSView {
     private func animateSearchFocus(focused: Bool) {
         guard let layer = searchContainerView.layer else { return }
         NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = ClipboardHistoryTheme.animationNormal
+            ctx.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : ClipboardHistoryTheme.animationNormal
             ctx.allowsImplicitAnimation = true
             if focused {
                 layer.borderColor = NSColor.controlAccentColor
@@ -307,5 +313,11 @@ final class ClipboardHistorySearchBar: NSView {
 
     @objc private func closeClicked(_ sender: NSButton) {
         delegate?.searchBarCloseRequested(self)
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        searchContainerView.layer?.backgroundColor = NSColor.textBackgroundColor.withAlphaComponent(0.18).cgColor
+        animateSearchFocus(focused: isSearchFieldFocused)
     }
 }

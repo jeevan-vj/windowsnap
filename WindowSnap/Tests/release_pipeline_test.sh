@@ -68,6 +68,7 @@ assert_publish_preflight_fails_with() {
 assert_executable "$SCRIPTS_DIR/release.sh" "canonical release command is executable"
 assert_executable "$SCRIPTS_DIR/sign-nested-components.sh" "explicit nested signing helper exists"
 assert_executable "$SCRIPTS_DIR/verify-release.sh" "release artifact verifier exists"
+assert_executable "$SCRIPTS_DIR/resolve-developer-id.sh" "Developer ID resolver exists"
 
 assert_not_contains "$SCRIPTS_DIR/release.sh" 'skip-notarize|SKIP_NOTARIZE' "production release cannot skip notarization"
 assert_not_contains "$SCRIPTS_DIR/release.sh" 'codesign[^\n]*--deep|--deep[^\n]*codesign' "production release does not use codesign --deep"
@@ -75,6 +76,7 @@ assert_not_contains "$SCRIPTS_DIR/sign-and-notarize.sh" 'codesign[^\n]*--deep|--
 assert_not_contains "$SCRIPTS_DIR/build-universal-bundle.sh" '^[[:space:]]*--deep([[:space:]]|$)' "universal bundle signing does not use --deep"
 
 assert_contains "$SCRIPTS_DIR/release.sh" 'Developer ID Application' "release requires a Developer ID Application identity"
+assert_contains "$SCRIPTS_DIR/resolve-developer-id.sh" 'Developer ID Application' "signing fingerprints are restricted to Developer ID Application identities"
 assert_contains "$SCRIPTS_DIR/release.sh" 'NOTARY_PROFILE' "release requires a Keychain notarization profile"
 assert_contains "$SCRIPTS_DIR/sign-and-notarize.sh" 'sign-nested-components\.sh' "release signing stage explicitly signs nested code"
 assert_contains "$SCRIPTS_DIR/release.sh" 'verify-release\.sh' "release delegates final artifact verification"
@@ -87,6 +89,8 @@ assert_contains "$SCRIPTS_DIR/sign-and-notarize.sh" 'stapler validate' "app stap
 assert_contains "$SCRIPTS_DIR/verify-release.sh" 'codesign --verify --strict --verbose=2' "app signature is verified strictly"
 assert_contains "$SCRIPTS_DIR/verify-release.sh" 'lipo.*arm64' "arm64 architecture is required"
 assert_contains "$SCRIPTS_DIR/verify-release.sh" 'lipo.*x86_64' "x86_64 architecture is required"
+assert_contains "$SCRIPTS_DIR/verify-release.sh" 'lipo[[:space:]]+"\$executable"[[:space:]]+-verify_arch[[:space:]]+arm64' "arm64 verifier uses valid lipo argument order"
+assert_contains "$SCRIPTS_DIR/verify-release.sh" 'lipo[[:space:]]+"\$executable"[[:space:]]+-verify_arch[[:space:]]+x86_64' "x86_64 verifier uses valid lipo argument order"
 assert_contains "$SCRIPTS_DIR/verify-release.sh" 'spctl.*candidate' "Gatekeeper assesses the app"
 assert_contains "$SCRIPTS_DIR/verify-release.sh" 'spctl.*DMG_PATH' "Gatekeeper assesses the DMG"
 assert_contains "$SCRIPTS_DIR/verify-release.sh" 'stapler validate' "stapled tickets are validated"
@@ -95,6 +99,8 @@ assert_contains "$SCRIPTS_DIR/verify-release.sh" 'CFBundleVersion' "artifact bui
 
 assert_contains "$SCRIPTS_DIR/build-adhoc-release.sh" 'local-only' "ad-hoc artifacts are isolated as local-only"
 assert_not_contains "$SCRIPTS_DIR/build-adhoc-release.sh" 'GitHub Release|ready for GitHub|gh release' "ad-hoc artifacts are not presented as publishable"
+assert_not_contains "$SCRIPTS_DIR/build-universal-bundle.sh" 'PlistBuddy[^\n]*"\$PLIST_SOURCE"' "bundle build never mutates the source Info.plist"
+assert_contains "$SCRIPTS_DIR/build-virtual-camera-extension.sh" 'lipo.*-create' "virtual camera extension is built as a universal binary"
 
 assert_not_contains "$ROOT_DIR/../README.md" 'xattr[[:space:]]+-d|Open Anyway|bypass Gatekeeper|isn.t notarized' "README does not instruct users to bypass Gatekeeper"
 assert_contains "$ROOT_DIR/../DISTRIBUTION_GUIDE.md" 'scripts/release\.sh' "distribution guide names one canonical command"

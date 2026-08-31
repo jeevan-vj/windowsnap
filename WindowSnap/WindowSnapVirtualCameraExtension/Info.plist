@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDisplayName</key>
+	<string>WindowSnap Virtual Camera</string>
+	<key>CFBundleExecutable</key>
+	<string>WindowSnapVirtualCameraExtension</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.jeevanwijerathna.windowsnap.VirtualCameraExtension</string>
+	<key>CFBundleName</key>
+	<string>WindowSnapVirtualCameraExtension</string>
+	<key>CFBundlePackageType</key>
+	<string>SYSX</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>CMIOExtensionMachServiceName</key>
+	<string>$(TeamIdentifierPrefix)com.jeevanwijerathna.windowsnap.VirtualCameraExtension</string>
+	<key>NSSystemExtensionUsageDescription</key>
+	<string>WindowSnap uses a camera extension to expose the selected screen region as a virtual camera for video calls.</string>
+</dict>
+</plist>

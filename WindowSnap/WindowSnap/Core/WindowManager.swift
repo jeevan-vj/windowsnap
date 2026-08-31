@@ -687,15 +687,18 @@ class WindowManager {
     }
     
     func testAccessibility() -> Bool {
-        // Quick test to see if accessibility is working
-        guard let frontmostApp = NSWorkspace.shared.frontmostApplication else {
-            return false
-        }
-        
-        let appElement = AXUIElementCreateApplication(frontmostApp.processIdentifier)
-        var focusedWindow: CFTypeRef?
-        
-        let result = AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &focusedWindow)
-        return result == .success
+        guard AccessibilityPermissions.hasPermissions() else { return false }
+
+        // A frontmost app can legitimately have no focused window (menu-bar apps,
+        // the desktop, and transient panels). Test the system-wide AX connection
+        // instead so normal UI states do not trigger a full shortcut re-registration.
+        let systemWideElement = AXUIElementCreateSystemWide()
+        var focusedApplication: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(
+            systemWideElement,
+            kAXFocusedApplicationAttribute as CFString,
+            &focusedApplication
+        )
+        return result == .success && focusedApplication != nil
     }
 }

@@ -104,6 +104,7 @@ enum ClipboardLogMetadata {
 
 extension Notification.Name {
     static let clipboardHistoryDidClear = Notification.Name("ClipboardHistoryDidClear")
+    static let clipboardHistoryDidChange = Notification.Name("ClipboardHistoryDidChange")
     static let clipboardPauseStateDidChange = Notification.Name("ClipboardPauseStateDidChange")
 }
 

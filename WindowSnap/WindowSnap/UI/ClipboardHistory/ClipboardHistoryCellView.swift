@@ -45,6 +45,7 @@ final class ModernTableRowView: NSTableRowView {
 }
 
 final class ClipboardHistoryCellView: NSView {
+    private static let thumbnailCache = NSCache<NSString, NSImage>()
     private var cardView: NSView!
     private var iconImageView: NSImageView!
     private var previewLabel: NSTextField!
@@ -165,18 +166,18 @@ final class ClipboardHistoryCellView: NSView {
 
             deleteButton.trailingAnchor.constraint(equalTo: copyButton.leadingAnchor, constant: -6),
             deleteButton.centerYAnchor.constraint(equalTo: cardView.centerYAnchor),
-            deleteButton.widthAnchor.constraint(equalToConstant: 20),
-            deleteButton.heightAnchor.constraint(equalToConstant: 20),
+            deleteButton.widthAnchor.constraint(equalToConstant: 28),
+            deleteButton.heightAnchor.constraint(equalToConstant: 28),
 
             copyButton.trailingAnchor.constraint(equalTo: pinButton.leadingAnchor, constant: -6),
             copyButton.centerYAnchor.constraint(equalTo: cardView.centerYAnchor),
-            copyButton.widthAnchor.constraint(equalToConstant: 20),
-            copyButton.heightAnchor.constraint(equalToConstant: 20),
+            copyButton.widthAnchor.constraint(equalToConstant: 28),
+            copyButton.heightAnchor.constraint(equalToConstant: 28),
 
             pinButton.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -10),
             pinButton.centerYAnchor.constraint(equalTo: cardView.centerYAnchor),
-            pinButton.widthAnchor.constraint(equalToConstant: 20),
-            pinButton.heightAnchor.constraint(equalToConstant: 20),
+            pinButton.widthAnchor.constraint(equalToConstant: 28),
+            pinButton.heightAnchor.constraint(equalToConstant: 28),
         ]
 
         layoutConstraintsStandard = [
@@ -266,7 +267,7 @@ final class ClipboardHistoryCellView: NSView {
     override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
         if !isSelected { animateHover(entered: false) }
-        setButtonsVisible(false)
+        setButtonsVisible(isSelected)
     }
 
     private func setButtonsVisible(_ visible: Bool) {
@@ -276,7 +277,7 @@ final class ClipboardHistoryCellView: NSView {
         timestampTrailingToButtons.isActive = visible
 
         NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = ClipboardHistoryTheme.animationFast
+            ctx.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : ClipboardHistoryTheme.animationFast
             ctx.allowsImplicitAnimation = true
             copyButton.alphaValue = visible ? 1 : 0
             deleteButton.alphaValue = visible ? 1 : 0
@@ -288,7 +289,7 @@ final class ClipboardHistoryCellView: NSView {
 
     private func animateHover(entered: Bool) {
         NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = ClipboardHistoryTheme.animationNormal
+            ctx.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : ClipboardHistoryTheme.animationNormal
             ctx.allowsImplicitAnimation = true
             cardView.layer?.backgroundColor = entered
                 ? NSColor.labelColor.withAlphaComponent(ClipboardHistoryTheme.hoverBackgroundAlpha).cgColor
@@ -298,7 +299,7 @@ final class ClipboardHistoryCellView: NSView {
 
     private func updateAppearance() {
         NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = ClipboardHistoryTheme.animationNormal
+            ctx.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : ClipboardHistoryTheme.animationNormal
             ctx.allowsImplicitAnimation = true
             if isSelected {
                 cardView.layer?.backgroundColor = NSColor.controlAccentColor
@@ -312,6 +313,7 @@ final class ClipboardHistoryCellView: NSView {
                 cardView.layer?.borderColor = nil
             }
         }
+        setButtonsVisible(isSelected)
     }
 
     func configure(with item: ClipboardHistoryItem) {
@@ -319,10 +321,10 @@ final class ClipboardHistoryCellView: NSView {
         let hasImageThumbnail = item.type == .image && item.thumbnail != nil
         setImagePreviewLayout(hasImageThumbnail)
 
+        let cacheKey = item.id.uuidString as NSString
         if item.type == .image,
-           let thumbString = item.thumbnail,
-           let thumbData = Data(base64Encoded: thumbString),
-           let thumbImage = NSImage(data: thumbData) {
+           let thumbImage = Self.thumbnailCache.object(forKey: cacheKey) ?? Self.decodeThumbnail(item.thumbnail) {
+            Self.thumbnailCache.setObject(thumbImage, forKey: cacheKey)
             iconImageView.image = thumbImage
             iconImageView.contentTintColor = nil
             iconImageView.imageScaling = .scaleProportionallyUpOrDown
@@ -343,10 +345,12 @@ final class ClipboardHistoryCellView: NSView {
         }
 
         timestampLabel.stringValue = Self.relativeTimeDescription(since: item.timestamp)
+        setAccessibilityRole(.group)
+        setAccessibilityLabel("\(item.type.displayName), \(previewLabel.stringValue), \(timestampLabel.stringValue)")
 
         if item.type != .image {
             previewLabel.toolTip = item.content.count > 500
-                ? String(item.content.prefix(500)) + "..."
+                ? String(item.content.prefix(500)) + "…"
                 : item.content
         } else {
             previewLabel.toolTip = nil
@@ -402,15 +406,26 @@ final class ClipboardHistoryCellView: NSView {
 
     private func animateButtonTap(_ button: NSButton) {
         NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = ClipboardHistoryTheme.animationFast
+            ctx.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : ClipboardHistoryTheme.animationFast
             ctx.allowsImplicitAnimation = true
             button.layer?.transform = CATransform3DMakeScale(0.88, 0.88, 1)
         }, completionHandler: {
             NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = ClipboardHistoryTheme.animationFast
+                ctx.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : ClipboardHistoryTheme.animationFast
                 ctx.allowsImplicitAnimation = true
                 button.layer?.transform = CATransform3DIdentity
             }
         })
+    }
+
+    private static func decodeThumbnail(_ encoded: String?) -> NSImage? {
+        guard let encoded, let data = Data(base64Encoded: encoded) else { return nil }
+        return NSImage(data: data)
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateAppearance()
+        updatePinnedAppearance(isPinned: currentItem?.isPinned ?? false)
     }
 }

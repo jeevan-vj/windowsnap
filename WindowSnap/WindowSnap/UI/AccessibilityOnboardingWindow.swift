@@ -1,5 +1,12 @@
 import AppKit
 
+private final class AppearanceAwareControlBackgroundView: NSView {
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
+    }
+}
+
 final class AccessibilityOnboardingWindowController: NSWindowController, NSWindowDelegate {
     var onDismiss: (() -> Void)?
 
@@ -168,7 +175,7 @@ final class AccessibilityOnboardingWindowController: NSWindowController, NSWindo
     }
 
     private func makeBox() -> NSView {
-        let view = NSView()
+        let view = AppearanceAwareControlBackgroundView()
         view.wantsLayer = true
         view.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
         view.layer?.cornerRadius = 8

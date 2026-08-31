@@ -42,6 +42,7 @@ final class ClipboardHistoryFilterBar: NSView {
             chip.tag = index
             chip.target = self
             chip.action = #selector(chipClicked(_:))
+            chip.setButtonType(.toggle)
             chip.setAccessibilityLabel("Filter by \(itemType.displayName)")
             chip.translatesAutoresizingMaskIntoConstraints = false
             chip.heightAnchor.constraint(equalToConstant: 22).isActive = true
@@ -81,6 +82,8 @@ final class ClipboardHistoryFilterBar: NSView {
     func updateChipAppearances() {
         for (type, chip) in chipButtons {
             let isActive = activeTypeFilters.contains(type)
+            chip.state = isActive ? .on : .off
+            chip.setAccessibilityValue(isActive ? "Selected" : "Not selected")
             if isActive {
                 chip.contentTintColor = .controlAccentColor
                 chip.layer?.backgroundColor = NSColor.controlAccentColor
@@ -103,6 +106,11 @@ final class ClipboardHistoryFilterBar: NSView {
 
     func resetFilters() {
         activeTypeFilters.removeAll()
+        updateChipAppearances()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
         updateChipAppearances()
     }
 }

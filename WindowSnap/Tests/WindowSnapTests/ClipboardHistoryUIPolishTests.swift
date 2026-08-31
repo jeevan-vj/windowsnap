@@ -61,6 +61,32 @@ final class ClipboardHistoryUIPolishTests: XCTestCase {
         XCTAssertEqual(cell.bounds, originalBounds)
     }
 
+    func testCellActionsUseAccessibleHitTargetsAndStayVisibleWhenSelected() {
+        let item = ClipboardHistoryItem(content: "Copied text", type: .text)
+        let cell = configuredCell(for: item, frame: NSRect(x: 0, y: 0, width: 420, height: ClipboardHistoryTheme.rowHeight))
+        cell.isSelected = true
+        cell.layoutSubtreeIfNeeded()
+
+        let actions = cell.allSubviews(of: NSButton.self).filter { $0.accessibilityLabel() != nil }
+        XCTAssertEqual(actions.count, 3)
+        for action in actions {
+            XCTAssertGreaterThanOrEqual(action.frame.width, 28)
+            XCTAssertGreaterThanOrEqual(action.frame.height, 28)
+            XCTAssertGreaterThan(action.alphaValue, 0)
+        }
+    }
+
+    func testFilterChipsExposeToggleStateToAccessibility() throws {
+        let filterBar = ClipboardHistoryFilterBar(frame: NSRect(x: 0, y: 0, width: 440, height: ClipboardHistoryTheme.filterBarHeight))
+        let chip = try XCTUnwrap(filterBar.allSubviews(of: NSButton.self).first)
+        XCTAssertEqual(chip.accessibilityValue() as? String, "Not selected")
+
+        chip.performClick(nil)
+
+        XCTAssertEqual(chip.state, .on)
+        XCTAssertEqual(chip.accessibilityValue() as? String, "Selected")
+    }
+
     private func configuredCell(for item: ClipboardHistoryItem, frame: NSRect) -> ClipboardHistoryCellView {
         let cell = ClipboardHistoryCellView(frame: frame)
         cell.configure(with: item)

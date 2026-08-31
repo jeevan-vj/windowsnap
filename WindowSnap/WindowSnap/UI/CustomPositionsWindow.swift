@@ -7,6 +7,9 @@ class CustomPositionsWindow: NSWindowController {
     private var customPositionManager = CustomPositionManager.shared
     private var tableView: NSTableView!
     private var positions: [CustomPosition] = []
+    private var editButton: NSButton!
+    private var deleteButton: NSButton!
+    private var testButton: NSButton!
     
     override init(window: NSWindow?) {
         super.init(window: window)
@@ -69,7 +72,6 @@ class CustomPositionsWindow: NSWindowController {
         scrollView.borderType = .lineBorder
         
         tableView = NSTableView()
-        tableView.headerView = nil
         tableView.allowsMultipleSelection = false
         tableView.usesAlternatingRowBackgroundColors = true
         
@@ -119,24 +121,25 @@ class CustomPositionsWindow: NSWindowController {
         xPos += 100 + buttonSpacing
         
         // Edit button
-        let editButton = NSButton(title: "Edit", target: self, action: #selector(editPosition))
+        editButton = NSButton(title: "Edit", target: self, action: #selector(editPosition))
         editButton.frame = NSRect(x: xPos, y: 20, width: 70, height: buttonHeight)
         editButton.autoresizingMask = [.minYMargin]
         contentView.addSubview(editButton)
         xPos += 70 + buttonSpacing
         
         // Delete button
-        let deleteButton = NSButton(title: "Delete", target: self, action: #selector(deletePosition))
+        deleteButton = NSButton(title: "Delete", target: self, action: #selector(deletePosition))
         deleteButton.frame = NSRect(x: xPos, y: 20, width: 70, height: buttonHeight)
         deleteButton.autoresizingMask = [.minYMargin]
         contentView.addSubview(deleteButton)
         xPos += 70 + buttonSpacing
         
         // Test button
-        let testButton = NSButton(title: "Test", target: self, action: #selector(testPosition))
+        testButton = NSButton(title: "Test", target: self, action: #selector(testPosition))
         testButton.frame = NSRect(x: xPos, y: 20, width: 70, height: buttonHeight)
         testButton.autoresizingMask = [.minYMargin]
         contentView.addSubview(testButton)
+        updateSelectionControls()
     }
     
     private func refreshPositions() {
@@ -207,26 +210,26 @@ class CustomPositionsWindow: NSWindowController {
     
     private func showAddPositionDialog(fromCurrentWindow: Bool) {
         let dialog = CustomPositionDialog(fromCurrentWindow: fromCurrentWindow)
+        dialog.onCommit = { [weak self] position in
+            self?.customPositionManager.addPosition(position) ?? .failure(.persistenceFailed)
+        }
         
         if let window = window {
             window.beginSheet(dialog.window!) { [weak self] response in
-                if response == .OK, let position = dialog.customPosition {
-                    self?.customPositionManager.addPosition(position)
-                    self?.refreshPositions()
-                }
+                if response == .OK { self?.refreshPositions() }
             }
         }
     }
     
     private func showEditPositionDialog(for position: CustomPosition) {
         let dialog = CustomPositionDialog(editing: position)
+        dialog.onCommit = { [weak self] updatedPosition in
+            self?.customPositionManager.updatePosition(updatedPosition) ?? .failure(.persistenceFailed)
+        }
         
         if let window = window {
             window.beginSheet(dialog.window!) { [weak self] response in
-                if response == .OK, let updatedPosition = dialog.customPosition {
-                    self?.customPositionManager.updatePosition(updatedPosition)
-                    self?.refreshPositions()
-                }
+                if response == .OK { self?.refreshPositions() }
             }
         }
     }
@@ -237,6 +240,13 @@ class CustomPositionsWindow: NSWindowController {
         alert.informativeText = message
         alert.addButton(withTitle: "OK")
         alert.runModal()
+    }
+
+    private func updateSelectionControls() {
+        let hasSelection = (tableView?.selectedRow ?? -1) >= 0
+        editButton?.isEnabled = hasSelection
+        deleteButton?.isEnabled = hasSelection
+        testButton?.isEnabled = hasSelection
     }
 }
 
@@ -270,9 +280,11 @@ extension CustomPositionsWindow: NSTableViewDataSource, NSTableViewDelegate {
             cell.textColor = .secondaryLabelColor
             
         case "shortcut":
-            cell.stringValue = position.shortcut ?? "None"
+            let isActive = customPositionManager.isShortcutActive(for: position)
+            cell.stringValue = isActive ? (position.shortcut ?? "None") : "\(position.shortcut ?? "None") — inactive"
             cell.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
-            cell.textColor = position.hasShortcut ? .labelColor : .tertiaryLabelColor
+            cell.textColor = isActive ? (position.hasShortcut ? .labelColor : .tertiaryLabelColor) : .systemOrange
+            cell.toolTip = isActive ? nil : "This shortcut could not be registered. Edit it to choose an available shortcut."
             
         default:
             break
@@ -283,6 +295,10 @@ extension CustomPositionsWindow: NSTableViewDataSource, NSTableViewDelegate {
     
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
         return 24
+    }
+
+    func tableViewSelectionDidChange(_ notification: Notification) {
+        updateSelectionControls()
     }
 }
 
@@ -305,6 +321,7 @@ class CustomPositionDialog: NSWindowController {
     private let editingPosition: CustomPosition?
     
     var customPosition: CustomPosition?
+    var onCommit: ((CustomPosition) -> Result<Void, ManagedConfigurationError>)?
     
     init(fromCurrentWindow: Bool = false, editing: CustomPosition? = nil) {
         self.fromCurrentWindow = fromCurrentWindow
@@ -489,6 +506,15 @@ class CustomPositionDialog: NSWindowController {
         
         if fromCurrentWindow {
             customPosition = CustomPositionManager.shared.createFromCurrentWindow(name: name, shortcut: finalShortcut)
+        } else if let editingPosition {
+            customPosition = editingPosition.updating(
+                name: name,
+                widthPercent: widthSlider.doubleValue / 100.0,
+                heightPercent: heightSlider.doubleValue / 100.0,
+                xPercent: xSlider.doubleValue / 100.0,
+                yPercent: ySlider.doubleValue / 100.0,
+                shortcut: finalShortcut
+            )
         } else {
             customPosition = CustomPosition(
                 name: name,
@@ -499,8 +525,29 @@ class CustomPositionDialog: NSWindowController {
                 shortcut: finalShortcut
             )
         }
-        
+
+        guard let customPosition else {
+            showCommitError("The current window could not be captured. Keep it fully inside one display and try again.")
+            return
+        }
+        if let onCommit {
+            switch onCommit(customPosition) {
+            case .success:
+                break
+            case .failure(let error):
+                showCommitError(error.localizedDescription)
+                return
+            }
+        }
         window?.sheetParent?.endSheet(window!, returnCode: .OK)
+    }
+
+    private func showCommitError(_ message: String) {
+        let alert = NSAlert()
+        alert.messageText = "Couldn’t Save Position"
+        alert.informativeText = message
+        alert.alertStyle = .warning
+        alert.beginSheetModal(for: window!)
     }
     
     @objc private func cancel() {

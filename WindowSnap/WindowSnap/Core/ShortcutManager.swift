@@ -2,6 +2,26 @@ import Foundation
 import Carbon
 import AppKit
 
+enum ShortcutRegistrationResult: Equatable {
+    case registered
+    case invalid
+    case alreadyRegistered
+    case systemRejected(OSStatus)
+
+    var failureMessage: String? {
+        switch self {
+        case .registered:
+            return nil
+        case .invalid:
+            return "Enter a shortcut such as cmd+option+1."
+        case .alreadyRegistered:
+            return "That shortcut is already assigned to another action."
+        case .systemRejected:
+            return "macOS could not register that shortcut. It may be used by another app."
+        }
+    }
+}
+
 class ShortcutManager {
     private var registeredShortcuts: [String: EventHotKeyRef] = [:]
     private var shortcutToHotKeyID: [String: UInt32] = [:]
@@ -45,14 +65,18 @@ class ShortcutManager {
     }
     
     func registerGlobalShortcut(_ shortcutString: String, action: @escaping () -> Void) -> Bool {
+        registerGlobalShortcutDetailed(shortcutString, action: action) == .registered
+    }
+
+    func registerGlobalShortcutDetailed(_ shortcutString: String, action: @escaping () -> Void) -> ShortcutRegistrationResult {
         if registeredShortcuts[shortcutString] != nil {
             print("Shortcut already registered: \(shortcutString)")
-            return true
+            return .alreadyRegistered
         }
         
         guard let (keyCode, modifiers) = parseShortcutString(shortcutString) else {
             print("Failed to parse shortcut: \(shortcutString)")
-            return false
+            return .invalid
         }
         
         let signature = OSType("WSAP".fourCharCodeValue)
@@ -65,7 +89,7 @@ class ShortcutManager {
         
         guard result == noErr, let hotKey = hotKeyRef else {
             print("Failed to register hotkey: \(shortcutString)")
-            return false
+            return .systemRejected(result)
         }
         
         registeredShortcuts[shortcutString] = hotKey
@@ -74,7 +98,11 @@ class ShortcutManager {
         shortcutStringToAction[shortcutString] = action
         
         print("Successfully registered shortcut: \(shortcutString)")
-        return true
+        return .registered
+    }
+
+    func isValidShortcutSyntax(_ shortcutString: String) -> Bool {
+        parseShortcutString(shortcutString) != nil
     }
     
     func unregisterShortcut(_ shortcutString: String) {
@@ -331,6 +359,8 @@ class ShortcutManager {
             return 0x33
         case "backspace":
             return 0x33
+        case ";", "semicolon":
+            return 0x29
             
         default:
             return nil

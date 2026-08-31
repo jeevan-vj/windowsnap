@@ -112,8 +112,8 @@ main() {
     validate_publish_source
   fi
 
-  [[ "${CODESIGN_ID:-}" == Developer\ ID\ Application:* ]] || \
-    die "Set CODESIGN_ID to an installed Developer ID Application identity"
+  [[ -n "${CODESIGN_ID:-}" ]] || \
+    die "Set CODESIGN_ID to an installed Developer ID Application identity or fingerprint"
   [[ -n "${NOTARY_PROFILE:-}" ]] || \
     die "Set NOTARY_PROFILE to a notarytool Keychain profile"
 
@@ -121,10 +121,7 @@ main() {
     require_command "$command_name"
   done
 
-  # Match the exact configured identity without printing the Keychain inventory.
-  if ! /usr/bin/security find-identity -v -p codesigning 2>/dev/null | /usr/bin/grep -F "\"$CODESIGN_ID\"" >/dev/null; then
-    die "The configured Developer ID Application identity is not installed or valid"
-  fi
+  CODESIGN_ID="$("$ROOT_DIR/scripts/resolve-developer-id.sh" "$CODESIGN_ID")"
   if [[ "$PUBLISH" == true ]]; then
     require_command gh
     gh auth status >/dev/null 2>&1 || die "GitHub CLI authentication is required for --publish"

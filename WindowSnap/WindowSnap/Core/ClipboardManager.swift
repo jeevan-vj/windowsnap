@@ -134,6 +134,7 @@ class ClipboardManager: NSObject {
                     retention: newValue
                 )
                 self.saveHistoryToDisk()
+                self.postNotification(name: .clipboardHistoryDidChange)
             }
         }
     }
@@ -170,6 +171,7 @@ class ClipboardManager: NSObject {
             }
         }
         postNotification(name: .clipboardHistoryDidClear)
+        postNotification(name: .clipboardHistoryDidChange)
     }
     
     func deleteItem(id: UUID) {
@@ -178,6 +180,7 @@ class ClipboardManager: NSObject {
             self.history.removeAll { $0.id == id }
             self.debouncedSaveHistoryToDisk()
             print("📋 Deleted item from clipboard history")
+            self.postNotification(name: .clipboardHistoryDidChange, userInfo: ["itemID": id])
         }
     }
     
@@ -220,7 +223,7 @@ class ClipboardManager: NSObject {
     // MARK: - Pin Management
     
     func pinItem(id: UUID) -> Bool {
-        return processingQueue.sync {
+        let didPin = processingQueue.sync {
             guard let index = history.firstIndex(where: { $0.id == id }) else {
                 return false
             }
@@ -242,10 +245,12 @@ class ClipboardManager: NSObject {
             print("📌 Pinned clipboard item")
             return true
         }
+        if didPin { postNotification(name: .clipboardHistoryDidChange, userInfo: ["itemID": id]) }
+        return didPin
     }
     
     func unpinItem(id: UUID) -> Bool {
-        return processingQueue.sync {
+        let didUnpin = processingQueue.sync {
             guard let index = history.firstIndex(where: { $0.id == id }) else {
                 return false
             }
@@ -267,12 +272,14 @@ class ClipboardManager: NSObject {
             print("📌 Unpinned clipboard item")
             return true
         }
+        if didUnpin { postNotification(name: .clipboardHistoryDidChange, userInfo: ["itemID": id]) }
+        return didUnpin
     }
     
     func togglePinState(id: UUID) -> Bool {
-        return processingQueue.sync {
+        let result: (found: Bool, state: Bool) = processingQueue.sync {
             guard let index = history.firstIndex(where: { $0.id == id }) else {
-                return false
+                return (false, false)
             }
             
             let item = history[index]
@@ -291,8 +298,10 @@ class ClipboardManager: NSObject {
             history[index] = updatedItem
             debouncedSaveHistoryToDisk()
             print("📌 \(newPinState ? "Pinned" : "Unpinned") clipboard item")
-            return newPinState
+            return (true, newPinState)
         }
+        if result.found { postNotification(name: .clipboardHistoryDidChange, userInfo: ["itemID": id]) }
+        return result.state
     }
     
     // MARK: - Private Methods
@@ -448,6 +457,7 @@ class ClipboardManager: NSObject {
         debouncedSaveHistoryToDisk()
 
         print("📋 Added \(ClipboardLogMetadata.summary(for: itemToAdd)) to clipboard history")
+        postNotification(name: .clipboardHistoryDidChange, userInfo: ["itemID": itemToAdd.id])
     }
     
     private func isValidURL(_ string: String) -> Bool {
@@ -623,7 +633,7 @@ class ClipboardManager: NSObject {
         if Thread.isMainThread {
             post()
         } else {
-            DispatchQueue.main.sync(execute: post)
+            DispatchQueue.main.async(execute: post)
         }
     }
 }

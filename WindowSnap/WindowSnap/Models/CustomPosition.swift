@@ -107,17 +107,61 @@ struct CustomPosition: Codable, Identifiable, Equatable {
     var hasShortcut: Bool {
         return shortcut?.isEmpty == false
     }
+
+    func updating(
+        name: String,
+        widthPercent: Double,
+        heightPercent: Double,
+        xPercent: Double,
+        yPercent: Double,
+        shortcut: String?
+    ) -> CustomPosition {
+        CustomPosition(
+            id: id,
+            name: name,
+            widthPercent: widthPercent,
+            heightPercent: heightPercent,
+            xPercent: xPercent,
+            yPercent: yPercent,
+            shortcut: shortcut,
+            createdDate: createdDate,
+            lastUsed: lastUsed
+        )
+    }
+}
+
+enum ManagedConfigurationError: Error, Equatable, LocalizedError {
+    case duplicateName
+    case duplicateShortcut
+    case invalidShortcut
+    case shortcutUnavailable(String)
+    case persistenceFailed
+    case nothingToCapture
+
+    var errorDescription: String? {
+        switch self {
+        case .duplicateName: return "That name is already in use."
+        case .duplicateShortcut: return "That shortcut is already assigned."
+        case .invalidShortcut: return "Enter a shortcut such as cmd+option+1."
+        case .shortcutUnavailable(let message): return message
+        case .persistenceFailed: return "The change could not be saved."
+        case .nothingToCapture: return "No eligible windows were found to capture."
+        }
+    }
 }
 
 /// Manages storage and operations for custom window positions
 class CustomPositionManager {
     static let shared = CustomPositionManager()
     
-    private let userDefaults = UserDefaults.standard
+    private let userDefaults: UserDefaults
     private let storageKey = "WindowSnap_CustomPositions"
     private var positions: [CustomPosition] = []
+    private weak var shortcutManager: ShortcutManager?
+    private var inactiveShortcutIDs: Set<UUID> = []
     
-    private init() {
+    init(userDefaults: UserDefaults = .standard) {
+        self.userDefaults = userDefaults
         loadPositions()
     }
     
@@ -140,42 +184,72 @@ class CustomPositionManager {
     }
     
     /// Save custom positions to UserDefaults
-    private func savePositions() {
+    @discardableResult
+    private func savePositions() -> Bool {
         do {
             let data = try JSONEncoder().encode(positions)
             userDefaults.set(data, forKey: storageKey)
             print("💾 Saved \(positions.count) custom positions")
+            return true
         } catch {
             print("❌ Failed to save custom positions: \(error)")
+            return false
         }
+    }
+
+    func configure(shortcutManager: ShortcutManager) {
+        self.shortcutManager = shortcutManager
+        inactiveShortcutIDs.removeAll()
+        for position in positions where position.hasShortcut {
+            if case .registered = registerShortcut(for: position) { continue }
+            inactiveShortcutIDs.insert(position.id)
+        }
+    }
+
+    func isShortcutActive(for position: CustomPosition) -> Bool {
+        !position.hasShortcut || !inactiveShortcutIDs.contains(position.id)
     }
     
     // MARK: - Position Management
     
     /// Add a new custom position
-    func addPosition(_ position: CustomPosition) {
+    @discardableResult
+    func addPosition(_ position: CustomPosition) -> Result<Void, ManagedConfigurationError> {
         // Check for duplicate names
         if positions.contains(where: { $0.name == position.name }) {
             print("⚠️ Custom position with name '\(position.name)' already exists")
-            return
+            return .failure(.duplicateName)
         }
         
         // Check for duplicate shortcuts
         if let shortcut = position.shortcut,
            positions.contains(where: { $0.shortcut == shortcut }) {
             print("⚠️ Custom position with shortcut '\(shortcut)' already exists")
-            return
+            return .failure(.duplicateShortcut)
+        }
+
+        if let shortcut = position.shortcut {
+            guard shortcutManager?.isValidShortcutSyntax(shortcut) == true else {
+                return .failure(.invalidShortcut)
+            }
+            let result = registerShortcut(for: position)
+            guard result == .registered else {
+                return .failure(.shortcutUnavailable(result.failureMessage ?? "That shortcut is unavailable."))
+            }
         }
         
         positions.append(position)
-        savePositions()
+        guard savePositions() else {
+            if let shortcut = position.shortcut { shortcutManager?.unregisterShortcut(shortcut) }
+            positions.removeAll { $0.id == position.id }
+            return .failure(.persistenceFailed)
+        }
         
         print("✅ Added custom position: '\(position.name)' (\(position.displayDescription))")
         
         // Register shortcut if provided
-        if let shortcut = position.shortcut {
-            registerShortcut(for: position)
-        }
+        inactiveShortcutIDs.remove(position.id)
+        return .success(())
     }
     
     /// Remove a custom position by ID
@@ -199,28 +273,53 @@ class CustomPositionManager {
     }
     
     /// Update an existing custom position
-    func updatePosition(_ updatedPosition: CustomPosition) {
+    @discardableResult
+    func updatePosition(_ updatedPosition: CustomPosition) -> Result<Void, ManagedConfigurationError> {
         guard let index = positions.firstIndex(where: { $0.id == updatedPosition.id }) else {
             print("❌ Custom position with ID \(updatedPosition.id) not found")
-            return
+            return .failure(.persistenceFailed)
         }
         
         let oldPosition = positions[index]
         
-        // Unregister old shortcut
-        if let oldShortcut = oldPosition.shortcut {
-            unregisterShortcut(oldShortcut)
+        if positions.contains(where: { $0.id != updatedPosition.id && $0.name == updatedPosition.name }) {
+            return .failure(.duplicateName)
         }
-        
+        if let shortcut = updatedPosition.shortcut,
+           positions.contains(where: { $0.id != updatedPosition.id && $0.shortcut == shortcut }) {
+            return .failure(.duplicateShortcut)
+        }
+
+        let shortcutChanged = oldPosition.shortcut != updatedPosition.shortcut
+        if shortcutChanged {
+            if let newShortcut = updatedPosition.shortcut,
+               shortcutManager?.isValidShortcutSyntax(newShortcut) != true {
+                return .failure(.invalidShortcut)
+            }
+            if let oldShortcut = oldPosition.shortcut { unregisterShortcut(oldShortcut) }
+            if updatedPosition.hasShortcut {
+                let registration = registerShortcut(for: updatedPosition)
+                guard registration == .registered else {
+                    _ = registerShortcut(for: oldPosition)
+                    return .failure(.shortcutUnavailable(registration.failureMessage ?? "That shortcut is unavailable."))
+                }
+            }
+        }
+
         positions[index] = updatedPosition
-        savePositions()
-        
-        // Register new shortcut
-        if let newShortcut = updatedPosition.shortcut {
-            registerShortcut(for: updatedPosition)
+        guard savePositions() else {
+            positions[index] = oldPosition
+            if shortcutChanged {
+                if let newShortcut = updatedPosition.shortcut { unregisterShortcut(newShortcut) }
+                _ = registerShortcut(for: oldPosition)
+            }
+            return .failure(.persistenceFailed)
         }
+
+        inactiveShortcutIDs.remove(updatedPosition.id)
         
         print("📝 Updated custom position: '\(updatedPosition.name)'")
+        return .success(())
     }
     
     /// Get all custom positions
@@ -280,18 +379,18 @@ class CustomPositionManager {
     // MARK: - Shortcut Management
     
     /// Register a global shortcut for a custom position
-    private func registerShortcut(for position: CustomPosition) {
-        guard let shortcut = position.shortcut else { return }
-        
-        // TODO: Integrate with ShortcutManager
-        // This will be implemented when we integrate with the main app
-        print("🔗 Would register shortcut '\(shortcut)' for position '\(position.name)'")
+    private func registerShortcut(for position: CustomPosition) -> ShortcutRegistrationResult {
+        guard let shortcut = position.shortcut else { return .registered }
+        guard let shortcutManager else { return .systemRejected(-1) }
+        return shortcutManager.registerGlobalShortcutDetailed(shortcut) { [weak self] in
+            guard let current = self?.getPosition(id: position.id) else { return }
+            self?.executePosition(current)
+        }
     }
     
     /// Unregister a global shortcut
     private func unregisterShortcut(_ shortcut: String) {
-        // TODO: Integrate with ShortcutManager
-        print("🔗 Would unregister shortcut '\(shortcut)'")
+        shortcutManager?.unregisterShortcut(shortcut)
     }
     
     // MARK: - Utility Methods
@@ -325,7 +424,6 @@ class CustomPositionManager {
             return nil
         }
         
-        addPosition(position)
         return position
     }
     

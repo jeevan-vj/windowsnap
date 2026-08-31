@@ -9,11 +9,34 @@ private final class NonDraggableTableView: NSTableView {
     override var mouseDownCanMoveWindow: Bool { false }
 }
 
+private final class ClipboardHistoryEffectView: NSVisualEffectView {
+    private let opaqueBacking = CALayer()
+
+    func installOpaqueBacking() {
+        opaqueBacking.name = "opaqueBacking"
+        opaqueBacking.cornerRadius = ClipboardHistoryTheme.windowCornerRadius
+        opaqueBacking.frame = bounds
+        opaqueBacking.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
+        layer?.insertSublayer(opaqueBacking, at: 0)
+        updateBackingColor()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateBackingColor()
+    }
+
+    private func updateBackingColor() {
+        opaqueBacking.backgroundColor = NSColor.windowBackgroundColor
+            .withAlphaComponent(ClipboardHistoryTheme.windowBackingAlpha).cgColor
+    }
+}
+
 class ClipboardHistoryWindow: NSWindow {
     private var tableView: NSTableView!
     private var scrollView: NSScrollView!
     private var emptyLabel: NSTextField!
-    private var visualEffectView: NSVisualEffectView!
+    private var visualEffectView: ClipboardHistoryEffectView!
     private var searchBar: ClipboardHistorySearchBar!
     private var filterBar: ClipboardHistoryFilterBar!
     private var footerView: ClipboardHistoryFooterView!
@@ -39,7 +62,6 @@ class ClipboardHistoryWindow: NSWindow {
     private var quickLookPopover: NSPopover?
 
     private var searchWorkItem: DispatchWorkItem?
-    private var refreshTimer: Timer?
     private var lastHistoryCount: Int {
         get { presentationCache.lastHistoryCount }
         set { presentationCache.lastHistoryCount = newValue }
@@ -84,7 +106,7 @@ class ClipboardHistoryWindow: NSWindow {
         standardWindowButton(.miniaturizeButton)?.isHidden = true
         standardWindowButton(.zoomButton)?.isHidden = true
 
-        visualEffectView = NSVisualEffectView(
+        visualEffectView = ClipboardHistoryEffectView(
             frame: NSRect(x: 0, y: 0, width: ClipboardHistoryTheme.windowWidth, height: ClipboardHistoryTheme.windowHeight)
         )
         visualEffectView.material = .popover
@@ -94,14 +116,7 @@ class ClipboardHistoryWindow: NSWindow {
         visualEffectView.layer?.cornerRadius = ClipboardHistoryTheme.windowCornerRadius
         visualEffectView.layer?.masksToBounds = true
 
-        let opaqueBack = CALayer()
-        opaqueBack.name = "opaqueBacking"
-        opaqueBack.backgroundColor = NSColor.windowBackgroundColor
-            .withAlphaComponent(ClipboardHistoryTheme.windowBackingAlpha).cgColor
-        opaqueBack.cornerRadius = ClipboardHistoryTheme.windowCornerRadius
-        opaqueBack.frame = visualEffectView.bounds
-        opaqueBack.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
-        visualEffectView.layer?.insertSublayer(opaqueBack, at: 0)
+        visualEffectView.installOpaqueBacking()
 
         visualEffectView.shadow = NSShadow()
         visualEffectView.layer?.shadowColor = NSColor.black.cgColor
@@ -149,6 +164,7 @@ class ClipboardHistoryWindow: NSWindow {
         tableView.target = self
         tableView.doubleAction = #selector(handleDoubleClick(_:))
         tableView.wantsLayer = true
+        tableView.headerView = nil
         tableView.setAccessibilityLabel("Clipboard history items")
         tableView.setAccessibilityRole(.list)
 
@@ -163,6 +179,12 @@ class ClipboardHistoryWindow: NSWindow {
             selector: #selector(updateColumnWidth),
             name: NSView.frameDidChangeNotification,
             object: scrollView
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleHistoryChanged),
+            name: .clipboardHistoryDidChange,
+            object: nil
         )
 
         scrollView.documentView = tableView
@@ -218,7 +240,6 @@ class ClipboardHistoryWindow: NSWindow {
         center()
         makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
-        startPeriodicRefresh()
         installLocalKeyMonitor()
         focusSearchFieldOnOpen()
     }
@@ -284,29 +305,13 @@ class ClipboardHistoryWindow: NSWindow {
     }
 
     func hideWindow() {
-        stopPeriodicRefresh()
         removeLocalKeyMonitor()
         orderOut(nil)
     }
 
-    private func startPeriodicRefresh() {
-        stopPeriodicRefresh()
-        lastHistoryCount = ClipboardManager.shared.getHistory().count
-        refreshTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
-            guard let self, self.isVisible else { return }
-            let currentCount = ClipboardManager.shared.getHistory().count
-            if currentCount != self.lastHistoryCount {
-                self.lastHistoryCount = currentCount
-                if self.searchBar.searchField.stringValue.isEmpty {
-                    self.loadHistory()
-                }
-            }
-        }
-    }
-
-    private func stopPeriodicRefresh() {
-        refreshTimer?.invalidate()
-        refreshTimer = nil
+    @objc private func handleHistoryChanged() {
+        guard isVisible else { return }
+        loadHistory()
     }
 
     private func selectedItem() -> ClipboardHistoryItem? {
@@ -340,7 +345,6 @@ class ClipboardHistoryWindow: NSWindow {
         )
         displayItems = ClipboardHistoryFilterModel.buildDisplayItems(from: filteredHistory)
         selectedIndex = ClipboardHistoryFilterModel.firstSelectableRow(in: displayItems)
-        tableView.reloadData()
         if !displayItems.isEmpty {
             tableView.selectRowIndexes(IndexSet(integer: selectedIndex), byExtendingSelection: false)
         }
@@ -350,7 +354,7 @@ class ClipboardHistoryWindow: NSWindow {
         let hasItems = !filteredHistory.isEmpty
 
         NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = ClipboardHistoryTheme.animationNormal
+            ctx.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : ClipboardHistoryTheme.animationNormal
             ctx.allowsImplicitAnimation = true
             emptyLabel.alphaValue = hasItems ? 0 : 1
             emptyLabel.isHidden = hasItems
@@ -557,7 +561,7 @@ class ClipboardHistoryWindow: NSWindow {
 
         let popover = NSPopover()
         popover.behavior = .transient
-        popover.animates = true
+        popover.animates = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         popover.contentViewController = ClipboardHistoryQuickLookBuilder.makeViewController(for: item)
         popover.contentSize = ClipboardHistoryQuickLookBuilder.popoverSize
 

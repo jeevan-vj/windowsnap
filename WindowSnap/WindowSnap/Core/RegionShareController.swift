@@ -2,18 +2,22 @@ import Foundation
 import AppKit
 
 class RegionShareController: NSObject {
-    
+
     static let shared = RegionShareController()
-    
+
     private var selectionWindows: [RegionSelectionOverlayWindow] = []
     private var didHandleSelection = false
     private var mirrorWindow: RegionMirrorWindow?
-    
+    private var virtualCameraCaptureEngine: RegionCaptureEngine?
+    private var isStartingVirtualCameraCapture = false
+    private var wantsVirtualCameraCapture = false
+    private var pendingPresentationMode: RegionSharePresentationMode = .floatingMirror
+
     private override init() {
         super.init()
         setupNotifications()
     }
-    
+
     private func setupNotifications() {
         NotificationCenter.default.addObserver(
             self,
@@ -22,24 +26,63 @@ class RegionShareController: NSObject {
             object: nil
         )
     }
-    
+
     @objc private func mirrorWindowDidClose(_ notification: Notification) {
         guard let window = notification.object as? RegionMirrorWindow,
               window === mirrorWindow else { return }
         mirrorWindow = nil
     }
-    
+
     func showRegionShare() {
+        showRegionShare(mode: .floatingMirror)
+    }
+
+    func showVirtualDisplayShare() {
+        showRegionShare(mode: .virtualDisplayWindow)
+    }
+
+    func enableVirtualCameraShare() {
+        wantsVirtualCameraCapture = true
+        RegionFrameHub.shared.prepare()
+        VirtualCameraExtensionManager.shared.activate()
+
+        if let existingRegion = RegionShareManager.shared.currentRegion,
+           RegionShareManager.shared.isDisplayValid(existingRegion.displayID) {
+            startVirtualCameraCapture(for: existingRegion)
+        } else {
+            RegionShareManager.shared.clearRegion()
+            pendingPresentationMode = .virtualDisplayWindow
+            startRegionSelection()
+        }
+    }
+
+    func stopVirtualCameraShare() {
+        wantsVirtualCameraCapture = false
+        guard let engine = virtualCameraCaptureEngine else {
+            RegionFrameHub.shared.markInactive()
+            return
+        }
+
+        virtualCameraCaptureEngine = nil
+        Task {
+            await engine.stopCapture()
+            RegionFrameHub.shared.markInactive()
+        }
+    }
+
+    private func showRegionShare(mode: RegionSharePresentationMode) {
+        pendingPresentationMode = mode
         if let existingMirror = mirrorWindow, existingMirror.isVisible {
+            existingMirror.updatePresentationMode(mode)
             bringMirrorWindowToFront()
             return
         }
-        
+
         mirrorWindow = nil
-        
+
         if let existingRegion = RegionShareManager.shared.currentRegion {
             if RegionShareManager.shared.isDisplayValid(existingRegion.displayID) {
-                startMirrorWithRegion(existingRegion)
+                startMirrorWithRegion(existingRegion, mode: mode)
             } else {
                 print("⚠️ Saved region's display is no longer available, clearing and starting new selection")
                 RegionShareManager.shared.clearRegion()
@@ -49,7 +92,7 @@ class RegionShareController: NSObject {
             startRegionSelection()
         }
     }
-    
+
     func startRegionSelection() {
         if ScreenRecordingPermissions.hasPermissions() {
             showSelectionOverlay()
@@ -64,7 +107,7 @@ class RegionShareController: NSObject {
             }
         }
     }
-    
+
     func selectNewRegion() {
         // Keep existing mirror window alive during reselection to avoid close/recreate races.
         // #region agent log
@@ -76,10 +119,11 @@ class RegionShareController: NSObject {
         // #endregion
         mirrorWindow?.stopCapture()
         mirrorWindow?.orderOut(nil)
+        stopVirtualCameraCaptureForReselection()
         RegionShareManager.shared.clearRegion()
         startRegionSelection()
     }
-    
+
     func closeMirrorWindow() {
         // #region agent log
         RegionShareDebugLog.write(hypothesis: "Q", message: "closeMirrorWindow called", data: [
@@ -91,7 +135,7 @@ class RegionShareController: NSObject {
         mirrorWindow?.close()
         mirrorWindow = nil
     }
-    
+
     private func closeSelectionOverlay() {
         // #region agent log
         RegionShareDebugLog.write(hypothesis: "F,G", message: "closeSelectionOverlay begin", data: [
@@ -111,15 +155,15 @@ class RegionShareController: NSObject {
         ], sync: true)
         // #endregion
     }
-    
+
     private func showSelectionOverlay() {
         if !selectionWindows.isEmpty {
             closeSelectionOverlay()
         }
         didHandleSelection = false
-        
+
         let displays = RegionShareManager.shared.getAllDisplays()
-        
+
         // #region agent log
         RegionShareDebugLog.write(hypothesis: "A,B", message: "showSelectionOverlay creating overlays", data: {
             var d: [String: Any] = [:]
@@ -132,32 +176,32 @@ class RegionShareController: NSObject {
             return d
         }())
         // #endregion
-        
+
         RegionShareManager.shared.setState(.selecting)
-        
+
         for displayID in displays {
             let overlay = RegionSelectionOverlayWindow(displayID: displayID)
             overlay.selectionDelegate = self
             overlay.orderFront(nil)
             selectionWindows.append(overlay)
         }
-        
+
         // Make the overlay on the display under the cursor key so it receives ESC/focus.
         let keyDisplay = RegionShareManager.shared.getDisplayUnderCursor() ?? CGMainDisplayID()
         if let keyOverlay = selectionWindows.first(where: { $0.displayID == keyDisplay }) ?? selectionWindows.first {
             keyOverlay.makeKeyAndOrderFront(nil)
         }
-        
+
         NSApp.activate(ignoringOtherApps: true)
     }
-    
-    private func startMirrorWithRegion(_ region: ShareRegion) {
+
+    private func startMirrorWithRegion(_ region: ShareRegion, mode: RegionSharePresentationMode) {
         if ScreenRecordingPermissions.hasPermissions() {
-            createAndShowMirrorWindow(for: region)
+            createAndShowMirrorWindow(for: region, mode: mode)
         } else {
             ScreenRecordingPermissions.checkPermissionsWithAlert { [weak self] hasPermission in
                 if hasPermission {
-                    self?.createAndShowMirrorWindow(for: region)
+                    self?.createAndShowMirrorWindow(for: region, mode: mode)
                 } else {
                     print("⚠️ Screen recording permission not granted - user needs to enable in System Settings and restart")
                     RegionShareManager.shared.setState(.idle)
@@ -165,8 +209,8 @@ class RegionShareController: NSObject {
             }
         }
     }
-    
-    private func createAndShowMirrorWindow(for region: ShareRegion) {
+
+    private func createAndShowMirrorWindow(for region: ShareRegion, mode: RegionSharePresentationMode) {
         if let existingMirror = mirrorWindow {
             // #region agent log
             RegionShareDebugLog.write(hypothesis: "S", message: "reuse existing mirror window", data: [
@@ -174,6 +218,7 @@ class RegionShareController: NSObject {
                 "wasVisible": existingMirror.isVisible
             ], sync: true)
             // #endregion
+            existingMirror.updatePresentationMode(mode)
             existingMirror.updateRegion(region)
             existingMirror.makeKeyAndOrderFront(nil)
             existingMirror.startCapture()
@@ -183,7 +228,7 @@ class RegionShareController: NSObject {
         // #region agent log
         RegionShareDebugLog.write(hypothesis: "I", message: "createMirror: init start", data: ["runId": "post-fix"], sync: true)
         // #endregion
-        let window = RegionMirrorWindow(region: region)
+        let window = RegionMirrorWindow(region: region, presentationMode: mode)
         // #region agent log
         RegionShareDebugLog.write(hypothesis: "I", message: "createMirror: init done", data: ["runId": "post-fix"], sync: true)
         // #endregion
@@ -195,29 +240,103 @@ class RegionShareController: NSObject {
         // #region agent log
         RegionShareDebugLog.write(hypothesis: "I", message: "createMirror: startCapture returned", data: ["runId": "post-fix"], sync: true)
         // #endregion
-        
+
         mirrorWindow = window
-        
+
         NSApp.activate(ignoringOtherApps: true)
     }
-    
+
+    private func startVirtualCameraCapture(for region: ShareRegion) {
+        guard wantsVirtualCameraCapture, !isStartingVirtualCameraCapture else { return }
+
+        guard let displayBounds = RegionShareManager.shared.getDisplayBounds(for: region.displayID) else {
+            RegionShareManager.shared.clearRegion()
+            RegionFrameHub.shared.markInactive()
+            return
+        }
+
+        if !ScreenRecordingPermissions.hasPermissions() {
+            ScreenRecordingPermissions.checkPermissionsWithAlert { [weak self] hasPermission in
+                if hasPermission {
+                    self?.startVirtualCameraCapture(for: region)
+                } else {
+                    RegionFrameHub.shared.markInactive()
+                    RegionShareManager.shared.setState(.idle)
+                }
+            }
+            return
+        }
+
+        let absoluteRect = region.absoluteRect(for: displayBounds)
+        let oldEngine = virtualCameraCaptureEngine
+        let engine = RegionCaptureEngine(displayID: region.displayID, cropRect: absoluteRect, frameRate: 30)
+        engine.frameSink = RegionFrameHub.shared
+        virtualCameraCaptureEngine = engine
+        isStartingVirtualCameraCapture = true
+
+        Task { [weak self] in
+            guard let controller = self else { return }
+            await oldEngine?.stopCapture()
+
+            do {
+                try await engine.startCapture()
+                await MainActor.run {
+                    guard controller.virtualCameraCaptureEngine === engine else { return }
+                    controller.isStartingVirtualCameraCapture = false
+                    RegionShareManager.shared.setState(.streaming)
+                }
+            } catch {
+                await MainActor.run {
+                    if controller.virtualCameraCaptureEngine === engine {
+                        controller.virtualCameraCaptureEngine = nil
+                    }
+                    controller.isStartingVirtualCameraCapture = false
+                    RegionFrameHub.shared.markInactive()
+                    RegionShareManager.shared.setState(.idle)
+                    print("❌ Failed to start virtual camera capture: \(error)")
+                }
+            }
+        }
+    }
+
+    private func stopVirtualCameraCaptureForReselection() {
+        guard let engine = virtualCameraCaptureEngine else { return }
+        virtualCameraCaptureEngine = nil
+        Task {
+            await engine.stopCapture()
+            RegionFrameHub.shared.markInactive()
+        }
+    }
+
+    func recoverVirtualCameraAfterWake() {
+        guard wantsVirtualCameraCapture,
+              let region = RegionShareManager.shared.currentRegion else { return }
+
+        if RegionShareManager.shared.isDisplayValid(region.displayID) {
+            startVirtualCameraCapture(for: region)
+        } else {
+            RegionShareManager.shared.clearRegion()
+            stopVirtualCameraShare()
+        }
+    }
+
     private func bringMirrorWindowToFront() {
         mirrorWindow?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
-    
+
     func registerShortcut(with shortcutManager: ShortcutManager) {
         let success = shortcutManager.registerGlobalShortcut("ctrl+cmd+r") { [weak self] in
             self?.showRegionShare()
         }
-        
+
         if success {
             print("🎯 Region Share shortcut registered: ⌃⌘R")
         } else {
             print("❌ Failed to register Region Share shortcut")
         }
     }
-    
+
     deinit {
         NotificationCenter.default.removeObserver(self)
     }
@@ -228,19 +347,19 @@ extension RegionShareController: RegionSelectionDelegate {
         guard !didHandleSelection else { return }
         didHandleSelection = true
         closeSelectionOverlay()
-        
+
         // #region agent log
         RegionShareDebugLog.write(hypothesis: "I,J,K", message: "didComplete entry", data: [
             "runId": "post-fix", "displayID": displayID, "rect": NSStringFromRect(rect)
         ], sync: true)
         // #endregion
-        
+
         guard let displayBounds = RegionShareManager.shared.getDisplayBounds(for: displayID) else {
             print("❌ Could not get display bounds for selection")
             RegionShareManager.shared.setState(.idle)
             return
         }
-        
+
         let boundedRect = rect.intersection(displayBounds)
         guard boundedRect.width >= 50 && boundedRect.height >= 50 else {
             // #region agent log
@@ -254,12 +373,12 @@ extension RegionShareController: RegionSelectionDelegate {
             RegionShareManager.shared.setState(.idle)
             return
         }
-        
+
         let normalizedRect = ShareRegion.normalizedRect(from: boundedRect, in: displayBounds)
         let region = ShareRegion(displayID: displayID, normalizedRect: normalizedRect)
-        
+
         RegionShareManager.shared.setRegion(region)
-        
+
         // #region agent log
         RegionShareDebugLog.write(hypothesis: "I,J,K", message: "didComplete before mirror", data: [
             "runId": "post-fix", "normalizedRect": NSStringFromRect(normalizedRect),
@@ -267,16 +386,19 @@ extension RegionShareController: RegionSelectionDelegate {
             "boundedRect": NSStringFromRect(boundedRect)
         ], sync: true)
         // #endregion
-        
-        createAndShowMirrorWindow(for: region)
-        
+
+        createAndShowMirrorWindow(for: region, mode: pendingPresentationMode)
+        if wantsVirtualCameraCapture {
+            startVirtualCameraCapture(for: region)
+        }
+
         // #region agent log
         RegionShareDebugLog.write(hypothesis: "I,J,K", message: "didComplete after mirror", data: [
             "runId": "post-fix"
         ], sync: true)
         // #endregion
     }
-    
+
     func regionSelectionDidCancel() {
         // #region agent log
         RegionShareDebugLog.write(hypothesis: "F,G", message: "regionSelectionDidCancel", data: [

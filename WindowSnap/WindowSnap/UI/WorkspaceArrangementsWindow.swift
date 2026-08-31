@@ -7,6 +7,9 @@ class WorkspaceArrangementsWindow: NSWindow {
     private var scrollView: NSScrollView!
     private var workspaceManager = WorkspaceManager.shared
     private var arrangements: [WorkspaceArrangement] = []
+    private var restoreButton: NSButton!
+    private var editButton: NSButton!
+    private var deleteButton: NSButton!
     
     override init(contentRect: NSRect, styleMask style: NSWindow.StyleMask, backing backingStoreType: NSWindow.BackingStoreType, defer flag: Bool) {
         super.init(contentRect: NSRect(x: 0, y: 0, width: 600, height: 500), 
@@ -66,13 +69,13 @@ class WorkspaceArrangementsWindow: NSWindow {
         captureButton.bezelStyle = .rounded
         captureButton.keyEquivalent = "\r"
         
-        let restoreButton = NSButton(title: "Restore", target: self, action: #selector(restoreSelectedWorkspace))
+        restoreButton = NSButton(title: "Restore", target: self, action: #selector(restoreSelectedWorkspace))
         restoreButton.bezelStyle = .rounded
         
-        let editButton = NSButton(title: "Edit", target: self, action: #selector(editSelectedWorkspace))
+        editButton = NSButton(title: "Edit", target: self, action: #selector(editSelectedWorkspace))
         editButton.bezelStyle = .rounded
         
-        let deleteButton = NSButton(title: "Delete", target: self, action: #selector(deleteSelectedWorkspace))
+        deleteButton = NSButton(title: "Delete", target: self, action: #selector(deleteSelectedWorkspace))
         deleteButton.bezelStyle = .rounded
         
         let refreshButton = NSButton(title: "Refresh", target: self, action: #selector(refreshArrangements))
@@ -90,6 +93,7 @@ class WorkspaceArrangementsWindow: NSWindow {
             stackView.leadingAnchor.constraint(equalTo: toolbar.leadingAnchor),
             toolbar.heightAnchor.constraint(equalToConstant: 32)
         ])
+        updateSelectionControls()
         
         return toolbar
     }
@@ -99,7 +103,6 @@ class WorkspaceArrangementsWindow: NSWindow {
         tableView = NSTableView()
         tableView.delegate = self
         tableView.dataSource = self
-        tableView.headerView = nil
         tableView.allowsColumnReordering = false
         tableView.allowsColumnResizing = true
         tableView.allowsMultipleSelection = false
@@ -109,14 +112,15 @@ class WorkspaceArrangementsWindow: NSWindow {
         // Create columns
         let nameColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("name"))
         nameColumn.title = "Name"
-        nameColumn.width = 200
+        nameColumn.width = 170
         nameColumn.minWidth = 150
         tableView.addTableColumn(nameColumn)
         
         let descriptionColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("description"))
         descriptionColumn.title = "Description"
-        descriptionColumn.width = 200
+        descriptionColumn.width = 190
         descriptionColumn.minWidth = 150
+        descriptionColumn.resizingMask = .autoresizingMask
         tableView.addTableColumn(descriptionColumn)
         
         let shortcutColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("shortcut"))
@@ -155,8 +159,14 @@ class WorkspaceArrangementsWindow: NSWindow {
     @objc private func captureCurrentWorkspace() {
         let dialog = WorkspaceDialog(mode: .create)
         dialog.onSave = { [weak self] name, shortcut in
-            let _ = self?.workspaceManager.captureCurrentWorkspace(name: name, shortcut: shortcut)
-            self?.loadArrangements()
+            guard let self else { return .failure(.persistenceFailed) }
+            switch self.workspaceManager.captureCurrentWorkspaceResult(name: name, shortcut: shortcut) {
+            case .success:
+                self.loadArrangements()
+                return .success(())
+            case .failure(let error):
+                return .failure(error)
+            }
         }
         dialog.showModal(for: self)
     }
@@ -195,11 +205,11 @@ class WorkspaceArrangementsWindow: NSWindow {
         let arrangement = arrangements[selectedRow]
         let dialog = WorkspaceDialog(mode: .edit, arrangement: arrangement)
         dialog.onSave = { [weak self] name, shortcut in
-            var updatedArrangement = arrangement
-            // Create updated arrangement with new name/shortcut
-            // For now, we'll just print since the model doesn't have an update method for name/shortcut
-            print("Would update arrangement: \(name), shortcut: \(shortcut ?? "none")")
-            self?.loadArrangements()
+            guard let self else { return .failure(.persistenceFailed) }
+            let updatedArrangement = arrangement.updatingMetadata(name: name, shortcut: shortcut)
+            let result = self.workspaceManager.updateArrangement(updatedArrangement)
+            if case .success = result { self.loadArrangements() }
+            return result
         }
         dialog.showModal(for: self)
     }
@@ -239,6 +249,13 @@ class WorkspaceArrangementsWindow: NSWindow {
         alert.addButton(withTitle: "OK")
         alert.runModal()
     }
+
+    private func updateSelectionControls() {
+        let hasSelection = (tableView?.selectedRow ?? -1) >= 0
+        restoreButton?.isEnabled = hasSelection
+        editButton?.isEnabled = hasSelection
+        deleteButton?.isEnabled = hasSelection
+    }
 }
 
 // MARK: - NSTableViewDataSource
@@ -253,6 +270,9 @@ extension WorkspaceArrangementsWindow: NSTableViewDataSource {
 // MARK: - NSTableViewDelegate
 
 extension WorkspaceArrangementsWindow: NSTableViewDelegate {
+    func tableViewSelectionDidChange(_ notification: Notification) {
+        updateSelectionControls()
+    }
     
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         guard row < arrangements.count else { return nil }
@@ -277,8 +297,11 @@ extension WorkspaceArrangementsWindow: NSTableViewDelegate {
             textField.textColor = .secondaryLabelColor
             
         case "shortcut":
-            textField.stringValue = arrangement.shortcut ?? "—"
+            let isActive = workspaceManager.isShortcutActive(for: arrangement)
+            textField.stringValue = isActive ? (arrangement.shortcut ?? "—") : "\(arrangement.shortcut ?? "—") — inactive"
             textField.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+            textField.textColor = isActive ? .labelColor : .systemOrange
+            textField.toolTip = isActive ? nil : "This shortcut could not be registered. Edit it to choose an available shortcut."
             
         case "lastUsed":
             if let lastUsed = arrangement.lastUsed {
@@ -325,7 +348,7 @@ class WorkspaceDialog: NSWindow {
     private var nameField: NSTextField!
     private var shortcutField: NSTextField!
     
-    var onSave: ((String, String?) -> Void)?
+    var onSave: ((String, String?) -> Result<Void, ManagedConfigurationError>)?
     
     init(mode: Mode, arrangement: WorkspaceArrangement? = nil) {
         self.mode = mode
@@ -432,8 +455,20 @@ class WorkspaceDialog: NSWindow {
         }
         
         let finalShortcut = shortcut.isEmpty ? nil : shortcut
-        onSave?(name, finalShortcut)
-        close()
+        if let onSave {
+            switch onSave(name, finalShortcut) {
+            case .success:
+                close()
+            case .failure(let error):
+                let alert = NSAlert()
+                alert.messageText = "Couldn’t Save Workspace"
+                alert.informativeText = error.localizedDescription
+                alert.alertStyle = .warning
+                alert.beginSheetModal(for: self)
+            }
+        } else {
+            close()
+        }
     }
     
     func showModal(for parentWindow: NSWindow) {

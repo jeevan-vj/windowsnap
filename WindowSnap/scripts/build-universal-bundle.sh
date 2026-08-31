@@ -39,6 +39,7 @@ APP_DIR="$DIST_DIR/${APP_NAME}.app"
 CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
+SYSTEM_EXTENSIONS_DIR="$CONTENTS_DIR/Library/SystemExtensions"
 PLIST_SOURCE="$ROOT_DIR/WindowSnap/App/Info.plist"
 ASSETS_DIR="$ROOT_DIR/WindowSnap/App/Assets.xcassets"
 
@@ -88,9 +89,9 @@ echo ""
 # Create Info.plist
 echo -e "${YELLOW}[4/7]${NC} Creating Info.plist..."
 if [[ -f "$PLIST_SOURCE" ]]; then
-  /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD" "$PLIST_SOURCE" 2>/dev/null || true
-  /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$PLIST_SOURCE" 2>/dev/null || true
   cp "$PLIST_SOURCE" "$CONTENTS_DIR/Info.plist"
+  /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD" "$CONTENTS_DIR/Info.plist" 2>/dev/null || true
+  /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$CONTENTS_DIR/Info.plist" 2>/dev/null || true
 else
   cat > "$CONTENTS_DIR/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -146,6 +147,15 @@ echo -e "${YELLOW}[6/7]${NC} Creating PkgInfo..."
 echo -n "APPL????" > "$CONTENTS_DIR/PkgInfo"
 echo -e "${GREEN}✓${NC} PkgInfo created"
 echo ""
+
+if [[ "${BUILD_VIRTUAL_CAMERA_EXTENSION:-0}" == "1" ]]; then
+  echo -e "${YELLOW}[6b/7]${NC} Building and embedding virtual camera extension..."
+  EXTENSION_BUNDLE="$("$ROOT_DIR/scripts/build-virtual-camera-extension.sh")"
+  mkdir -p "$SYSTEM_EXTENSIONS_DIR"
+  cp -R "$EXTENSION_BUNDLE" "$SYSTEM_EXTENSIONS_DIR/"
+  echo -e "${GREEN}✓${NC} Virtual camera extension embedded"
+  echo ""
+fi
 
 # Code signing
 echo -e "${YELLOW}[7/7]${NC} Code signing..."

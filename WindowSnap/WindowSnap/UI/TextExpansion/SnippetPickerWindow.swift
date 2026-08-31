@@ -1,6 +1,13 @@
 import AppKit
 import Foundation
 
+private final class SnippetPickerContentView: NSView {
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+    }
+}
+
 final class SnippetPickerWindow: NSWindow {
     private var searchField: NSTextField!
     private var tableView: NSTableView!
@@ -29,14 +36,14 @@ final class SnippetPickerWindow: NSWindow {
     }
 
     private func setupContent() {
-        let contentView = NSView()
+        let contentView = SnippetPickerContentView()
         contentView.wantsLayer = true
         contentView.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
         contentView.layer?.cornerRadius = 12
         self.contentView = contentView
 
         searchField = NSTextField()
-        searchField.placeholderString = "Search snippets..."
+        searchField.placeholderString = "Search snippets…"
         searchField.font = NSFont.systemFont(ofSize: 14)
         searchField.target = self
         searchField.action = #selector(searchChanged)
@@ -85,12 +92,35 @@ final class SnippetPickerWindow: NSWindow {
 
     func presentNearMouse() {
         let mouseLocation = NSEvent.mouseLocation
-        setFrameTopLeftPoint(NSPoint(x: mouseLocation.x - frame.width / 2, y: mouseLocation.y - frame.height - 12))
+        let screen = NSScreen.screens.first { NSMouseInRect(mouseLocation, $0.frame, false) } ?? NSScreen.main
+        let visibleFrame = screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? .zero
+        setFrameOrigin(Self.constrainedOrigin(
+            nearMouse: mouseLocation,
+            windowSize: frame.size,
+            visibleFrame: visibleFrame
+        ))
         makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         searchField.stringValue = ""
         reloadData()
         makeFirstResponder(searchField)
+    }
+
+    static func constrainedOrigin(
+        nearMouse mouseLocation: NSPoint,
+        windowSize: NSSize,
+        visibleFrame: NSRect
+    ) -> NSPoint {
+        let horizontalMaximum = max(visibleFrame.minX, visibleFrame.maxX - windowSize.width)
+        let verticalMaximum = max(visibleFrame.minY, visibleFrame.maxY - windowSize.height)
+        let x = min(max(mouseLocation.x - windowSize.width / 2, visibleFrame.minX), horizontalMaximum)
+
+        var y = mouseLocation.y - windowSize.height - 12
+        if y < visibleFrame.minY {
+            y = mouseLocation.y + 12
+        }
+        y = min(max(y, visibleFrame.minY), verticalMaximum)
+        return NSPoint(x: x, y: y)
     }
 
     @objc private func searchChanged() {

@@ -40,6 +40,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         shortcutManager?.unregisterAllShortcuts()
         clipboardManager?.stopMonitoring()
         textExpansionEngine?.stop()
+        regionShareController?.stopVirtualCameraShare()
         removeSleepWakeNotifications()
         stopHealthCheck()
     }
@@ -80,19 +81,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     private func setupTextExpander() {
-        guard let textExpanderManager = textExpanderManager else { return }
+        let state = TextExpanderRuntimeController.shared.reconcile()
+        AppLog.textExpansion.info("Text Expander runtime state: \(state.statusText, privacy: .public)")
+    }
 
-        if textExpanderManager.isEnabled {
-            if InputMonitoringPermissions.hasPermissions() {
-                textExpansionEngine?.start()
-                AppLog.textExpansion.info("Text Expander initialized and running")
-            } else {
-                let missing = InputMonitoringPermissions.missingPermissionDescription()
-                AppLog.textExpansion.warning("Text Expander disabled - missing permissions: \(missing, privacy: .public)")
-            }
-        } else {
-            AppLog.textExpansion.info("Text Expander is disabled in settings")
-        }
+    func applicationDidBecomeActive(_ notification: Notification) {
+        TextExpanderRuntimeController.shared.reconcile()
     }
     
     private func setupDefaultShortcuts() {
@@ -164,6 +158,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // REGION SHARE FEATURE: Register region share shortcut
         regionShareController = RegionShareController.shared
         regionShareController?.registerShortcut(with: shortcutManager)
+
+        // User-defined shortcuts register after built-ins so conflicts are reported
+        // without displacing the app's documented defaults.
+        CustomPositionManager.shared.configure(shortcutManager: shortcutManager)
+        workspaceManager?.configure(shortcutManager: shortcutManager)
         
         print("🎯 PRODUCTIVITY SHORTCUTS REGISTERED:")
         print("   ⏪ Undo: ⌘⌥Z")
@@ -312,6 +311,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         
+        regionShareController?.recoverVirtualCameraAfterWake()
         windowManager = WindowManager.shared
         
         print("✅ WindowSnap reinitialized successfully after wake")

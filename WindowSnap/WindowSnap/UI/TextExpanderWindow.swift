@@ -7,10 +7,12 @@ class TextExpanderWindow: NSWindowController, NSTableViewDelegate, NSTableViewDa
     private var scrollView: NSScrollView!
     private var addButton: NSButton!
     private var removeButton: NSButton!
+    private var editButton: NSButton!
     private var enabledCheckbox: NSButton!
     private var permissionStatusLabel: NSTextField!
     private var permissionButton: NSButton!
     private var snippets: [TextExpansionSnippet] = []
+    private var runtimeStateObserver: NSObjectProtocol?
     
     override init(window: NSWindow?) {
         super.init(window: window)
@@ -42,6 +44,21 @@ class TextExpanderWindow: NSWindowController, NSTableViewDelegate, NSTableViewDa
         
         setupContentView()
         loadSnippets()
+        runtimeStateObserver = NotificationCenter.default.addObserver(
+            forName: .textExpanderRuntimeStateDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in self?.updatePermissionStatus() }
+    }
+
+    deinit {
+        if let runtimeStateObserver { NotificationCenter.default.removeObserver(runtimeStateObserver) }
+    }
+
+    override func showWindow(_ sender: Any?) {
+        super.showWindow(sender)
+        loadSnippets()
+        updatePermissionStatus()
     }
     
     private func setupContentView() {
@@ -144,9 +161,10 @@ class TextExpanderWindow: NSWindowController, NSTableViewDelegate, NSTableViewDa
         removeButton.isEnabled = false
         contentView.addSubview(removeButton)
         
-        let editButton = NSButton(title: "Edit", target: self, action: #selector(editSnippet))
+        editButton = NSButton(title: "Edit", target: self, action: #selector(editSnippet))
         editButton.frame = NSRect(x: 200, y: 20, width: 80, height: 30)
         editButton.bezelStyle = .rounded
+        editButton.isEnabled = false
         contentView.addSubview(editButton)
         
         let loadDefaultsButton = NSButton(title: "Load Defaults", target: self, action: #selector(loadDefaultSnippets))
@@ -154,13 +172,13 @@ class TextExpanderWindow: NSWindowController, NSTableViewDelegate, NSTableViewDa
         loadDefaultsButton.bezelStyle = .rounded
         contentView.addSubview(loadDefaultsButton)
         
-        let importButton = NSButton(title: "Import...", target: self, action: #selector(importSnippets))
+        let importButton = NSButton(title: "Import…", target: self, action: #selector(importSnippets))
         importButton.frame = NSRect(x: contentView.bounds.width - 190, y: 20, width: 80, height: 30)
         importButton.bezelStyle = .rounded
         importButton.autoresizingMask = [.minXMargin]
         contentView.addSubview(importButton)
         
-        let exportButton = NSButton(title: "Export...", target: self, action: #selector(exportSnippets))
+        let exportButton = NSButton(title: "Export…", target: self, action: #selector(exportSnippets))
         exportButton.frame = NSRect(x: contentView.bounds.width - 100, y: 20, width: 80, height: 30)
         exportButton.bezelStyle = .rounded
         exportButton.autoresizingMask = [.minXMargin]
@@ -173,14 +191,22 @@ class TextExpanderWindow: NSWindowController, NSTableViewDelegate, NSTableViewDa
     }
     
     private func updatePermissionStatus() {
-        if InputMonitoringPermissions.hasPermissions() {
-            permissionStatusLabel.stringValue = "✓ Input Monitoring permission granted"
+        let state = TextExpanderRuntimeController.shared.state
+        enabledCheckbox.state = state == .disabled ? .off : .on
+        if state == .running {
+            permissionStatusLabel.stringValue = "✓ Enabled and running"
             permissionStatusLabel.textColor = .systemGreen
             permissionButton.isHidden = true
-        } else {
-            permissionStatusLabel.stringValue = "⚠ Input Monitoring permission required"
+        } else if state == .permissionRequired {
+            permissionStatusLabel.stringValue = "⚠ Enabled — Input Monitoring permission required"
             permissionStatusLabel.textColor = .systemOrange
             permissionButton.isHidden = false
+        } else {
+            permissionStatusLabel.stringValue = InputMonitoringPermissions.hasPermissions()
+                ? "Input Monitoring permission granted"
+                : "Input Monitoring permission not granted"
+            permissionStatusLabel.textColor = .secondaryLabelColor
+            permissionButton.isHidden = InputMonitoringPermissions.hasPermissions()
         }
     }
     
@@ -188,25 +214,15 @@ class TextExpanderWindow: NSWindowController, NSTableViewDelegate, NSTableViewDa
     
     @objc private func toggleEnabled(_ sender: NSButton) {
         let enabled = sender.state == .on
-        TextExpanderManager.shared.isEnabled = enabled
-        
-        if enabled {
-            if InputMonitoringPermissions.hasPermissions() {
-                TextExpansionEngine.shared.start()
-            } else {
-                InputMonitoringPermissions.showPermissionsAlert()
-            }
-        } else {
-            TextExpansionEngine.shared.stop()
+        let state = TextExpanderRuntimeController.shared.setDesiredEnabled(enabled)
+        updatePermissionStatus()
+        if state == .permissionRequired {
+            InputMonitoringPermissions.showPermissionsAlert()
         }
     }
     
     @objc private func requestPermission() {
         InputMonitoringPermissions.showPermissionsAlert()
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
-            self?.updatePermissionStatus()
-        }
     }
     
     @objc private func addSnippet() {
@@ -374,7 +390,7 @@ class TextExpanderWindow: NSWindowController, NSTableViewDelegate, NSTableViewDa
         
         window?.makeFirstResponder(triggerField)
         
-        if alert.runModal() == .alertFirstButtonReturn {
+        while alert.runModal() == .alertFirstButtonReturn {
             let trigger = triggerField.stringValue.trimmingCharacters(in: .whitespaces)
             let replacement = replacementTextView.string
             let groupName = groupField.stringValue.trimmingCharacters(in: .whitespaces)
@@ -386,7 +402,7 @@ class TextExpanderWindow: NSWindowController, NSTableViewDelegate, NSTableViewDa
                 errorAlert.informativeText = "Trigger must be at least 2 characters and cannot contain newlines or tabs."
                 errorAlert.alertStyle = .warning
                 errorAlert.runModal()
-                return
+                continue
             }
             
             guard TextExpanderManager.shared.validateReplacement(replacement) else {
@@ -395,38 +411,36 @@ class TextExpanderWindow: NSWindowController, NSTableViewDelegate, NSTableViewDa
                 errorAlert.informativeText = "Replacement text cannot be empty."
                 errorAlert.alertStyle = .warning
                 errorAlert.runModal()
-                return
+                continue
             }
             
+            let saved: Bool
             if let existingSnippet = snippet {
                 let updated = existingSnippet.withUpdate(
                     trigger: trigger,
                     replacement: replacement,
                     groupName: .some(normalizedGroup)
                 )
-                if !TextExpanderManager.shared.updateSnippet(updated) {
-                    let errorAlert = NSAlert()
-                    errorAlert.messageText = "Update Failed"
-                    errorAlert.informativeText = "A snippet with this trigger already exists."
-                    errorAlert.alertStyle = .warning
-                    errorAlert.runModal()
-                }
+                saved = TextExpanderManager.shared.updateSnippet(updated)
             } else {
                 let newSnippet = TextExpansionSnippet(
                     trigger: trigger,
                     replacement: replacement,
                     groupName: normalizedGroup
                 )
-                if !TextExpanderManager.shared.addSnippet(newSnippet) {
-                    let errorAlert = NSAlert()
-                    errorAlert.messageText = "Add Failed"
-                    errorAlert.informativeText = "A snippet with this trigger already exists."
-                    errorAlert.alertStyle = .warning
-                    errorAlert.runModal()
-                }
+                saved = TextExpanderManager.shared.addSnippet(newSnippet)
+            }
+            if !saved {
+                let errorAlert = NSAlert()
+                errorAlert.messageText = snippet == nil ? "Add Failed" : "Update Failed"
+                errorAlert.informativeText = "A snippet with this trigger already exists."
+                errorAlert.alertStyle = .warning
+                errorAlert.runModal()
+                continue
             }
             
             loadSnippets()
+            break
         }
     }
     
@@ -449,6 +463,7 @@ class TextExpanderWindow: NSWindowController, NSTableViewDelegate, NSTableViewDa
             let checkbox = NSButton(checkboxWithTitle: "", target: self, action: #selector(toggleSnippetEnabled(_:)))
             checkbox.state = snippet.isEnabled ? .on : .off
             checkbox.tag = row
+            checkbox.setAccessibilityLabel("Enable snippet \(snippet.trigger)")
             return checkbox
             
         case "trigger":
@@ -459,7 +474,7 @@ class TextExpanderWindow: NSWindowController, NSTableViewDelegate, NSTableViewDa
             
         case "replacement":
             let preview = snippet.replacement.replacingOccurrences(of: "\n", with: " ↵ ")
-            let truncated = preview.count > 50 ? String(preview.prefix(50)) + "..." : preview
+            let truncated = preview.count > 50 ? String(preview.prefix(50)) + "…" : preview
             let textField = NSTextField(labelWithString: truncated)
             textField.textColor = snippet.isEnabled ? .labelColor : .secondaryLabelColor
             return textField
@@ -475,7 +490,9 @@ class TextExpanderWindow: NSWindowController, NSTableViewDelegate, NSTableViewDa
     }
     
     func tableViewSelectionDidChange(_ notification: Notification) {
-        removeButton.isEnabled = tableView.selectedRow >= 0
+        let hasSelection = tableView.selectedRow >= 0
+        removeButton.isEnabled = hasSelection
+        editButton.isEnabled = hasSelection
     }
     
     @objc private func toggleSnippetEnabled(_ sender: NSButton) {
