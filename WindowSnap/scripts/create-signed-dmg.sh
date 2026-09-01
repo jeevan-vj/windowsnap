@@ -9,7 +9,7 @@ DIST_DIR="$ROOT_DIR/dist"
 APP_PATH="$DIST_DIR/$APP_NAME.app"
 VERSION="$(tr -d '[:space:]' < "$ROOT_DIR/VERSION")"
 DMG_PATH="$DIST_DIR/$APP_NAME-$VERSION-macOS-notarized.dmg"
-SOURCE_DIR="$DIST_DIR/dmg-source"
+RW_DMG_PATH="$DIST_DIR/$APP_NAME-$VERSION-readwrite.dmg"
 
 [[ -d "$APP_PATH" ]] || die "Missing $APP_PATH"
 [[ -n "${CODESIGN_ID:-}" ]] || die "CODESIGN_ID must name a Developer ID Application identity or fingerprint"
@@ -17,12 +17,25 @@ SOURCE_DIR="$DIST_DIR/dmg-source"
 
 CODESIGN_ID="$("$ROOT_DIR/scripts/resolve-developer-id.sh" "$CODESIGN_ID")"
 
-rm -rf "$SOURCE_DIR" "$DMG_PATH"
-mkdir -p "$SOURCE_DIR"
-trap 'rm -rf "$SOURCE_DIR"' EXIT
-/usr/bin/ditto "$APP_PATH" "$SOURCE_DIR/$APP_NAME.app"
-ln -s /Applications "$SOURCE_DIR/Applications"
-/usr/bin/hdiutil create -quiet -ov -srcfolder "$SOURCE_DIR" -volname "$APP_NAME" -fs HFS+ -format UDZO "$DMG_PATH"
+MOUNT_DIR="$(mktemp -d -t windowsnap-dmg.XXXXXX)"
+mounted=false
+cleanup() {
+  if [[ "$mounted" == true ]]; then
+    /usr/bin/hdiutil detach "$MOUNT_DIR" -quiet 2>/dev/null || true
+  fi
+  rm -rf "$MOUNT_DIR" "$RW_DMG_PATH"
+}
+trap cleanup EXIT
+
+rm -f "$DMG_PATH" "$RW_DMG_PATH"
+/usr/bin/hdiutil create -quiet -ov -size 64m -fs HFS+ -volname "$APP_NAME" -type UDIF "$RW_DMG_PATH"
+/usr/bin/hdiutil attach "$RW_DMG_PATH" -nobrowse -mountpoint "$MOUNT_DIR" -quiet
+mounted=true
+/usr/bin/ditto "$APP_PATH" "$MOUNT_DIR/$APP_NAME.app"
+ln -s /Applications "$MOUNT_DIR/Applications"
+/usr/bin/hdiutil detach "$MOUNT_DIR" -quiet
+mounted=false
+/usr/bin/hdiutil convert "$RW_DMG_PATH" -format UDZO -ov -o "$DMG_PATH" >/dev/null
 /usr/bin/codesign --force --sign "$CODESIGN_ID" --timestamp "$DMG_PATH"
 /usr/bin/codesign --verify --strict --verbose=2 "$DMG_PATH"
 

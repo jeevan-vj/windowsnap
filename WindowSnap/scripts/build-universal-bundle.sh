@@ -160,6 +160,9 @@ fi
 # Code signing
 echo -e "${YELLOW}[7/7]${NC} Code signing..."
 ENTITLEMENTS_FILE="$ROOT_DIR/WindowSnap.entitlements"
+if [[ "${BUILD_VIRTUAL_CAMERA_EXTENSION:-0}" == "1" ]]; then
+  ENTITLEMENTS_FILE="$ROOT_DIR/WindowSnapVirtualCameraHost.entitlements"
+fi
 if [[ -n "${CODESIGN_ID:-}" ]]; then
   echo "   Signing with identity: $CODESIGN_ID"
   if "$ROOT_DIR/scripts/sign-nested-components.sh" "$APP_DIR" "$CODESIGN_ID" "$ENTITLEMENTS_FILE"; then

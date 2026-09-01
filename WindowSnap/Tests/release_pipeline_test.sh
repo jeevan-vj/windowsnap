@@ -96,6 +96,13 @@ assert_contains "$SCRIPTS_DIR/verify-release.sh" 'spctl.*DMG_PATH' "Gatekeeper a
 assert_contains "$SCRIPTS_DIR/verify-release.sh" 'stapler validate' "stapled tickets are validated"
 assert_contains "$SCRIPTS_DIR/verify-release.sh" 'CFBundleShortVersionString' "artifact versions are compared"
 assert_contains "$SCRIPTS_DIR/verify-release.sh" 'CFBundleVersion' "artifact build numbers are compared"
+assert_not_contains "$SCRIPTS_DIR/verify-release.sh" 'grep -q.*Runtime Version|grep -q.*Timestamp=' "signature detail checks do not false-fail under pipefail"
+
+assert_not_contains "$ROOT_DIR/WindowSnap.entitlements" 'system-extension\.install|application-groups' "default app signature excludes restricted extension entitlements"
+assert_contains "$ROOT_DIR/WindowSnapVirtualCameraHost.entitlements" 'system-extension\.install' "virtual camera host keeps its system-extension entitlement"
+assert_contains "$ROOT_DIR/WindowSnapVirtualCameraHost.entitlements" 'application-groups' "virtual camera host keeps its shared app group"
+assert_contains "$SCRIPTS_DIR/build-universal-bundle.sh" 'WindowSnapVirtualCameraHost\.entitlements' "virtual camera bundles select host-specific entitlements"
+assert_contains "$SCRIPTS_DIR/sign-and-notarize.sh" 'WindowSnapVirtualCameraHost\.entitlements' "notarization preserves host-specific entitlements when requested"
 
 assert_contains "$SCRIPTS_DIR/build-adhoc-release.sh" 'local-only' "ad-hoc artifacts are isolated as local-only"
 assert_not_contains "$SCRIPTS_DIR/build-adhoc-release.sh" 'GitHub Release|ready for GitHub|gh release' "ad-hoc artifacts are not presented as publishable"

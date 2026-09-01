@@ -13,8 +13,12 @@ ZIP_PATH="$ROOT_DIR/dist/$APP_NAME.zip"
 [[ -n "${NOTARY_PROFILE:-}" ]] || die "NOTARY_PROFILE must name a notarytool Keychain profile"
 
 CODESIGN_ID="$("$ROOT_DIR/scripts/resolve-developer-id.sh" "$CODESIGN_ID")"
+ENTITLEMENTS_FILE="$ROOT_DIR/WindowSnap.entitlements"
+if [[ "${BUILD_VIRTUAL_CAMERA_EXTENSION:-0}" == "1" ]]; then
+  ENTITLEMENTS_FILE="$ROOT_DIR/WindowSnapVirtualCameraHost.entitlements"
+fi
 
-"$ROOT_DIR/scripts/sign-nested-components.sh" "$APP_PATH" "$CODESIGN_ID" "$ROOT_DIR/WindowSnap.entitlements"
+"$ROOT_DIR/scripts/sign-nested-components.sh" "$APP_PATH" "$CODESIGN_ID" "$ENTITLEMENTS_FILE"
 
 rm -f "$ZIP_PATH"
 /usr/bin/ditto -c -k --keepParent "$APP_PATH" "$ZIP_PATH"
