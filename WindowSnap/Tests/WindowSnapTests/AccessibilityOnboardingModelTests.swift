@@ -2,115 +2,98 @@ import XCTest
 @testable import WindowSnap
 
 final class AccessibilityOnboardingModelTests: XCTestCase {
-    func testCleanInstallWithoutPermissionPresentsOnboarding() {
-        let store = InMemoryOnboardingStore(hasCompletedAccessibilityOnboarding: false)
+    func testCleanInstallWithoutPermissionPresentsOnboardingOnce() {
+        let store = InMemoryOnboardingStore(state: .notPresented)
         let permissions = StubAccessibilityPermissionProvider(status: .notGranted)
         let model = AccessibilityOnboardingModel(permissionProvider: permissions, store: store)
 
         XCTAssertTrue(model.shouldPresentOnLaunch)
-        XCTAssertEqual(model.status, .notGranted)
-        XCTAssertFalse(model.canFinish)
+        model.markPresented()
+        XCTAssertEqual(store.accessibilityOnboardingState, .presented)
+        XCTAssertFalse(model.shouldPresentOnLaunch)
         XCTAssertEqual(permissions.requestCount, 0)
+    }
+
+    func testClosingOrDeferringPresentedOnboardingNeverReopensIt() {
+        let model = AccessibilityOnboardingModel(
+            permissionProvider: StubAccessibilityPermissionProvider(status: .notGranted),
+            store: InMemoryOnboardingStore(state: .presented)
+        )
+
+        XCTAssertFalse(model.shouldPresentOnLaunch)
+        model.refreshPermissionStatus()
+        XCTAssertFalse(model.shouldPresentOnLaunch)
     }
 
     func testCheckingLaunchStateNeverRequestsSystemPermission() {
         let permissions = StubAccessibilityPermissionProvider(status: .notGranted)
         let model = AccessibilityOnboardingModel(
             permissionProvider: permissions,
-            store: InMemoryOnboardingStore(hasCompletedAccessibilityOnboarding: false)
+            store: InMemoryOnboardingStore(state: .notPresented)
         )
 
         _ = model.shouldPresentOnLaunch
         model.refreshPermissionStatus()
-
         XCTAssertEqual(permissions.requestCount, 0)
     }
 
-    func testExplicitRequestIsTheOnlyActionThatRequestsSystemPermission() {
+    func testExplicitContinueIsTheOnlyActionThatRequestsSystemPermission() {
         let permissions = StubAccessibilityPermissionProvider(status: .notGranted)
         let model = AccessibilityOnboardingModel(
             permissionProvider: permissions,
-            store: InMemoryOnboardingStore(hasCompletedAccessibilityOnboarding: false)
+            store: InMemoryOnboardingStore(state: .presented)
         )
 
         model.requestPermission()
-
         XCTAssertEqual(permissions.requestCount, 1)
     }
 
-    func testRefreshReflectsPermissionGrantedInSystemSettings() {
+    func testRefreshCompletesOnboardingWhenPermissionIsGranted() {
+        let store = InMemoryOnboardingStore(state: .presented)
         let permissions = StubAccessibilityPermissionProvider(status: .notGranted)
-        let model = AccessibilityOnboardingModel(
-            permissionProvider: permissions,
-            store: InMemoryOnboardingStore(hasCompletedAccessibilityOnboarding: false)
-        )
+        let model = AccessibilityOnboardingModel(permissionProvider: permissions, store: store)
 
         permissions.status = .granted
         model.refreshPermissionStatus()
 
         XCTAssertEqual(model.status, .granted)
+        XCTAssertEqual(store.accessibilityOnboardingState, .completed)
         XCTAssertTrue(model.canFinish)
     }
 
-    func testFinishPersistsCompletionOnlyAfterPermissionIsGranted() {
-        let store = InMemoryOnboardingStore(hasCompletedAccessibilityOnboarding: false)
+    func testFinishRequiresPermissionAndPersistsCompletion() {
+        let store = InMemoryOnboardingStore(state: .presented)
         let permissions = StubAccessibilityPermissionProvider(status: .notGranted)
         let model = AccessibilityOnboardingModel(permissionProvider: permissions, store: store)
 
         XCTAssertFalse(model.finish())
-        XCTAssertFalse(store.hasCompletedAccessibilityOnboarding)
+        XCTAssertEqual(store.accessibilityOnboardingState, .presented)
 
         permissions.status = .granted
         model.refreshPermissionStatus()
-
         XCTAssertTrue(model.finish())
-        XCTAssertTrue(store.hasCompletedAccessibilityOnboarding)
+        XCTAssertEqual(store.accessibilityOnboardingState, .completed)
     }
 
-    func testCompletionIsIndependentFromLaterPermissionChanges() {
-        let store = InMemoryOnboardingStore(hasCompletedAccessibilityOnboarding: true)
-        let permissions = StubAccessibilityPermissionProvider(status: .notGranted)
-        let model = AccessibilityOnboardingModel(permissionProvider: permissions, store: store)
-
-        XCTAssertFalse(model.shouldPresentOnLaunch)
-        XCTAssertTrue(model.hasCompletedOnboarding)
-        XCTAssertEqual(model.status, .notGranted)
-    }
-
-    func testExistingAuthorizedUserIsNotShownOnboarding() {
-        let store = InMemoryOnboardingStore(hasCompletedAccessibilityOnboarding: false)
-        let permissions = StubAccessibilityPermissionProvider(status: .granted)
+    func testExistingAuthorizedUserIsCompletedWithoutPrompt() {
+        let store = InMemoryOnboardingStore(state: .notPresented)
         let model = AccessibilityOnboardingModel(
-            permissionProvider: permissions,
+            permissionProvider: StubAccessibilityPermissionProvider(status: .granted),
             store: store
         )
 
         XCTAssertFalse(model.shouldPresentOnLaunch)
-        XCTAssertTrue(model.canFinish)
-        XCTAssertTrue(store.hasCompletedAccessibilityOnboarding)
+        XCTAssertEqual(store.accessibilityOnboardingState, .completed)
     }
 
-    func testUnavailableStatusIsExposedAsActionableState() {
-        let permissions = StubAccessibilityPermissionProvider(status: .unavailable("Permission status could not be read"))
-        let model = AccessibilityOnboardingModel(
-            permissionProvider: permissions,
-            store: InMemoryOnboardingStore(hasCompletedAccessibilityOnboarding: false)
-        )
-
-        XCTAssertEqual(model.status, .unavailable("Permission status could not be read"))
-        XCTAssertFalse(model.canFinish)
-        XCTAssertTrue(model.shouldPresentOnLaunch)
-    }
-
-    func testOpenSettingsDelegatesWithoutRequestingPermission() {
+    func testOpenSettingsDoesNotRequestPermission() {
         let permissions = StubAccessibilityPermissionProvider(status: .notGranted)
         let model = AccessibilityOnboardingModel(
             permissionProvider: permissions,
-            store: InMemoryOnboardingStore(hasCompletedAccessibilityOnboarding: false)
+            store: InMemoryOnboardingStore(state: .presented)
         )
 
         model.openSystemSettings()
-
         XCTAssertEqual(permissions.openSettingsCount, 1)
         XCTAssertEqual(permissions.requestCount, 0)
     }
@@ -121,19 +104,13 @@ private final class StubAccessibilityPermissionProvider: AccessibilityPermission
     private(set) var requestCount = 0
     private(set) var openSettingsCount = 0
 
-    init(status: AccessibilityAuthorizationStatus) {
-        self.status = status
-    }
-
+    init(status: AccessibilityAuthorizationStatus) { self.status = status }
     func currentStatus() -> AccessibilityAuthorizationStatus { status }
     func requestPermission() { requestCount += 1 }
     func openSystemSettings() { openSettingsCount += 1 }
 }
 
 private final class InMemoryOnboardingStore: AccessibilityOnboardingStoring {
-    var hasCompletedAccessibilityOnboarding: Bool
-
-    init(hasCompletedAccessibilityOnboarding: Bool) {
-        self.hasCompletedAccessibilityOnboarding = hasCompletedAccessibilityOnboarding
-    }
+    var accessibilityOnboardingState: AccessibilityOnboardingState
+    init(state: AccessibilityOnboardingState) { accessibilityOnboardingState = state }
 }

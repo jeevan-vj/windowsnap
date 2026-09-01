@@ -3,21 +3,21 @@ import Foundation
 class PreferencesManager: AccessibilityOnboardingStoring {
     static let shared = PreferencesManager()
     
-    private let userDefaults = UserDefaults.standard
+    private let userDefaults: UserDefaults
     
-    private init() {
+    init(userDefaults: UserDefaults = .standard) {
+        self.userDefaults = userDefaults
         setupDefaultPreferences()
     }
     
     private func setupDefaultPreferences() {
         let defaults: [String: Any] = [
-            "ShowNotifications": true,
             "LaunchAtLogin": false,
             "EnableAnimations": true,
             "AnimationDuration": 0.3,
             "DefaultMargin": 10.0,
-            "HasShownLaunchAtLoginPrompt": false,
             "HasCompletedAccessibilityOnboarding": false,
+            "HasRequestedScreenRecordingPermission": false,
             "IsFirstRun": true,
             ClipboardManager.retentionDefaultsKey: ClipboardHistoryRetention.sevenDays.rawValue,
             ClipboardManager.pausedDefaultsKey: false,
@@ -29,11 +29,6 @@ class PreferencesManager: AccessibilityOnboardingStoring {
     }
     
     // MARK: - Notification Settings
-    var showNotifications: Bool {
-        get { userDefaults.bool(forKey: "ShowNotifications") }
-        set { userDefaults.set(newValue, forKey: "ShowNotifications") }
-    }
-    
     // MARK: - Launch Settings
     var launchAtLogin: Bool {
         get { userDefaults.bool(forKey: "LaunchAtLogin") }
@@ -72,14 +67,35 @@ class PreferencesManager: AccessibilityOnboardingStoring {
         set { userDefaults.set(newValue, forKey: "IsFirstRun") }
     }
     
-    var hasShownLaunchAtLoginPrompt: Bool {
-        get { userDefaults.bool(forKey: "HasShownLaunchAtLoginPrompt") }
-        set { userDefaults.set(newValue, forKey: "HasShownLaunchAtLoginPrompt") }
+    var accessibilityOnboardingState: AccessibilityOnboardingState {
+        get {
+            if let rawValue = userDefaults.string(forKey: "AccessibilityOnboardingState"),
+               let state = AccessibilityOnboardingState(rawValue: rawValue) {
+                return state
+            }
+
+            let migratedState: AccessibilityOnboardingState
+            if userDefaults.bool(forKey: "HasCompletedAccessibilityOnboarding") {
+                migratedState = .completed
+            } else if !isFirstRun {
+                migratedState = .presented
+            } else {
+                migratedState = .notPresented
+            }
+            userDefaults.set(migratedState.rawValue, forKey: "AccessibilityOnboardingState")
+            return migratedState
+        }
+        set {
+            userDefaults.set(newValue.rawValue, forKey: "AccessibilityOnboardingState")
+            if newValue == .completed {
+                userDefaults.set(true, forKey: "HasCompletedAccessibilityOnboarding")
+            }
+        }
     }
 
-    var hasCompletedAccessibilityOnboarding: Bool {
-        get { userDefaults.bool(forKey: "HasCompletedAccessibilityOnboarding") }
-        set { userDefaults.set(newValue, forKey: "HasCompletedAccessibilityOnboarding") }
+    var hasRequestedScreenRecordingPermission: Bool {
+        get { userDefaults.bool(forKey: "HasRequestedScreenRecordingPermission") }
+        set { userDefaults.set(newValue, forKey: "HasRequestedScreenRecordingPermission") }
     }
     
     func markFirstRunComplete() {

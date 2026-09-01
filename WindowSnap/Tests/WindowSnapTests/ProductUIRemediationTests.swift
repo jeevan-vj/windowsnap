@@ -91,26 +91,51 @@ final class ProductUIRemediationTests: XCTestCase {
         center.removeObserver(token)
     }
 
-    func testTextExpanderPendingStateKeepsEnabledPreference() {
+    func testTextExpanderDoesNotEnableWhilePermissionIsMissing() {
         let defaults = makeDefaults()
         defaults.set(true, forKey: "WindowSnap_TextExpanderHasPopulatedDefaults")
         let manager = TextExpanderManager(userDefaults: defaults)
-        manager.isEnabled = true
-        let controller = TextExpanderRuntimeController(manager: manager, hasPermission: { false })
+        manager.isEnabled = false
+        let controller = TextExpanderRuntimeController(
+            manager: manager,
+            missingPermissions: { [.inputMonitoring] }
+        )
 
-        XCTAssertEqual(controller.state, .permissionRequired)
-        XCTAssertTrue(manager.isEnabled)
+        XCTAssertEqual(controller.setDesiredEnabled(true), .needsPermission([.inputMonitoring]))
+        XCTAssertFalse(manager.isEnabled)
     }
 
-    func testPreferencesShortcutTabUsesScrollableContent() throws {
+    func testSettingsUsesFiveItemNativeToolbar() throws {
         let controller = PreferencesWindow()
-        let tabView = try XCTUnwrap(controller.window?.contentView?.subviews.compactMap { $0 as? NSTabView }.first)
-        tabView.selectTabViewItem(withIdentifier: "shortcuts")
-        let shortcutView = try XCTUnwrap(tabView.selectedTabViewItem?.view)
-        let scrollView = try XCTUnwrap(shortcutView.subviews.compactMap { $0 as? NSScrollView }.first)
+        let toolbar = try XCTUnwrap(controller.window?.toolbar)
 
-        XCTAssertTrue(scrollView.hasVerticalScroller)
-        XCTAssertGreaterThan(scrollView.documentView?.frame.height ?? 0, scrollView.contentSize.height)
+        XCTAssertEqual(toolbar.items.map(\.itemIdentifier), PreferencesWindow.toolbarIdentifiers)
+        XCTAssertGreaterThanOrEqual(controller.window?.minSize.width ?? 0, 640)
+        XCTAssertGreaterThanOrEqual(controller.window?.minSize.height ?? 0, 480)
+        XCTAssertTrue(controller.window?.title.contains("Settings") == true)
+        XCTAssertFalse(controller.window?.contentView?.subviews.contains(where: { $0 is NSTabView }) == true)
+    }
+
+    func testStatusMenuUsesNativeShortcutColumnsAndReducedHierarchy() throws {
+        let controller = StatusBarController()
+        let menu = try XCTUnwrap(controller.menuForTesting)
+        let visibleTitles = menu.items.filter { !$0.isSeparatorItem }.map(\.title)
+
+        XCTAssertEqual(Array(visibleTitles.prefix(5)), ["Left Half", "Right Half", "Maximize", "Center", "More Positions"])
+        XCTAssertTrue(visibleTitles.contains("Settings…"))
+        XCTAssertFalse(visibleTitles.contains("Preferences…"))
+        XCTAssertFalse(visibleTitles.contains("Restart WindowSnap"))
+        XCTAssertFalse(visibleTitles.contains(where: { $0.contains("(") && $0.contains("⌘") }))
+
+        let leftHalf = try XCTUnwrap(menu.item(withTitle: "Left Half"))
+        XCTAssertEqual(leftHalf.keyEquivalent, "\u{F702}")
+        XCTAssertEqual(leftHalf.keyEquivalentModifierMask, [.command, .shift])
+
+        let clipboard = try XCTUnwrap(menu.item(withTitle: "Clipboard History")?.submenu)
+        let showClipboard = try XCTUnwrap(clipboard.item(withTitle: "Show Clipboard History"))
+        XCTAssertEqual(showClipboard.keyEquivalent, "v")
+        XCTAssertEqual(showClipboard.keyEquivalentModifierMask, [.command, .shift])
+        XCTAssertNotNil(clipboard.item(withTitle: "Pause History"))
     }
 
     private func makeDefaults() -> UserDefaults {

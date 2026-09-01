@@ -1,7 +1,6 @@
 import Foundation
 import AppKit
 import IOKit
-import UserNotifications
 
 /// Manages Input Monitoring and Accessibility permission checks for the text expander
 enum InputMonitoringPermissions {
@@ -14,7 +13,14 @@ enum InputMonitoringPermissions {
     }
 
     static func hasPermissions() -> Bool {
-        hasInputMonitoringAccess() && hasAccessibilityAccess()
+        missingPermissions().isEmpty
+    }
+
+    static func missingPermissions() -> Set<PermissionKind> {
+        var missing: Set<PermissionKind> = []
+        if !hasInputMonitoringAccess() { missing.insert(.inputMonitoring) }
+        if !hasAccessibilityAccess() { missing.insert(.accessibility) }
+        return missing
     }
 
     static func canCreateEventTap() -> Bool {
@@ -32,45 +38,29 @@ enum InputMonitoringPermissions {
         return tap != nil
     }
 
-    static func requestPermissions() {
-        _ = IOHIDRequestAccess(kIOHIDRequestTypeListenEvent)
-        AccessibilityPermissions.requestPermissions()
-    }
+    static func showSetupAlert() {
+        let missing = missingPermissions()
+        guard !missing.isEmpty else { return }
 
-    static func showPermissionsAlert() {
         let alert = NSAlert()
-        alert.messageText = "Permissions Required for Text Expander"
-        alert.informativeText = """
-        The Text Expander requires both Input Monitoring and Accessibility permissions.
-
-        Input Monitoring:
-        1. Open System Settings
-        2. Go to Privacy & Security
-        3. Select Input Monitoring
-        4. Enable WindowSnap
-
-        Accessibility:
-        1. Open System Settings
-        2. Go to Privacy & Security
-        3. Select Accessibility
-        4. Enable WindowSnap
-
-        After granting both permissions, restart the Text Expander from the menu bar.
-        """
+        alert.messageText = "Set Up Text Expander"
+        let names = missing.map(\.displayName).sorted().joined(separator: " and ")
+        alert.informativeText = "WindowSnap needs \(names) access to detect a trigger and insert its replacement. Enable the missing access in Privacy & Security, then return to WindowSnap."
         alert.alertStyle = .informational
-        alert.addButton(withTitle: "Open Input Monitoring")
-        alert.addButton(withTitle: "Open Accessibility")
-        alert.addButton(withTitle: "Later")
+
+        let ordered = [PermissionKind.inputMonitoring, .accessibility].filter { missing.contains($0) }
+        for permission in ordered {
+            alert.addButton(withTitle: "Open \(permission.displayName) Settings")
+        }
+        alert.addButton(withTitle: "Cancel")
 
         let response = alert.runModal()
-
-        switch response {
-        case .alertFirstButtonReturn:
-            openInputMonitoringSettings()
-        case .alertSecondButtonReturn:
-            AccessibilityPermissions.openSecurityPreferences()
-        default:
-            break
+        let index = response.rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
+        guard index >= 0, index < ordered.count else { return }
+        switch ordered[index] {
+        case .inputMonitoring: openInputMonitoringSettings()
+        case .accessibility: AccessibilityPermissions.openSecurityPreferences()
+        case .screenRecording: break
         }
     }
 
@@ -80,52 +70,7 @@ enum InputMonitoringPermissions {
         }
     }
 
-    static func checkPermissionsWithAlert() -> Bool {
-        if hasPermissions() {
-            return true
-        }
-        showPermissionsAlert()
-        return false
-    }
-
     static func missingPermissionDescription() -> String {
-        var missing: [String] = []
-        if !hasInputMonitoringAccess() {
-            missing.append("Input Monitoring")
-        }
-        if !hasAccessibilityAccess() {
-            missing.append("Accessibility")
-        }
-        return missing.joined(separator: " and ")
-    }
-
-    static func showPermissionDeniedNotification() {
-        requestNotificationAuthorizationIfNeeded()
-
-        let content = UNMutableNotificationContent()
-        content.title = "Text Expander Disabled"
-        content.body = "Input Monitoring and Accessibility permissions are required for text expansion."
-
-        let request = UNNotificationRequest(
-            identifier: "com.windowsnap.textexpander.permissions",
-            content: content,
-            trigger: nil
-        )
-
-        UNUserNotificationCenter.current().add(request) { error in
-            if let error {
-                AppLog.permissions.error("Failed to deliver permission notification: \(error.localizedDescription, privacy: .public)")
-            }
-        }
-    }
-
-    private static func requestNotificationAuthorizationIfNeeded() {
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, error in
-            if let error {
-                AppLog.permissions.error("Notification authorization failed: \(error.localizedDescription, privacy: .public)")
-            } else if !granted {
-                AppLog.permissions.debug("Notification authorization not granted")
-            }
-        }
+        missingPermissions().map(\.displayName).sorted().joined(separator: " and ")
     }
 }

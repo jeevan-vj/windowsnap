@@ -2,13 +2,15 @@ import Foundation
 
 enum TextExpanderRuntimeState: Equatable {
     case disabled
-    case permissionRequired
+    case needsPermission(Set<PermissionKind>)
     case running
 
     var statusText: String {
         switch self {
         case .disabled: return "Disabled"
-        case .permissionRequired: return "Enabled — Input Monitoring permission required"
+        case .needsPermission(let missing):
+            let names = missing.map(\.displayName).sorted().joined(separator: " and ")
+            return "Setup needed — \(names)"
         case .running: return "Enabled and running"
         }
     }
@@ -23,39 +25,47 @@ final class TextExpanderRuntimeController {
 
     private let manager: TextExpanderManager
     private let engine: TextExpansionEngine
-    private let hasPermission: () -> Bool
+    private let missingPermissions: () -> Set<PermissionKind>
     private let notificationCenter: NotificationCenter
 
     init(
         manager: TextExpanderManager = .shared,
         engine: TextExpansionEngine = .shared,
-        hasPermission: @escaping () -> Bool = { InputMonitoringPermissions.hasPermissions() },
+        missingPermissions: @escaping () -> Set<PermissionKind> = { InputMonitoringPermissions.missingPermissions() },
         notificationCenter: NotificationCenter = .default
     ) {
         self.manager = manager
         self.engine = engine
-        self.hasPermission = hasPermission
+        self.missingPermissions = missingPermissions
         self.notificationCenter = notificationCenter
     }
 
     var state: TextExpanderRuntimeState {
-        guard manager.isEnabled else { return .disabled }
-        return hasPermission() ? .running : .permissionRequired
+        let missing = missingPermissions()
+        if !missing.isEmpty { return .needsPermission(missing) }
+        return manager.isEnabled ? .running : .disabled
     }
 
     @discardableResult
     func setDesiredEnabled(_ enabled: Bool) -> TextExpanderRuntimeState {
-        manager.isEnabled = enabled
+        let missing = missingPermissions()
+        manager.isEnabled = enabled && missing.isEmpty
         return reconcile()
     }
 
     @discardableResult
     func reconcile() -> TextExpanderRuntimeState {
-        let newState = state
+        let missing = missingPermissions()
+        if !missing.isEmpty {
+            manager.isEnabled = false
+        }
+        let newState: TextExpanderRuntimeState = missing.isEmpty
+            ? (manager.isEnabled ? .running : .disabled)
+            : .needsPermission(missing)
         switch newState {
         case .running:
             engine.start()
-        case .disabled, .permissionRequired:
+        case .disabled, .needsPermission:
             engine.stop()
         }
         notificationCenter.post(name: .textExpanderRuntimeStateDidChange, object: self)

@@ -1,19 +1,25 @@
 import AppKit
 import Foundation
 
-class StatusBarController {
+class StatusBarController: NSObject, NSMenuDelegate {
     var onShowAccessibilitySetup: (() -> Void)?
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private var preferencesWindow: PreferencesWindow?
     private var textExpanderWindow: TextExpanderWindow?
+    private var clipboardHistoryWindow: ClipboardHistoryWindow?
     private var customPositionsWindow: CustomPositionsWindow?
     private var workspaceArrangementsWindow: WorkspaceArrangementsWindow?
     private var pauseClipboardMenuItem: NSMenuItem?
     private var clipboardPauseObserver: ClipboardPauseStateObserver?
     private weak var textExpanderEnabledMenuItem: NSMenuItem?
     private var textExpanderStateObserver: NSObjectProtocol?
+    private var quickActionItems: [NSMenuItem] = []
+    private weak var accessibilitySetupMenuItem: NSMenuItem?
 
-    init() {
+    var menuForTesting: NSMenu? { statusItem.menu }
+
+    override init() {
+        super.init()
         setupStatusBar()
         observeClipboardPauseState()
         observeTextExpanderState()
@@ -39,37 +45,30 @@ class StatusBarController {
 
     private func createContextMenu() -> NSMenu {
         let menu = NSMenu()
+        menu.delegate = self
+        quickActionItems.removeAll()
 
-        // Quick Actions
-        menu.addItem(NSMenuItem.separator())
-        let quickActionsItem = NSMenuItem(title: "Quick Actions", action: nil, keyEquivalent: "")
-        quickActionsItem.isEnabled = false
-        menu.addItem(quickActionsItem)
+        addQuickAction(to: menu, title: "Left Half", position: .leftHalf, key: "\u{F702}", modifiers: [.command, .shift])
+        addQuickAction(to: menu, title: "Right Half", position: .rightHalf, key: "\u{F703}", modifiers: [.command, .shift])
+        addQuickAction(to: menu, title: "Maximize", position: .maximize, key: "m", modifiers: [.command, .shift])
+        addQuickAction(to: menu, title: "Center", position: .center, key: "c", modifiers: [.command, .shift])
 
-        // Window positioning actions with keyboard shortcuts
-        addQuickAction(to: menu, title: "Left Half", position: .leftHalf, shortcut: "⌘⇧←")
-        addQuickAction(to: menu, title: "Right Half", position: .rightHalf, shortcut: "⌘⇧→")
-        addQuickAction(to: menu, title: "Top Half", position: .topHalf, shortcut: "⌘⇧↑")
-        addQuickAction(to: menu, title: "Bottom Half", position: .bottomHalf, shortcut: "⌘⇧↓")
-
-        menu.addItem(NSMenuItem.separator())
-
-        addQuickAction(to: menu, title: "Top Left", position: .topLeft, shortcut: "⌘⌥1")
-        addQuickAction(to: menu, title: "Top Right", position: .topRight, shortcut: "⌘⌥2")
-        addQuickAction(to: menu, title: "Bottom Left", position: .bottomLeft, shortcut: "⌘⌥3")
-        addQuickAction(to: menu, title: "Bottom Right", position: .bottomRight, shortcut: "⌘⌥4")
-
-        menu.addItem(NSMenuItem.separator())
-
-        addQuickAction(to: menu, title: "Left Third", position: .leftThird, shortcut: "⌘⌥←")
-        addQuickAction(to: menu, title: "Right Third", position: .rightThird, shortcut: "⌘⌥→")
-        addQuickAction(to: menu, title: "Left Two-Thirds", position: .leftTwoThirds, shortcut: "⌘⌥↑")
-        addQuickAction(to: menu, title: "Right Two-Thirds", position: .rightTwoThirds, shortcut: "⌘⌥↓")
-
-        menu.addItem(NSMenuItem.separator())
-
-        addQuickAction(to: menu, title: "Maximize", position: .maximize, shortcut: "⌘⇧M")
-        addQuickAction(to: menu, title: "Center", position: .center, shortcut: "⌘⇧C")
+        let morePositionsMenu = NSMenu()
+        addQuickAction(to: morePositionsMenu, title: "Top Half", position: .topHalf, key: "\u{F700}", modifiers: [.command, .shift])
+        addQuickAction(to: morePositionsMenu, title: "Bottom Half", position: .bottomHalf, key: "\u{F701}", modifiers: [.command, .shift])
+        morePositionsMenu.addItem(.separator())
+        addQuickAction(to: morePositionsMenu, title: "Top Left", position: .topLeft, key: "1", modifiers: [.command, .option])
+        addQuickAction(to: morePositionsMenu, title: "Top Right", position: .topRight, key: "2", modifiers: [.command, .option])
+        addQuickAction(to: morePositionsMenu, title: "Bottom Left", position: .bottomLeft, key: "3", modifiers: [.command, .option])
+        addQuickAction(to: morePositionsMenu, title: "Bottom Right", position: .bottomRight, key: "4", modifiers: [.command, .option])
+        morePositionsMenu.addItem(.separator())
+        addQuickAction(to: morePositionsMenu, title: "Left Third", position: .leftThird, key: "\u{F702}", modifiers: [.command, .option])
+        addQuickAction(to: morePositionsMenu, title: "Right Third", position: .rightThird, key: "\u{F703}", modifiers: [.command, .option])
+        addQuickAction(to: morePositionsMenu, title: "Left Two-Thirds", position: .leftTwoThirds, key: "\u{F700}", modifiers: [.command, .option])
+        addQuickAction(to: morePositionsMenu, title: "Right Two-Thirds", position: .rightTwoThirds, key: "\u{F701}", modifiers: [.command, .option])
+        let morePositionsItem = NSMenuItem(title: "More Positions", action: nil, keyEquivalent: "")
+        morePositionsItem.submenu = morePositionsMenu
+        menu.addItem(morePositionsItem)
 
         menu.addItem(NSMenuItem.separator())
 
@@ -86,7 +85,7 @@ class StatusBarController {
         // TEXT EXPANDER FEATURE: Quick toggle and settings access
         let textExpanderMenu = NSMenu()
 
-        let textExpanderEnabledItem = NSMenuItem(title: "Enabled", action: #selector(toggleTextExpander(_:)), keyEquivalent: "")
+        let textExpanderEnabledItem = NSMenuItem(title: "Enable Text Expander", action: #selector(toggleTextExpander(_:)), keyEquivalent: "")
         textExpanderEnabledItem.target = self
         textExpanderEnabledItem.state = TextExpanderManager.shared.isEnabled ? .on : .off
         textExpanderMenu.addItem(textExpanderEnabledItem)
@@ -103,6 +102,16 @@ class StatusBarController {
         menu.addItem(textExpanderItem)
 
         let clipboardMenu = NSMenu()
+        let showClipboardItem = NSMenuItem(
+            title: "Show Clipboard History",
+            action: #selector(showClipboardHistory),
+            keyEquivalent: "v"
+        )
+        showClipboardItem.keyEquivalentModifierMask = [.command, .shift]
+        showClipboardItem.target = self
+        clipboardMenu.addItem(showClipboardItem)
+        clipboardMenu.addItem(.separator())
+
         let pauseClipboardItem = NSMenuItem(
             title: "Pause History",
             action: #selector(toggleClipboardHistory(_:)),
@@ -149,12 +158,14 @@ class StatusBarController {
         regionShareItem.submenu = regionShareMenu
         menu.addItem(regionShareItem)
 
-        // Settings and Info
-        let accessibilityItem = NSMenuItem(title: "Accessibility Setup…", action: #selector(showAccessibilitySetup), keyEquivalent: "")
+        menu.addItem(NSMenuItem.separator())
+
+        let accessibilityItem = NSMenuItem(title: "Set Up Accessibility…", action: #selector(showAccessibilitySetup), keyEquivalent: "")
         accessibilityItem.target = self
         menu.addItem(accessibilityItem)
+        accessibilitySetupMenuItem = accessibilityItem
 
-        let preferencesItem = NSMenuItem(title: "Preferences…", action: #selector(showPreferences), keyEquivalent: ",")
+        let preferencesItem = NSMenuItem(title: "Settings…", action: #selector(showPreferences), keyEquivalent: ",")
         preferencesItem.target = self
         menu.addItem(preferencesItem)
 
@@ -164,24 +175,28 @@ class StatusBarController {
 
         menu.addItem(NSMenuItem.separator())
 
-        let restartItem = NSMenuItem(title: "Restart WindowSnap", action: #selector(restartApp), keyEquivalent: "")
-        restartItem.target = self
-        menu.addItem(restartItem)
-
         let quitItem = NSMenuItem(title: "Quit WindowSnap", action: #selector(quit), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
 
+        refreshPermissionState()
+        updateTextExpanderMenuItem(for: TextExpanderRuntimeController.shared.state)
         return menu
     }
 
-    private func addQuickAction(to menu: NSMenu, title: String, position: GridPosition, shortcut: String) {
-        // Create menu item with title that shows shortcut in the standard macOS way
-        let item = NSMenuItem(title: "\(title) (\(shortcut))", action: #selector(handleQuickAction(_:)), keyEquivalent: "")
-
+    private func addQuickAction(
+        to menu: NSMenu,
+        title: String,
+        position: GridPosition,
+        key: String,
+        modifiers: NSEvent.ModifierFlags
+    ) {
+        let item = NSMenuItem(title: title, action: #selector(handleQuickAction(_:)), keyEquivalent: key)
         item.target = self
+        item.keyEquivalentModifierMask = modifiers
         item.representedObject = position
         menu.addItem(item)
+        quickActionItems.append(item)
     }
 
     @objc private func handleQuickAction(_ sender: NSMenuItem) {
@@ -189,18 +204,14 @@ class StatusBarController {
 
         let windowManager = WindowManager.shared
 
-        if !AccessibilityPermissions.hasPermissions() {
-            AccessibilityPermissions.showPermissionsAlert()
-            return
-        }
+        guard AccessibilityPermissions.hasPermissions() else { return }
 
         guard let focusedWindow = windowManager.getFocusedWindow() else {
-            showNotification(title: "No Window", message: "No active window found to snap")
+            NSSound.beep()
             return
         }
 
         windowManager.snapWindow(focusedWindow, to: position)
-        showNotification(title: "Window Snapped", message: "Window moved to \(position.displayName)")
     }
 
     @objc func showPreferences() {
@@ -233,8 +244,8 @@ class StatusBarController {
         let newState = !TextExpanderManager.shared.isEnabled
         let state = TextExpanderRuntimeController.shared.setDesiredEnabled(newState)
         updateTextExpanderMenuItem(for: state)
-        if state == .permissionRequired {
-            InputMonitoringPermissions.showPermissionsAlert()
+        if case .needsPermission = state {
+            InputMonitoringPermissions.showSetupAlert()
         }
     }
 
@@ -245,6 +256,17 @@ class StatusBarController {
         } else {
             ClipboardManager.shared.pauseMonitoring()
             sender.state = .on
+        }
+    }
+
+    @objc private func showClipboardHistory() {
+        if clipboardHistoryWindow == nil {
+            clipboardHistoryWindow = ClipboardHistoryWindow()
+        }
+        if clipboardHistoryWindow?.isVisible == true {
+            clipboardHistoryWindow?.requestClose()
+        } else {
+            clipboardHistoryWindow?.showWindow()
         }
     }
 
@@ -266,8 +288,29 @@ class StatusBarController {
     }
 
     private func updateTextExpanderMenuItem(for state: TextExpanderRuntimeState) {
-        textExpanderEnabledMenuItem?.state = state == .disabled ? .off : .on
+        switch state {
+        case .running:
+            textExpanderEnabledMenuItem?.title = "Disable Text Expander"
+            textExpanderEnabledMenuItem?.state = .on
+        case .needsPermission:
+            textExpanderEnabledMenuItem?.title = "Set Up Text Expander…"
+            textExpanderEnabledMenuItem?.state = .off
+        case .disabled:
+            textExpanderEnabledMenuItem?.title = "Enable Text Expander"
+            textExpanderEnabledMenuItem?.state = .off
+        }
         textExpanderEnabledMenuItem?.toolTip = state.statusText
+    }
+
+    func menuWillOpen(_ menu: NSMenu) {
+        refreshPermissionState()
+        updateTextExpanderMenuItem(for: TextExpanderRuntimeController.shared.state)
+    }
+
+    func refreshPermissionState() {
+        let granted = AccessibilityPermissions.hasPermissions()
+        quickActionItems.forEach { $0.isEnabled = granted }
+        accessibilitySetupMenuItem?.isHidden = granted
     }
 
     @objc private func showTextExpanderSettings() {
@@ -321,31 +364,8 @@ class StatusBarController {
         alert.runModal()
     }
 
-    @objc private func restartApp() {
-        let url = URL(fileURLWithPath: Bundle.main.resourcePath!)
-        let path = url.deletingLastPathComponent().deletingLastPathComponent().absoluteString
-        let task = Process()
-        task.launchPath = "/usr/bin/open"
-        task.arguments = [path]
-        task.launch()
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            NSApp.terminate(nil)
-        }
-    }
-
     @objc private func quit() {
         NSApplication.shared.terminate(nil)
     }
 
-    private func showNotification(title: String, message: String) {
-        guard PreferencesManager.shared.showNotifications else { return }
-        let notification = NSUserNotification()
-        notification.title = title
-        notification.informativeText = message
-        notification.soundName = nil
-
-        let notificationCenter = NSUserNotificationCenter.default
-        notificationCenter.deliver(notification)
-    }
 }

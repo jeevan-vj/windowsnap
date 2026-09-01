@@ -6,6 +6,12 @@ enum AccessibilityAuthorizationStatus: Equatable {
     case unavailable(String)
 }
 
+enum AccessibilityOnboardingState: String, Equatable {
+    case notPresented
+    case presented
+    case completed
+}
+
 protocol AccessibilityPermissionProviding: AnyObject {
     func currentStatus() -> AccessibilityAuthorizationStatus
     func requestPermission()
@@ -13,7 +19,7 @@ protocol AccessibilityPermissionProviding: AnyObject {
 }
 
 protocol AccessibilityOnboardingStoring: AnyObject {
-    var hasCompletedAccessibilityOnboarding: Bool { get set }
+    var accessibilityOnboardingState: AccessibilityOnboardingState { get set }
 }
 
 final class AccessibilityOnboardingModel {
@@ -30,21 +36,17 @@ final class AccessibilityOnboardingModel {
         self.store = store
         status = permissionProvider.currentStatus()
 
-        // Existing users may already have granted access before onboarding existed.
-        // Treat that authorization as completed so a later TCC change does not
-        // retroactively turn them into first-run users; the menu retry remains available.
         if status == .granted {
-            store.hasCompletedAccessibilityOnboarding = true
+            store.accessibilityOnboardingState = .completed
         }
     }
 
-    var hasCompletedOnboarding: Bool {
-        store.hasCompletedAccessibilityOnboarding
+    var onboardingState: AccessibilityOnboardingState {
+        store.accessibilityOnboardingState
     }
 
     var shouldPresentOnLaunch: Bool {
-        guard !hasCompletedOnboarding else { return false }
-        return status != .granted
+        onboardingState == .notPresented && status != .granted
     }
 
     var canFinish: Bool {
@@ -53,6 +55,14 @@ final class AccessibilityOnboardingModel {
 
     func refreshPermissionStatus() {
         status = permissionProvider.currentStatus()
+        if status == .granted {
+            store.accessibilityOnboardingState = .completed
+        }
+    }
+
+    func markPresented() {
+        guard store.accessibilityOnboardingState == .notPresented else { return }
+        store.accessibilityOnboardingState = .presented
     }
 
     /// Must only be called in direct response to an explicit user action.
@@ -68,7 +78,7 @@ final class AccessibilityOnboardingModel {
     @discardableResult
     func finish() -> Bool {
         guard canFinish else { return false }
-        store.hasCompletedAccessibilityOnboarding = true
+        store.accessibilityOnboardingState = .completed
         return true
     }
 }

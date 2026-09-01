@@ -14,14 +14,6 @@ final class AccessibilityPermissions: AccessibilityPermissionProviding {
         return trusted
     }
     
-    static func requestPermissionIfNeeded() {
-        // This method now only checks, doesn't automatically prompt
-        // Use showPermissionsAlert() for manual permission requests
-        if !hasPermissions() {
-            print("Accessibility permissions not granted")
-        }
-    }
-    
     static func requestPermissions() {
         let options = [kAXTrustedCheckOptionPrompt.takeRetainedValue(): true] as CFDictionary
         AXIsProcessTrustedWithOptions(options)
@@ -39,45 +31,11 @@ final class AccessibilityPermissions: AccessibilityPermissionProviding {
         Self.openSecurityPreferences()
     }
     
-    static func showPermissionsAlert() {
-        let alert = NSAlert()
-        alert.messageText = "Accessibility Access Required"
-        alert.informativeText = """
-        WindowSnap requires accessibility permissions to manage windows.
-        
-        Please:
-        1. Open System Preferences
-        2. Go to Security & Privacy
-        3. Select Privacy tab
-        4. Choose Accessibility
-        5. Add WindowSnap to the list and enable it
-        
-        After granting permission, please restart WindowSnap.
-        """
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "Open System Preferences")
-        alert.addButton(withTitle: "Cancel")
-        
-        let response = alert.runModal()
-        
-        if response == .alertFirstButtonReturn {
-            openSecurityPreferences()
-        }
-    }
-    
     static func openSecurityPreferences() {
         let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
         NSWorkspace.shared.open(url)
     }
     
-    static func checkPermissionsWithAlert() -> Bool {
-        if hasPermissions() {
-            return true
-        } else {
-            showPermissionsAlert()
-            return false
-        }
-    }
 }
 
 private extension AccessibilityAuthorizationStatus {

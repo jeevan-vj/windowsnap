@@ -37,6 +37,7 @@ DerivedData/
 # Other
 .idea/
 *.iml
+.impeccable/
 
 # Build artifacts and distribution
 dist/

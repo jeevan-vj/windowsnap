@@ -13,18 +13,18 @@ final class AccessibilityOnboardingWindowController: NSWindowController, NSWindo
     private let model: AccessibilityOnboardingModel
     private let statusLabel = NSTextField(labelWithString: "")
     private let statusDetailLabel = NSTextField(wrappingLabelWithString: "")
-    private let requestButton = NSButton(title: "Enable Accessibility", target: nil, action: nil)
+    private let requestButton = NSButton(title: "Continue", target: nil, action: nil)
     private let settingsButton = NSButton(title: "Open System Settings", target: nil, action: nil)
     private let finishButton = NSButton(title: "Finish Setup", target: nil, action: nil)
     private let readinessLabel = NSTextField(wrappingLabelWithString: "")
-    private let testedButton = NSButton(title: "I've tested a snapping shortcut", target: nil, action: nil)
     private var activationObserver: NSObjectProtocol?
     private var didNotifyDismiss = false
+    private var hasRequestedPermission = false
 
     init(model: AccessibilityOnboardingModel) {
         self.model = model
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 560, height: 520),
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 350),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -50,6 +50,7 @@ final class AccessibilityOnboardingWindowController: NSWindowController, NSWindo
     func presentIfNeeded() -> Bool {
         model.refreshPermissionStatus()
         guard model.shouldPresentOnLaunch else { return false }
+        model.markPresented()
         present()
         return true
     }
@@ -88,8 +89,8 @@ final class AccessibilityOnboardingWindowController: NSWindowController, NSWindo
         let root = NSStackView()
         root.orientation = .vertical
         root.alignment = .leading
-        root.spacing = 16
-        root.edgeInsets = NSEdgeInsets(top: 28, left: 32, bottom: 24, right: 32)
+        root.spacing = 14
+        root.edgeInsets = NSEdgeInsets(top: 24, left: 28, bottom: 22, right: 28)
         root.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(root)
 
@@ -101,13 +102,13 @@ final class AccessibilityOnboardingWindowController: NSWindowController, NSWindo
         ])
 
         let title = NSTextField(labelWithString: "Set up window snapping")
-        title.font = .systemFont(ofSize: 24, weight: .bold)
+        title.font = .systemFont(ofSize: 22, weight: .semibold)
         root.addArrangedSubview(title)
 
         let introduction = NSTextField(wrappingLabelWithString: "WindowSnap needs Accessibility access so it can move and resize application windows when you use a menu command or keyboard shortcut.")
         introduction.font = .systemFont(ofSize: 14)
         root.addArrangedSubview(introduction)
-        introduction.widthAnchor.constraint(equalTo: root.widthAnchor, constant: -64).isActive = true
+        introduction.widthAnchor.constraint(equalTo: root.widthAnchor, constant: -56).isActive = true
 
         let privacyBox = makeBox()
         let privacyText = NSTextField(wrappingLabelWithString: "Private by design\nWindowSnap works locally on this Mac. No account is required, and this setup does not request Screen Recording or Input Monitoring access.")
@@ -121,7 +122,7 @@ final class AccessibilityOnboardingWindowController: NSWindowController, NSWindo
             privacyText.bottomAnchor.constraint(equalTo: privacyBox.bottomAnchor, constant: -12)
         ])
         root.addArrangedSubview(privacyBox)
-        privacyBox.widthAnchor.constraint(equalTo: root.widthAnchor, constant: -64).isActive = true
+        privacyBox.widthAnchor.constraint(equalTo: root.widthAnchor, constant: -56).isActive = true
 
         let statusTitle = NSTextField(labelWithString: "Accessibility status")
         statusTitle.font = .systemFont(ofSize: 13, weight: .semibold)
@@ -130,30 +131,21 @@ final class AccessibilityOnboardingWindowController: NSWindowController, NSWindo
         statusLabel.font = .systemFont(ofSize: 15, weight: .semibold)
         root.addArrangedSubview(statusLabel)
         root.addArrangedSubview(statusDetailLabel)
-        statusDetailLabel.widthAnchor.constraint(equalTo: root.widthAnchor, constant: -64).isActive = true
+        statusDetailLabel.widthAnchor.constraint(equalTo: root.widthAnchor, constant: -56).isActive = true
 
         requestButton.target = self
         requestButton.action = #selector(requestPermission)
         requestButton.bezelStyle = .rounded
+        requestButton.keyEquivalent = "\r"
         settingsButton.target = self
         settingsButton.action = #selector(openSettings)
         settingsButton.bezelStyle = .rounded
 
-        let permissionButtons = NSStackView(views: [requestButton, settingsButton])
-        permissionButtons.orientation = .horizontal
-        permissionButtons.spacing = 10
-        root.addArrangedSubview(permissionButtons)
-
-        readinessLabel.stringValue = "Ready to test: focus another app, then press ⌘⇧← to snap its window to the left half. You can reopen this setup from the WindowSnap menu at any time."
+        readinessLabel.stringValue = "WindowSnap is ready. Focus another app and press ⌘⇧← to move its window to the left half."
         readinessLabel.font = .systemFont(ofSize: 13)
         readinessLabel.textColor = .secondaryLabelColor
         root.addArrangedSubview(readinessLabel)
-        readinessLabel.widthAnchor.constraint(equalTo: root.widthAnchor, constant: -64).isActive = true
-
-        testedButton.target = self
-        testedButton.action = #selector(confirmShortcutTest)
-        testedButton.setButtonType(.switch)
-        root.addArrangedSubview(testedButton)
+        readinessLabel.widthAnchor.constraint(equalTo: root.widthAnchor, constant: -56).isActive = true
 
         let spacer = NSView()
         spacer.setContentHuggingPriority(.defaultLow, for: .vertical)
@@ -166,12 +158,15 @@ final class AccessibilityOnboardingWindowController: NSWindowController, NSWindo
         finishButton.bezelStyle = .rounded
         finishButton.keyEquivalent = "\r"
 
-        let footer = NSStackView(views: [laterButton, finishButton])
+        let horizontalSpacer = NSView()
+        horizontalSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+        let footer = NSStackView(views: [laterButton, horizontalSpacer, settingsButton, requestButton, finishButton])
         footer.orientation = .horizontal
         footer.spacing = 10
-        footer.distribution = .fillEqually
+        footer.alignment = .centerY
         root.addArrangedSubview(footer)
-        footer.widthAnchor.constraint(equalTo: root.widthAnchor, constant: -64).isActive = true
+        footer.widthAnchor.constraint(equalTo: root.widthAnchor, constant: -56).isActive = true
     }
 
     private func makeBox() -> NSView {
@@ -195,9 +190,9 @@ final class AccessibilityOnboardingWindowController: NSWindowController, NSWindo
     private func render() {
         switch model.status {
         case .notGranted:
-            statusLabel.stringValue = "Not granted"
-            statusLabel.textColor = .systemOrange
-            statusDetailLabel.stringValue = "Choose Enable Accessibility when you're ready. macOS will then ask for your approval."
+            statusLabel.stringValue = "Setup needed"
+            statusLabel.textColor = .secondaryLabelColor
+            statusDetailLabel.stringValue = "Continue when you're ready. macOS will ask you to allow WindowSnap in Privacy & Security."
         case .granted:
             statusLabel.stringValue = "Granted"
             statusLabel.textColor = .systemGreen
@@ -209,25 +204,21 @@ final class AccessibilityOnboardingWindowController: NSWindowController, NSWindo
         }
 
         let granted = model.canFinish
-        requestButton.isHidden = granted
+        requestButton.isHidden = granted || hasRequestedPermission
+        settingsButton.isHidden = granted || !hasRequestedPermission
         finishButton.isEnabled = granted
+        finishButton.isHidden = !granted
         readinessLabel.isHidden = !granted
-        testedButton.isHidden = !granted
     }
 
     @objc private func requestPermission() {
+        hasRequestedPermission = true
         model.requestPermission()
         render()
     }
 
     @objc private func openSettings() {
         model.openSystemSettings()
-    }
-
-    @objc private func confirmShortcutTest() {
-        readinessLabel.stringValue = testedButton.state == .on
-            ? "Test confirmed. WindowSnap is ready; choose Finish Setup when you're done."
-            : "Ready to test: focus another app, then press ⌘⇧← to snap its window to the left half."
     }
 
     @objc private func finishSetup() {

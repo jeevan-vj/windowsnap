@@ -165,7 +165,7 @@ enum LaunchAtLoginError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .requiresApproval:
-            return "WindowSnap needs your approval in System Settings > General > Login Items. Allow WindowSnap, then return to Preferences."
+            return "WindowSnap needs your approval in System Settings > General > Login Items. Allow WindowSnap, then return to Settings."
         case .serviceNotFound:
             return "macOS could not find WindowSnap as an installed application. Move WindowSnap to the Applications folder, reopen it, and try again."
         case .registrationFailed(let error):

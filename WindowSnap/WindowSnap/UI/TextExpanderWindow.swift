@@ -98,7 +98,7 @@ class TextExpanderWindow: NSWindowController, NSTableViewDelegate, NSTableViewDa
         permissionStatusLabel.autoresizingMask = [.width]
         contentView.addSubview(permissionStatusLabel)
         
-        permissionButton = NSButton(title: "Grant Permission", target: self, action: #selector(requestPermission))
+        permissionButton = NSButton(title: "Set Up…", target: self, action: #selector(requestPermission))
         permissionButton.frame = NSRect(x: contentView.bounds.width - 140, y: yPos - 3, width: 120, height: 25)
         permissionButton.bezelStyle = .rounded
         permissionButton.autoresizingMask = [.minXMargin]
@@ -192,21 +192,21 @@ class TextExpanderWindow: NSWindowController, NSTableViewDelegate, NSTableViewDa
     
     private func updatePermissionStatus() {
         let state = TextExpanderRuntimeController.shared.state
-        enabledCheckbox.state = state == .disabled ? .off : .on
-        if state == .running {
+        enabledCheckbox.state = state == .running ? .on : .off
+        switch state {
+        case .running:
             permissionStatusLabel.stringValue = "✓ Enabled and running"
             permissionStatusLabel.textColor = .systemGreen
             permissionButton.isHidden = true
-        } else if state == .permissionRequired {
-            permissionStatusLabel.stringValue = "⚠ Enabled — Input Monitoring permission required"
-            permissionStatusLabel.textColor = .systemOrange
-            permissionButton.isHidden = false
-        } else {
-            permissionStatusLabel.stringValue = InputMonitoringPermissions.hasPermissions()
-                ? "Input Monitoring permission granted"
-                : "Input Monitoring permission not granted"
+        case .needsPermission(let missing):
+            let names = missing.map(\.displayName).sorted().joined(separator: " and ")
+            permissionStatusLabel.stringValue = "Setup needed: \(names)"
             permissionStatusLabel.textColor = .secondaryLabelColor
-            permissionButton.isHidden = InputMonitoringPermissions.hasPermissions()
+            permissionButton.isHidden = false
+        case .disabled:
+            permissionStatusLabel.stringValue = "Ready to enable"
+            permissionStatusLabel.textColor = .secondaryLabelColor
+            permissionButton.isHidden = true
         }
     }
     
@@ -216,13 +216,13 @@ class TextExpanderWindow: NSWindowController, NSTableViewDelegate, NSTableViewDa
         let enabled = sender.state == .on
         let state = TextExpanderRuntimeController.shared.setDesiredEnabled(enabled)
         updatePermissionStatus()
-        if state == .permissionRequired {
-            InputMonitoringPermissions.showPermissionsAlert()
+        if case .needsPermission = state {
+            InputMonitoringPermissions.showSetupAlert()
         }
     }
     
     @objc private func requestPermission() {
-        InputMonitoringPermissions.showPermissionsAlert()
+        InputMonitoringPermissions.showSetupAlert()
     }
     
     @objc private func addSnippet() {

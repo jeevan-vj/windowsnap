@@ -1,6 +1,10 @@
 import AppKit
 import Foundation
 
+extension Notification.Name {
+    static let openPreferences = Notification.Name("openPreferences")
+}
+
 class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusBarController: StatusBarController?
     private var windowManager: WindowManager?
@@ -17,10 +21,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var pendingWakeRecovery: DispatchWorkItem?
     private var isRecoveringFromWake = false
     private var regionShareController: RegionShareController?
+    private var accessibilityAvailable = false
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupMenuBarApp()
         initializeManagers()
+        accessibilityAvailable = AccessibilityPermissions.hasPermissions()
         setupSleepWakeNotifications()
         startHealthCheck()
         
@@ -30,9 +36,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Set up notification observers
         setupNotificationObservers()
 
-        // Explain Accessibility before any system prompt. Optional permissions remain feature-triggered.
-        if !setupAccessibilityOnboarding() {
-            showLaunchAtLoginPromptIfNeeded()
+        // Explain Accessibility once. Optional permissions remain feature-triggered.
+        _ = setupAccessibilityOnboarding()
+        if PreferencesManager.shared.isFirstRun {
+            PreferencesManager.shared.markFirstRunComplete()
         }
     }
     
@@ -70,9 +77,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             store: PreferencesManager.shared
         )
         let controller = AccessibilityOnboardingWindowController(model: model)
-        controller.onDismiss = { [weak self] in
-            self?.showLaunchAtLoginPromptIfNeeded()
-        }
         accessibilityOnboardingWindow = controller
         statusBarController?.onShowAccessibilitySetup = { [weak self] in
             self?.accessibilityOnboardingWindow?.present()
@@ -86,7 +90,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
+        accessibilityAvailable = AccessibilityPermissions.hasPermissions()
         TextExpanderRuntimeController.shared.reconcile()
+        accessibilityOnboardingWindow?.refreshPermissionStatus()
+        statusBarController?.refreshPermissionState()
     }
     
     private func setupDefaultShortcuts() {
@@ -286,12 +293,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         print("🔄 Reinitializing WindowSnap after wake...")
         
-        if !AccessibilityPermissions.hasPermissions() {
+        accessibilityAvailable = AccessibilityPermissions.hasPermissions()
+        if !accessibilityAvailable {
             print("⚠️ Accessibility permissions unavailable after wake; use Accessibility Setup from the menu to retry")
         }
         accessibilityOnboardingWindow?.refreshPermissionStatus()
         
-        if let windowManager = windowManager, !windowManager.testAccessibility() {
+        if accessibilityAvailable, let windowManager = windowManager, !windowManager.testAccessibility() {
             print("🔧 WindowManager accessibility lost after wake - resetting...")
             windowManager.resetAfterWake()
         }
@@ -301,14 +309,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             shortcutManager.reinitializeAfterWake()
         }
         
-        if textExpanderManager?.isEnabled == true {
-            if InputMonitoringPermissions.hasPermissions() {
-                AppLog.textExpansion.info("Reinitializing text expander after wake")
-                textExpansionEngine?.restart()
-            } else {
-                let missing = InputMonitoringPermissions.missingPermissionDescription()
-                AppLog.textExpansion.warning("Text expander not restarted after wake - missing permissions: \(missing, privacy: .public)")
-            }
+        if TextExpanderRuntimeController.shared.state == .running {
+            AppLog.textExpansion.info("Reinitializing text expander after wake")
+            textExpansionEngine?.restart()
         }
         
         regionShareController?.recoverVirtualCameraAfterWake()
@@ -343,32 +346,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         
+        guard accessibilityAvailable else { return }
+
         if !windowManager.testAccessibility() {
             print("⚠️ Health check failed - WindowManager accessibility lost - reinitializing...")
+            accessibilityAvailable = false
             scheduleWakeRecovery(delay: 0.5)
             return
         }
         
-        if !AccessibilityPermissions.hasPermissions() {
-            print("⚠️ Health check: Accessibility permissions lost")
-        }
     }
-    
+
     // MARK: - Launch at Login
     private func initializeLaunchAtLogin() {
         // Read-only synchronization: launching WindowSnap never registers a login item.
         let status = LaunchAtLoginManager.shared.refreshStatus()
         print("🔄 Synced launch at login preference with system state: \(status)")
-    }
-    
-    private func showLaunchAtLoginPromptIfNeeded() {
-        // Only show on first run or if the user hasn't been prompted yet
-        LaunchAtLoginPrompt.shared.showPromptIfNeeded()
-        
-        // Mark first run as complete
-        if PreferencesManager.shared.isFirstRun {
-            PreferencesManager.shared.markFirstRunComplete()
-        }
     }
     
     // MARK: - Notification Observers
