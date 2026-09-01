@@ -138,6 +138,14 @@ final class ProductUIRemediationTests: XCTestCase {
         XCTAssertNotNil(clipboard.item(withTitle: "Pause History"))
     }
 
+    func testMenuBarIconUsesNativeTemplateSymbol() throws {
+        let image = StatusBarController.makeMenuBarIcon()
+
+        XCTAssertTrue(image.isTemplate)
+        XCTAssertNotNil(image.symbolConfiguration)
+        XCTAssertEqual(image.size, NSSize(width: 18, height: 18))
+    }
+
     private func makeDefaults() -> UserDefaults {
         let name = "ProductUIRemediationTests.\(UUID().uuidString)"
         suiteNames.append(name)

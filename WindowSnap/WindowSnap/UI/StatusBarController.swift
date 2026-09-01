@@ -28,19 +28,42 @@ class StatusBarController: NSObject, NSMenuDelegate {
     private func setupStatusBar() {
         guard let button = statusItem.button else { return }
 
-        button.image = makeMenuBarIcon()
+        button.image = Self.makeMenuBarIcon()
         button.imageScaling = .scaleProportionallyDown
+        button.setAccessibilityLabel("WindowSnap")
 
         // Create the menu
         statusItem.menu = createContextMenu()
     }
 
-    private func makeMenuBarIcon() -> NSImage? {
-        let image = NSImage(named: "MenuBarIcon")
-            ?? NSImage(systemSymbolName: "rectangle.3.group", accessibilityDescription: "WindowSnap")
-            ?? NSImage(systemSymbolName: "rectangle.on.rectangle", accessibilityDescription: "WindowSnap")
-        image?.isTemplate = true
+    static func makeMenuBarIcon() -> NSImage {
+        let configuration = NSImage.SymbolConfiguration(pointSize: 15, weight: .medium)
+        let image = NSImage(
+            systemSymbolName: "rectangle.3.group",
+            accessibilityDescription: "WindowSnap"
+        )?.withSymbolConfiguration(configuration)
+            ?? makeFallbackMenuBarIcon()
+
+        image.size = NSSize(width: 18, height: 18)
+        image.isTemplate = true
         return image
+    }
+
+    private static func makeFallbackMenuBarIcon() -> NSImage {
+        NSImage(size: NSSize(width: 18, height: 18), flipped: false) { bounds in
+            NSColor.black.setStroke()
+
+            let frame = NSBezierPath(roundedRect: bounds.insetBy(dx: 2, dy: 3), xRadius: 1.5, yRadius: 1.5)
+            frame.lineWidth = 1.7
+            frame.stroke()
+
+            let divider = NSBezierPath()
+            divider.move(to: NSPoint(x: bounds.midX, y: bounds.minY + 3))
+            divider.line(to: NSPoint(x: bounds.midX, y: bounds.maxY - 3))
+            divider.lineWidth = 1.7
+            divider.stroke()
+            return true
+        }
     }
 
     private func createContextMenu() -> NSMenu {
@@ -139,10 +162,12 @@ class StatusBarController: NSObject, NSMenuDelegate {
         showVirtualDisplayItem.toolTip = "Open the selected region as a stable window for Zoom, Meet, Teams, and other screen sharing pickers"
         regionShareMenu.addItem(showVirtualDisplayItem)
 
-        let enableVirtualCameraItem = NSMenuItem(title: "Enable WindowSnap Virtual Camera", action: #selector(enableVirtualCameraShare), keyEquivalent: "")
-        enableVirtualCameraItem.target = self
-        enableVirtualCameraItem.toolTip = "Install or activate the WindowSnap Virtual Camera and stream the selected region to it"
-        regionShareMenu.addItem(enableVirtualCameraItem)
+        if VirtualCameraExtensionManager.shared.isAvailable {
+            let enableVirtualCameraItem = NSMenuItem(title: "Enable WindowSnap Virtual Camera", action: #selector(enableVirtualCameraShare), keyEquivalent: "")
+            enableVirtualCameraItem.target = self
+            enableVirtualCameraItem.toolTip = "Install or activate the WindowSnap Virtual Camera and stream the selected region to it"
+            regionShareMenu.addItem(enableVirtualCameraItem)
+        }
 
         let newRegionItem = NSMenuItem(title: "Select New Region…", action: #selector(selectNewRegion), keyEquivalent: "")
         newRegionItem.target = self

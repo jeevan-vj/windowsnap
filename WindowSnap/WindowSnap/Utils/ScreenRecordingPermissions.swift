@@ -104,6 +104,15 @@ final class ScreenRecordingPermissionCoordinator {
         return provider.requestAccess() ? .granted : .denied
     }
 
+    /// Retries the system registration only after an explicit recovery action.
+    /// This repairs a stale local "requested" flag when macOS has lost or reset
+    /// the corresponding TCC entry.
+    func retryAccess() -> ScreenRecordingPermissionState {
+        if provider.hasAccess() { return .granted }
+        store.hasRequestedScreenRecordingPermission = true
+        return provider.requestAccess() ? .granted : .denied
+    }
+
     func openSettings() {
         provider.openSettings()
     }
@@ -141,8 +150,7 @@ enum ScreenRecordingPermissions {
         case .notRequested:
             showPrimer(completion: completion)
         case .denied:
-            showSettingsRecovery()
-            completion(false)
+            showSettingsRecovery(completion: completion)
         case .restartRequired:
             showRestartRequiredAlert()
             completion(false)
@@ -167,7 +175,7 @@ enum ScreenRecordingPermissions {
         completion(state == .granted)
     }
 
-    private static func showSettingsRecovery() {
+    private static func showSettingsRecovery(completion: @escaping (Bool) -> Void) {
         let alert = NSAlert()
         alert.messageText = "Screen Recording Is Off"
         alert.informativeText = "Enable WindowSnap in Privacy & Security > Screen Recording, then return to WindowSnap."
@@ -175,7 +183,14 @@ enum ScreenRecordingPermissions {
         alert.addButton(withTitle: "Open System Settings")
         alert.addButton(withTitle: "Cancel")
         if alert.runModal() == .alertFirstButtonReturn {
-            coordinator.openSettings()
+            let state = coordinator.retryAccess()
+            lastKnownState = state
+            if state != .granted {
+                coordinator.openSettings()
+            }
+            completion(state == .granted)
+        } else {
+            completion(false)
         }
     }
 

@@ -58,10 +58,24 @@ enum InputMonitoringPermissions {
         let index = response.rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
         guard index >= 0, index < ordered.count else { return }
         switch ordered[index] {
-        case .inputMonitoring: openInputMonitoringSettings()
+        case .inputMonitoring: requestInputMonitoringAccess()
         case .accessibility: AccessibilityPermissions.openSecurityPreferences()
         case .screenRecording: break
         }
+    }
+
+    /// Registers WindowSnap with macOS before opening the Input Monitoring pane.
+    /// Merely opening System Settings does not add an app to the permission list.
+    @discardableResult
+    static func requestInputMonitoringAccess(
+        requestAccess: () -> Bool = { IOHIDRequestAccess(kIOHIDRequestTypeListenEvent) },
+        openSettings: () -> Void = { openInputMonitoringSettings() }
+    ) -> Bool {
+        let granted = requestAccess()
+        if !granted {
+            openSettings()
+        }
+        return granted
     }
 
     static func openInputMonitoringSettings() {

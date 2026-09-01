@@ -1,7 +1,9 @@
 import Foundation
+import AppKit
 import SystemExtensions
 
 enum VirtualCameraExtensionStatus: Equatable {
+    case unavailable
     case notRequested
     case activating
     case enabled
@@ -11,6 +13,8 @@ enum VirtualCameraExtensionStatus: Equatable {
 
     var displayText: String {
         switch self {
+        case .unavailable:
+            return "Not included in this build"
         case .notRequested:
             return "Not enabled"
         case .activating:
@@ -36,18 +40,30 @@ final class VirtualCameraExtensionManager: NSObject {
     static let extensionBundleIdentifier = "com.jeevanwijerathna.windowsnap.VirtualCameraExtension"
 
     private let activator: VirtualCameraExtensionActivating
-    private(set) var status: VirtualCameraExtensionStatus = .notRequested {
+    private let extensionAvailability: () -> Bool
+    private(set) var status: VirtualCameraExtensionStatus {
         didSet { onStatusChanged?(status) }
     }
 
+    var isAvailable: Bool { extensionAvailability() }
+
     var onStatusChanged: ((VirtualCameraExtensionStatus) -> Void)?
 
-    init(activator: VirtualCameraExtensionActivating = SystemExtensionActivator()) {
+    init(
+        activator: VirtualCameraExtensionActivating = SystemExtensionActivator(),
+        extensionAvailability: @escaping () -> Bool = VirtualCameraExtensionManager.hasBundledExtension
+    ) {
         self.activator = activator
+        self.extensionAvailability = extensionAvailability
+        status = extensionAvailability() ? .notRequested : .unavailable
         super.init()
     }
 
     func activate() {
+        guard isAvailable else {
+            status = .unavailable
+            return
+        }
         status = .activating
         activator.activateExtension(
             identifier: Self.extensionBundleIdentifier,
@@ -57,6 +73,18 @@ final class VirtualCameraExtensionManager: NSObject {
 
     func resetForTesting(to status: VirtualCameraExtensionStatus = .notRequested) {
         self.status = status
+    }
+
+    func openSystemExtensionSettings() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security") else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    private static func hasBundledExtension() -> Bool {
+        let extensionURL = Bundle.main.bundleURL
+            .appendingPathComponent("Contents/Library/SystemExtensions", isDirectory: true)
+            .appendingPathComponent("\(extensionBundleIdentifier).systemextension", isDirectory: true)
+        return FileManager.default.fileExists(atPath: extensionURL.path)
     }
 }
 

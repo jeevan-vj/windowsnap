@@ -509,7 +509,7 @@ final class PreferencesWindow: NSWindowController, NSToolbarDelegate {
         case .notRequested:
             ScreenRecordingPermissions.requestPermissionForRegionShare { [weak self] _ in self?.refreshRegionShareControls() }
         case .denied:
-            ScreenRecordingPermissions.openScreenRecordingSettings()
+            ScreenRecordingPermissions.requestPermissionForRegionShare { [weak self] _ in self?.refreshRegionShareControls() }
         case .restartRequired:
             ScreenRecordingPermissions.showRestartRequiredAlert()
         case .granted:
@@ -518,6 +518,10 @@ final class PreferencesWindow: NSWindowController, NSToolbarDelegate {
     }
 
     @objc private func enableVirtualCameraFromPreferences() {
+        if VirtualCameraExtensionManager.shared.status == .needsApproval {
+            VirtualCameraExtensionManager.shared.openSystemExtensionSettings()
+            return
+        }
         RegionShareController.shared.enableVirtualCameraShare()
         refreshRegionShareControls()
     }
@@ -621,6 +625,10 @@ final class PreferencesWindow: NSWindowController, NSToolbarDelegate {
 
         let cameraStatus = VirtualCameraExtensionManager.shared.status
         virtualCameraStatusLabel?.stringValue = cameraStatus.displayText
+        enableVirtualCameraButton?.isHidden = !VirtualCameraExtensionManager.shared.isAvailable
+        enableVirtualCameraButton?.title = cameraStatus == .needsApproval
+            ? "Open System Settings…"
+            : "Enable Virtual Camera"
         switch cameraStatus {
         case .enabled: virtualCameraStatusLabel?.textColor = .systemGreen
         case .failed: virtualCameraStatusLabel?.textColor = .systemRed

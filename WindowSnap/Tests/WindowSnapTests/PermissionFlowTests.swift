@@ -25,6 +25,19 @@ final class PermissionFlowTests: XCTestCase {
         XCTAssertEqual(provider.requestCount, 1)
     }
 
+    func testScreenRecordingExplicitRecoveryRetriesAStaleRegistration() {
+        let provider = StubScreenRecordingProvider(hasAccess: false, requestResult: false)
+        let store = InMemoryScreenRecordingStore(hasRequested: true)
+        let coordinator = ScreenRecordingPermissionCoordinator(provider: provider, store: store)
+
+        XCTAssertEqual(coordinator.retryAccess(), .denied)
+        XCTAssertEqual(provider.requestCount, 1)
+
+        provider.requestResult = true
+        XCTAssertEqual(coordinator.retryAccess(), .granted)
+        XCTAssertEqual(provider.requestCount, 2)
+    }
+
     func testScreenRecordingNeverRequestsWhenAlreadyGranted() {
         let provider = StubScreenRecordingProvider(hasAccess: true, requestResult: true)
         let coordinator = ScreenRecordingPermissionCoordinator(
@@ -91,6 +104,33 @@ final class PermissionFlowTests: XCTestCase {
         XCTAssertEqual(controller.setDesiredEnabled(true), .running)
         XCTAssertTrue(manager.isEnabled)
         controller.setDesiredEnabled(false)
+    }
+
+    func testInputMonitoringSetupRequestsRegistrationBeforeOpeningSettings() {
+        var actions: [String] = []
+
+        let granted = InputMonitoringPermissions.requestInputMonitoringAccess(
+            requestAccess: {
+                actions.append("request")
+                return false
+            },
+            openSettings: { actions.append("openSettings") }
+        )
+
+        XCTAssertFalse(granted)
+        XCTAssertEqual(actions, ["request", "openSettings"])
+    }
+
+    func testInputMonitoringSetupDoesNotOpenSettingsWhenAlreadyGranted() {
+        var didOpenSettings = false
+
+        let granted = InputMonitoringPermissions.requestInputMonitoringAccess(
+            requestAccess: { true },
+            openSettings: { didOpenSettings = true }
+        )
+
+        XCTAssertTrue(granted)
+        XCTAssertFalse(didOpenSettings)
     }
 
     func testExistingIncompleteUserMigratesToPresentedWithoutPrompt() {
