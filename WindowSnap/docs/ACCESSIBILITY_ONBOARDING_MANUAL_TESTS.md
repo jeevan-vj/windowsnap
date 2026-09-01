@@ -47,11 +47,10 @@ Do not reset TCC on a machine where preserving the current permission decision i
 
 ## Optional-permission isolation
 
-1. With Screen Recording and Input Monitoring reset, launch WindowSnap and complete or dismiss Accessibility onboarding.
+1. With Screen Recording reset, launch WindowSnap and complete or dismiss Accessibility onboarding.
 2. Confirm neither optional permission is requested during launch or Accessibility onboarding.
 3. Invoke Region Share and confirm Screen Recording is requested only from that feature flow.
-4. With Text Expander disabled, confirm Input Monitoring is not requested. Enable or use Text Expander and confirm its permission guidance appears only then.
-5. In the Text Expander setup alert, choose **Open Input Monitoring Settings**. Confirm macOS registers WindowSnap and that WindowSnap appears in Privacy & Security > Input Monitoring.
-6. Enable WindowSnap in that list, return to the app, and confirm Text Expander reports that it is ready to enable (or lists only Accessibility if that permission is still missing).
+4. Enable or use Text Expander and confirm it requests only Accessibility. Input Monitoring is not required because Accessibility grants the event listening and posting used by this feature.
+5. Grant Accessibility, return to WindowSnap, and confirm Text Expander reports that it is ready to enable.
 
 Record the macOS version, architecture, build identifier, and result for each path in the release checklist or pull request.

@@ -321,7 +321,7 @@ final class PreferencesWindow: NSWindowController, NSToolbarDelegate {
     private func makeTextExpanderView() -> NSView {
         let (view, stack) = makeScrollableSection(
             title: "Text Expander",
-            detail: "Type a trigger phrase and press Tab to insert its replacement. Accessibility and Input Monitoring are required only while this feature is enabled."
+            detail: "Type a trigger phrase and press Tab to insert its replacement. Accessibility access is required only while this feature is enabled."
         )
 
         let enabled = NSButton(

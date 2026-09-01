@@ -106,31 +106,15 @@ final class PermissionFlowTests: XCTestCase {
         controller.setDesiredEnabled(false)
     }
 
-    func testInputMonitoringSetupRequestsRegistrationBeforeOpeningSettings() {
-        var actions: [String] = []
-
-        let granted = InputMonitoringPermissions.requestInputMonitoringAccess(
-            requestAccess: {
-                actions.append("request")
-                return false
-            },
-            openSettings: { actions.append("openSettings") }
+    func testTextExpanderRequiresOnlyAccessibilityPermission() {
+        XCTAssertEqual(
+            InputMonitoringPermissions.missingPermissions(accessibilityGranted: false),
+            [.accessibility]
         )
-
-        XCTAssertFalse(granted)
-        XCTAssertEqual(actions, ["request", "openSettings"])
-    }
-
-    func testInputMonitoringSetupDoesNotOpenSettingsWhenAlreadyGranted() {
-        var didOpenSettings = false
-
-        let granted = InputMonitoringPermissions.requestInputMonitoringAccess(
-            requestAccess: { true },
-            openSettings: { didOpenSettings = true }
+        XCTAssertEqual(
+            InputMonitoringPermissions.missingPermissions(accessibilityGranted: true),
+            []
         )
-
-        XCTAssertTrue(granted)
-        XCTAssertFalse(didOpenSettings)
     }
 
     func testExistingIncompleteUserMigratesToPresentedWithoutPrompt() {

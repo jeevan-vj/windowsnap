@@ -1,13 +1,10 @@
 import Foundation
 import AppKit
-import IOKit
 
-/// Manages Input Monitoring and Accessibility permission checks for the text expander
+/// Manages the Accessibility permission required by the text expander.
+/// Accessibility grants both event listening and event posting on macOS, so
+/// requiring Input Monitoring as well would be redundant.
 enum InputMonitoringPermissions {
-    static func hasInputMonitoringAccess() -> Bool {
-        IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) == kIOHIDAccessTypeGranted
-    }
-
     static func hasAccessibilityAccess() -> Bool {
         AccessibilityPermissions.hasPermissions()
     }
@@ -16,11 +13,9 @@ enum InputMonitoringPermissions {
         missingPermissions().isEmpty
     }
 
-    static func missingPermissions() -> Set<PermissionKind> {
-        var missing: Set<PermissionKind> = []
-        if !hasInputMonitoringAccess() { missing.insert(.inputMonitoring) }
-        if !hasAccessibilityAccess() { missing.insert(.accessibility) }
-        return missing
+    static func missingPermissions(accessibilityGranted: Bool? = nil) -> Set<PermissionKind> {
+        let isGranted = accessibilityGranted ?? hasAccessibilityAccess()
+        return isGranted ? [] : [.accessibility]
     }
 
     static func canCreateEventTap() -> Bool {
@@ -48,39 +43,12 @@ enum InputMonitoringPermissions {
         alert.informativeText = "WindowSnap needs \(names) access to detect a trigger and insert its replacement. Enable the missing access in Privacy & Security, then return to WindowSnap."
         alert.alertStyle = .informational
 
-        let ordered = [PermissionKind.inputMonitoring, .accessibility].filter { missing.contains($0) }
-        for permission in ordered {
-            alert.addButton(withTitle: "Open \(permission.displayName) Settings")
-        }
+        alert.addButton(withTitle: "Open Accessibility Settings")
         alert.addButton(withTitle: "Cancel")
 
         let response = alert.runModal()
-        let index = response.rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
-        guard index >= 0, index < ordered.count else { return }
-        switch ordered[index] {
-        case .inputMonitoring: requestInputMonitoringAccess()
-        case .accessibility: AccessibilityPermissions.openSecurityPreferences()
-        case .screenRecording: break
-        }
-    }
-
-    /// Registers WindowSnap with macOS before opening the Input Monitoring pane.
-    /// Merely opening System Settings does not add an app to the permission list.
-    @discardableResult
-    static func requestInputMonitoringAccess(
-        requestAccess: () -> Bool = { IOHIDRequestAccess(kIOHIDRequestTypeListenEvent) },
-        openSettings: () -> Void = { openInputMonitoringSettings() }
-    ) -> Bool {
-        let granted = requestAccess()
-        if !granted {
-            openSettings()
-        }
-        return granted
-    }
-
-    static func openInputMonitoringSettings() {
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent") {
-            NSWorkspace.shared.open(url)
+        if response == .alertFirstButtonReturn {
+            AccessibilityPermissions.openSecurityPreferences()
         }
     }
 
