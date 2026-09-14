@@ -15,11 +15,12 @@ enum SnippetPasteboardWriter {
             let data = snippet.richData ?? Data(snippet.replacement.utf8)
             return [WriteItem(typeIdentifier: NSPasteboard.PasteboardType.rtf.rawValue, data: data)]
         case .image:
-            let data = snippet.richData ?? Data()
-            return [
-                WriteItem(typeIdentifier: NSPasteboard.PasteboardType.png.rawValue, data: data),
-                WriteItem(typeIdentifier: NSPasteboard.PasteboardType.tiff.rawValue, data: data),
-            ]
+            guard let data = snippet.richData, !data.isEmpty else { return [] }
+            var items = [WriteItem(typeIdentifier: NSPasteboard.PasteboardType.png.rawValue, data: data)]
+            if let image = NSImage(data: data), let tiff = image.tiffRepresentation {
+                items.append(WriteItem(typeIdentifier: NSPasteboard.PasteboardType.tiff.rawValue, data: tiff))
+            }
+            return items
         }
     }
 }

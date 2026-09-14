@@ -266,6 +266,15 @@ class StatusBarController: NSObject, NSMenuDelegate {
     }
 
     @objc private func toggleTextExpander(_ sender: NSMenuItem) {
+        let current = TextExpanderRuntimeController.shared.state
+        if case .needsPermission = current {
+            if !TextExpanderManager.shared.isEnabled {
+                _ = TextExpanderRuntimeController.shared.setDesiredEnabled(true)
+            }
+            InputMonitoringPermissions.showSetupAlert()
+            updateTextExpanderMenuItem(for: TextExpanderRuntimeController.shared.state)
+            return
+        }
         let newState = !TextExpanderManager.shared.isEnabled
         let state = TextExpanderRuntimeController.shared.setDesiredEnabled(newState)
         updateTextExpanderMenuItem(for: state)

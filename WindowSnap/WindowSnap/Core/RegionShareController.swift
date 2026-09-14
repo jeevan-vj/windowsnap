@@ -1,7 +1,7 @@
 import Foundation
 import AppKit
 
-class RegionShareController: NSObject {
+final class RegionShareController: NSObject {
 
     static let shared = RegionShareController()
 
@@ -9,8 +9,8 @@ class RegionShareController: NSObject {
     private var didHandleSelection = false
     private var mirrorWindow: RegionMirrorWindow?
     private var virtualCameraCaptureEngine: RegionCaptureEngine?
-    private var isStartingVirtualCameraCapture = false
     private var wantsVirtualCameraCapture = false
+    private var virtualCameraGeneration = 0
     private var pendingPresentationMode: RegionSharePresentationMode = .floatingMirror
 
     private override init() {
@@ -58,27 +58,18 @@ class RegionShareController: NSObject {
 
     func stopVirtualCameraShare() {
         wantsVirtualCameraCapture = false
-        guard let engine = virtualCameraCaptureEngine else {
-            RegionFrameHub.shared.markInactive()
-            return
-        }
-
-        virtualCameraCaptureEngine = nil
-        Task {
-            await engine.stopCapture()
-            RegionFrameHub.shared.markInactive()
-        }
+        stopVirtualCameraCapture()
     }
 
     private func showRegionShare(mode: RegionSharePresentationMode) {
         pendingPresentationMode = mode
-        if let existingMirror = mirrorWindow, existingMirror.isVisible {
+        if let existingMirror = mirrorWindow {
             existingMirror.updatePresentationMode(mode)
-            bringMirrorWindowToFront()
-            return
+            if existingMirror.isVisible {
+                bringMirrorWindowToFront()
+                return
+            }
         }
-
-        mirrorWindow = nil
 
         if let existingRegion = RegionShareManager.shared.currentRegion {
             if RegionShareManager.shared.isDisplayValid(existingRegion.displayID) {
@@ -109,51 +100,24 @@ class RegionShareController: NSObject {
     }
 
     func selectNewRegion() {
-        // Keep existing mirror window alive during reselection to avoid close/recreate races.
-        // #region agent log
-        RegionShareDebugLog.write(hypothesis: "S", message: "selectNewRegion preserve mirror", data: [
-            "runId": "post-fix-v8",
-            "hasMirror": mirrorWindow != nil,
-            "mirrorVisible": mirrorWindow?.isVisible ?? false
-        ], sync: true)
-        // #endregion
+        // Keep the existing mirror window alive during reselection to avoid close/recreate races.
         mirrorWindow?.stopCapture()
         mirrorWindow?.orderOut(nil)
-        stopVirtualCameraCaptureForReselection()
+        stopVirtualCameraCapture()
         RegionShareManager.shared.clearRegion()
         startRegionSelection()
     }
 
     func closeMirrorWindow() {
-        // #region agent log
-        RegionShareDebugLog.write(hypothesis: "Q", message: "closeMirrorWindow called", data: [
-            "runId": "post-fix-v6",
-            "hasMirror": mirrorWindow != nil,
-            "mirrorVisible": mirrorWindow?.isVisible ?? false
-        ], sync: true)
-        // #endregion
         mirrorWindow?.close()
         mirrorWindow = nil
     }
 
     private func closeSelectionOverlay() {
-        // #region agent log
-        RegionShareDebugLog.write(hypothesis: "F,G", message: "closeSelectionOverlay begin", data: [
-            "runId": "post-fix",
-            "windowCount": selectionWindows.count,
-            "appWindowCount": NSApp.windows.count
-        ], sync: true)
-        // #endregion
         for window in selectionWindows {
             window.close()
         }
         selectionWindows.removeAll()
-        // #region agent log
-        RegionShareDebugLog.write(hypothesis: "F,G", message: "closeSelectionOverlay end", data: [
-            "runId": "post-fix",
-            "appWindowCount": NSApp.windows.count
-        ], sync: true)
-        // #endregion
     }
 
     private func showSelectionOverlay() {
@@ -163,20 +127,6 @@ class RegionShareController: NSObject {
         didHandleSelection = false
 
         let displays = RegionShareManager.shared.getAllDisplays()
-
-        // #region agent log
-        RegionShareDebugLog.write(hypothesis: "A,B", message: "showSelectionOverlay creating overlays", data: {
-            var d: [String: Any] = [:]
-            d["runId"] = "post-fix"
-            d["mainDisplayID"] = CGMainDisplayID()
-            d["overlayCount"] = displays.count
-            d["displays"] = displays.map { id in
-                ["id": id, "bounds": NSStringFromRect(CGDisplayBounds(id))] as [String: Any]
-            }
-            return d
-        }())
-        // #endregion
-
         RegionShareManager.shared.setState(.selecting)
 
         for displayID in displays {
@@ -212,12 +162,6 @@ class RegionShareController: NSObject {
 
     private func createAndShowMirrorWindow(for region: ShareRegion, mode: RegionSharePresentationMode) {
         if let existingMirror = mirrorWindow {
-            // #region agent log
-            RegionShareDebugLog.write(hypothesis: "S", message: "reuse existing mirror window", data: [
-                "runId": "post-fix-v8",
-                "wasVisible": existingMirror.isVisible
-            ], sync: true)
-            // #endregion
             existingMirror.updatePresentationMode(mode)
             existingMirror.updateRegion(region)
             existingMirror.makeKeyAndOrderFront(nil)
@@ -225,29 +169,15 @@ class RegionShareController: NSObject {
             NSApp.activate(ignoringOtherApps: true)
             return
         }
-        // #region agent log
-        RegionShareDebugLog.write(hypothesis: "I", message: "createMirror: init start", data: ["runId": "post-fix"], sync: true)
-        // #endregion
         let window = RegionMirrorWindow(region: region, presentationMode: mode)
-        // #region agent log
-        RegionShareDebugLog.write(hypothesis: "I", message: "createMirror: init done", data: ["runId": "post-fix"], sync: true)
-        // #endregion
         window.makeKeyAndOrderFront(nil)
-        // #region agent log
-        RegionShareDebugLog.write(hypothesis: "I", message: "createMirror: ordered front", data: ["runId": "post-fix"], sync: true)
-        // #endregion
         window.startCapture()
-        // #region agent log
-        RegionShareDebugLog.write(hypothesis: "I", message: "createMirror: startCapture returned", data: ["runId": "post-fix"], sync: true)
-        // #endregion
-
         mirrorWindow = window
-
         NSApp.activate(ignoringOtherApps: true)
     }
 
     private func startVirtualCameraCapture(for region: ShareRegion) {
-        guard wantsVirtualCameraCapture, !isStartingVirtualCameraCapture else { return }
+        guard wantsVirtualCameraCapture else { return }
 
         guard let displayBounds = RegionShareManager.shared.getDisplayBounds(for: region.displayID) else {
             RegionShareManager.shared.clearRegion()
@@ -267,12 +197,15 @@ class RegionShareController: NSObject {
             return
         }
 
+        virtualCameraGeneration += 1
+        let generation = virtualCameraGeneration
         let absoluteRect = region.absoluteRect(for: displayBounds)
         let oldEngine = virtualCameraCaptureEngine
+        oldEngine?.requestStop()
+
         let engine = RegionCaptureEngine(displayID: region.displayID, cropRect: absoluteRect, frameRate: 30)
         engine.frameSink = RegionFrameHub.shared
         virtualCameraCaptureEngine = engine
-        isStartingVirtualCameraCapture = true
 
         Task { [weak self] in
             guard let controller = self else { return }
@@ -281,8 +214,12 @@ class RegionShareController: NSObject {
             do {
                 try await engine.startCapture()
                 await MainActor.run {
-                    guard controller.virtualCameraCaptureEngine === engine else { return }
-                    controller.isStartingVirtualCameraCapture = false
+                    guard controller.virtualCameraGeneration == generation,
+                          controller.wantsVirtualCameraCapture,
+                          controller.virtualCameraCaptureEngine === engine else {
+                        Task { await engine.stopCapture() }
+                        return
+                    }
                     RegionShareManager.shared.setState(.streaming)
                 }
             } catch {
@@ -290,7 +227,7 @@ class RegionShareController: NSObject {
                     if controller.virtualCameraCaptureEngine === engine {
                         controller.virtualCameraCaptureEngine = nil
                     }
-                    controller.isStartingVirtualCameraCapture = false
+                    guard controller.virtualCameraGeneration == generation else { return }
                     RegionFrameHub.shared.markInactive()
                     RegionShareManager.shared.setState(.idle)
                     print("❌ Failed to start virtual camera capture: \(error)")
@@ -299,8 +236,14 @@ class RegionShareController: NSObject {
         }
     }
 
-    private func stopVirtualCameraCaptureForReselection() {
-        guard let engine = virtualCameraCaptureEngine else { return }
+    private func stopVirtualCameraCapture() {
+        virtualCameraGeneration += 1
+        guard let engine = virtualCameraCaptureEngine else {
+            RegionFrameHub.shared.markInactive()
+            return
+        }
+
+        engine.requestStop()
         virtualCameraCaptureEngine = nil
         Task {
             await engine.stopCapture()
@@ -348,12 +291,6 @@ extension RegionShareController: RegionSelectionDelegate {
         didHandleSelection = true
         closeSelectionOverlay()
 
-        // #region agent log
-        RegionShareDebugLog.write(hypothesis: "I,J,K", message: "didComplete entry", data: [
-            "runId": "post-fix", "displayID": displayID, "rect": NSStringFromRect(rect)
-        ], sync: true)
-        // #endregion
-
         guard let displayBounds = RegionShareManager.shared.getDisplayBounds(for: displayID) else {
             print("❌ Could not get display bounds for selection")
             RegionShareManager.shared.setState(.idle)
@@ -362,14 +299,6 @@ extension RegionShareController: RegionSelectionDelegate {
 
         let boundedRect = rect.intersection(displayBounds)
         guard boundedRect.width >= 50 && boundedRect.height >= 50 else {
-            // #region agent log
-            RegionShareDebugLog.write(hypothesis: "L", message: "controller boundedRect too small", data: [
-                "runId": "post-fix-v3",
-                "rect": NSStringFromRect(rect),
-                "displayBounds": NSStringFromRect(displayBounds),
-                "boundedRect": NSStringFromRect(boundedRect)
-            ], sync: true)
-            // #endregion
             RegionShareManager.shared.setState(.idle)
             return
         }
@@ -378,34 +307,13 @@ extension RegionShareController: RegionSelectionDelegate {
         let region = ShareRegion(displayID: displayID, normalizedRect: normalizedRect)
 
         RegionShareManager.shared.setRegion(region)
-
-        // #region agent log
-        RegionShareDebugLog.write(hypothesis: "I,J,K", message: "didComplete before mirror", data: [
-            "runId": "post-fix", "normalizedRect": NSStringFromRect(normalizedRect),
-            "displayBounds": NSStringFromRect(displayBounds),
-            "boundedRect": NSStringFromRect(boundedRect)
-        ], sync: true)
-        // #endregion
-
         createAndShowMirrorWindow(for: region, mode: pendingPresentationMode)
         if wantsVirtualCameraCapture {
             startVirtualCameraCapture(for: region)
         }
-
-        // #region agent log
-        RegionShareDebugLog.write(hypothesis: "I,J,K", message: "didComplete after mirror", data: [
-            "runId": "post-fix"
-        ], sync: true)
-        // #endregion
     }
 
     func regionSelectionDidCancel() {
-        // #region agent log
-        RegionShareDebugLog.write(hypothesis: "F,G", message: "regionSelectionDidCancel", data: [
-            "runId": "post-fix",
-            "alreadyHandled": didHandleSelection
-        ], sync: true)
-        // #endregion
         guard !didHandleSelection else { return }
         didHandleSelection = true
         closeSelectionOverlay()

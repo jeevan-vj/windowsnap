@@ -26,7 +26,7 @@ enum InputMonitoringPermissions {
             place: .headInsertEventTap,
             options: .listenOnly,
             eventsOfInterest: eventMask,
-            callback: { _, _, event, _ in Unmanaged.passRetained(event) },
+            callback: { _, _, event, _ in Unmanaged.passUnretained(event) },
             userInfo: nil
         )
 

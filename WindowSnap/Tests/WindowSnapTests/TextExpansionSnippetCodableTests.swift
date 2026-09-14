@@ -62,7 +62,7 @@ final class SnippetPasteboardWriterTests: XCTestCase {
         XCTAssertEqual(items.first?.data, data)
     }
 
-    func testImageWritesPNGAndTIFFTypes() {
+    func testImageWritesPNGAndOptionalDecodedTIFF() {
         let data = Data([0x89, 0x50, 0x4E, 0x47])
         let snippet = TextExpansionSnippet(
             trigger: ":img",
@@ -71,7 +71,18 @@ final class SnippetPasteboardWriterTests: XCTestCase {
             richData: data
         )
         let items = SnippetPasteboardWriter.writeItems(for: snippet)
-        XCTAssertEqual(items.count, 2)
-        XCTAssertEqual(items.map(\.typeIdentifier).sorted(), ["public.png", "public.tiff"].sorted())
+        XCTAssertEqual(items.first?.typeIdentifier, "public.png")
+        XCTAssertEqual(items.first?.data, data)
+        XCTAssertFalse(items.contains(where: { $0.typeIdentifier == "public.tiff" && $0.data == data }))
+    }
+
+    func testImageWithEmptyDataWritesNothing() {
+        let snippet = TextExpansionSnippet(
+            trigger: ":img",
+            replacement: "image",
+            contentType: .image,
+            richData: Data()
+        )
+        XCTAssertTrue(SnippetPasteboardWriter.writeItems(for: snippet).isEmpty)
     }
 }

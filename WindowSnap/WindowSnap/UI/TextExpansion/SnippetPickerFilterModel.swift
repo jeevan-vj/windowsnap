@@ -14,10 +14,11 @@ struct SnippetPickerFilterModel {
     static func filter(
         snippets: [TextExpansionSnippet],
         searchText: String,
-        activeGroup: String?
+        activeGroup: String?,
+        includeDisabled: Bool = false
     ) -> [TextExpansionSnippet] {
         let trimmedSearch = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        var result = snippets.filter(\.isEnabled)
+        var result = includeDisabled ? snippets : snippets.filter(\.isEnabled)
 
         if let activeGroup, !activeGroup.isEmpty {
             result = result.filter { ($0.groupName ?? "Ungrouped") == activeGroup }

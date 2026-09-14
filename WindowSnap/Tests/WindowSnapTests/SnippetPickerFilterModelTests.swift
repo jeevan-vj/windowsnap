@@ -96,4 +96,26 @@ final class SnippetPickerFilterModelTests: XCTestCase {
 
         XCTAssertEqual(SnippetPickerFilterModel.firstSelectableRow(in: displayItems), 1)
     }
+
+    func testFilterIncludesDisabledSnippetsWhenRequested() {
+        let snippets = [
+            makeSnippet(trigger: ":on", replacement: "enabled"),
+            makeSnippet(trigger: ":off", replacement: "disabled", isEnabled: false),
+        ]
+
+        let enabledOnly = SnippetPickerFilterModel.filter(
+            snippets: snippets,
+            searchText: "",
+            activeGroup: nil
+        )
+        let includingDisabled = SnippetPickerFilterModel.filter(
+            snippets: snippets,
+            searchText: "",
+            activeGroup: nil,
+            includeDisabled: true
+        )
+
+        XCTAssertEqual(enabledOnly.map(\.trigger), [":on"])
+        XCTAssertEqual(Set(includingDisabled.map(\.trigger)), Set([":on", ":off"]))
+    }
 }

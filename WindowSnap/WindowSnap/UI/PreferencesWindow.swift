@@ -52,6 +52,8 @@ final class PreferencesWindow: NSWindowController, NSToolbarDelegate {
     private weak var textExpanderEnabledCheckbox: NSButton?
     private weak var textExpanderStatusLabel: NSTextField?
     private weak var textExpanderSetupButton: NSButton?
+    private weak var textExpanderCaseSensitiveCheckbox: NSButton?
+    private weak var textExpanderWordBoundaryCheckbox: NSButton?
     private weak var screenRecordingStatusLabel: NSTextField?
     private weak var screenRecordingSetupButton: NSButton?
     private weak var virtualCameraStatusLabel: NSTextField?
@@ -342,6 +344,24 @@ final class PreferencesWindow: NSWindowController, NSToolbarDelegate {
         textExpanderStatusLabel = status
         textExpanderSetupButton = setup
 
+        let caseSensitive = NSButton(
+            checkboxWithTitle: "Case-sensitive triggers",
+            target: self,
+            action: #selector(toggleTextExpanderCaseSensitive(_:))
+        )
+        caseSensitive.setAccessibilityLabel("Case-sensitive triggers")
+        stack.addArrangedSubview(caseSensitive)
+        textExpanderCaseSensitiveCheckbox = caseSensitive
+
+        let wordBoundary = NSButton(
+            checkboxWithTitle: "Require word boundary",
+            target: self,
+            action: #selector(toggleTextExpanderWordBoundary(_:))
+        )
+        wordBoundary.setAccessibilityLabel("Require word boundary")
+        stack.addArrangedSubview(wordBoundary)
+        textExpanderWordBoundaryCheckbox = wordBoundary
+
         let manage = NSButton(title: "Manage Snippets…", target: self, action: #selector(openTextExpanderWindow))
         stack.addArrangedSubview(manage)
         let stats = TextExpanderManager.shared.getUsageStats()
@@ -497,6 +517,18 @@ final class PreferencesWindow: NSWindowController, NSToolbarDelegate {
         InputMonitoringPermissions.showSetupAlert()
     }
 
+    @objc private func toggleTextExpanderCaseSensitive(_ sender: NSButton) {
+        var settings = TextExpanderManager.shared.settings
+        settings.caseSensitive = sender.state == .on
+        TextExpanderManager.shared.updateSettings(settings)
+    }
+
+    @objc private func toggleTextExpanderWordBoundary(_ sender: NSButton) {
+        var settings = TextExpanderManager.shared.settings
+        settings.requireWordBoundary = sender.state == .on
+        TextExpanderManager.shared.updateSettings(settings)
+    }
+
     @objc private func openTextExpanderWindow() {
         if textExpanderWindow == nil { textExpanderWindow = TextExpanderWindow() }
         textExpanderWindow?.showWindow(nil)
@@ -583,7 +615,10 @@ final class PreferencesWindow: NSWindowController, NSToolbarDelegate {
 
     private func refreshTextExpanderControls() {
         let state = TextExpanderRuntimeController.shared.state
-        textExpanderEnabledCheckbox?.state = state == .running ? .on : .off
+        textExpanderEnabledCheckbox?.state = TextExpanderManager.shared.isEnabled ? .on : .off
+        let settings = TextExpanderManager.shared.settings
+        textExpanderCaseSensitiveCheckbox?.state = settings.caseSensitive ? .on : .off
+        textExpanderWordBoundaryCheckbox?.state = settings.requireWordBoundary ? .on : .off
         switch state {
         case .running:
             textExpanderStatusLabel?.stringValue = "Enabled and running"

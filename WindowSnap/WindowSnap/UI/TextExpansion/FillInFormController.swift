@@ -169,9 +169,8 @@ final class FillInFormController: NSWindowController, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
-        guard completion != nil else { return }
+        let completion = CompletionSlot.take(&self.completion)
         completion?(nil)
-        completion = nil
     }
 
     func showModal() {
@@ -183,20 +182,20 @@ final class FillInFormController: NSWindowController, NSWindowDelegate {
         }
     }
 
-    @objc private func insertTapped() {
+    @objc func insertTapped() {
         var values: [String: String] = [:]
         for row in rows {
             values[row.name] = value(for: row)
         }
+        let completion = CompletionSlot.take(&self.completion)
         close()
         completion?(values)
-        completion = nil
     }
 
-    @objc private func cancelTapped() {
+    @objc func cancelTapped() {
+        let completion = CompletionSlot.take(&self.completion)
         close()
         completion?(nil)
-        completion = nil
     }
 
     private func value(for row: SnippetFormRow) -> String {

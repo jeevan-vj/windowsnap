@@ -25,6 +25,7 @@ class ThrowOverlayWindow: NSWindow {
         hasShadow = false
         ignoresMouseEvents = false
         collectionBehavior = [.canJoinAllSpaces, .stationary]
+        isReleasedWhenClosed = false
         
         // Make window cover the entire screen
         if let screen = NSScreen.main {

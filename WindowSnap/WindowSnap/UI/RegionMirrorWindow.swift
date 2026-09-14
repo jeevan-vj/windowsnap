@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 
-class RegionMirrorWindow: NSWindow {
+final class RegionMirrorWindow: NSWindow {
 
     private var captureEngine: RegionCaptureEngine?
     private var imageView: NSImageView?
@@ -10,19 +10,8 @@ class RegionMirrorWindow: NSWindow {
     private var isCapturing = false
     private var isStartingCapture = false
     private var isStopping = false
+    private var wantsCapture = false
     private var captureGeneration = 0
-    private var stopRequestGeneration = 0
-    private var didLogFirstFrame = false
-    private var hasLoggedFirstFrame = false
-
-    private func engineToken(_ engine: RegionCaptureEngine?) -> String {
-        guard let engine else { return "nil" }
-        return String(ObjectIdentifier(engine).hashValue)
-    }
-
-    private func isCurrentEngine(_ engine: RegionCaptureEngine) -> Bool {
-        captureEngine === engine
-    }
 
     private let minWindowSize = CGSize(width: 320, height: 180)
     private let defaultWindowSize = CGSize(width: 960, height: 540)
@@ -134,32 +123,22 @@ class RegionMirrorWindow: NSWindow {
     }
 
     func startCapture() {
-        guard !isCapturing && !isStartingCapture else {
-            // #region agent log
-            RegionShareDebugLog.write(hypothesis: "H6", message: "mirror startCapture blocked by guard", data: [
-                "runId": "run2",
-                "engine": engineToken(captureEngine),
-                "isCapturing": isCapturing,
-                "isStartingCapture": isStartingCapture,
-                "isStopping": isStopping
-            ], sync: true)
-            // #endregion
-            return
-        }
-
         guard let displayBounds = RegionShareManager.shared.getDisplayBounds(for: region.displayID) else {
             print("❌ Could not get display bounds")
             RegionShareManager.shared.setState(.idle)
             return
         }
 
-        isStartingCapture = true
-        isStopping = false
-        didLogFirstFrame = false
-        hasLoggedFirstFrame = false
+        wantsCapture = true
         captureGeneration += 1
         let generation = captureGeneration
+        isStartingCapture = true
+        isStopping = false
+
         let previousEngine = captureEngine
+        previousEngine?.delegate = nil
+        previousEngine?.requestStop()
+
         let absoluteRect = region.absoluteRect(for: displayBounds)
         let newEngine = RegionCaptureEngine(
             displayID: region.displayID,
@@ -168,62 +147,24 @@ class RegionMirrorWindow: NSWindow {
         )
         captureEngine = newEngine
         newEngine.delegate = self
-        // #region agent log
-        RegionShareDebugLog.write(hypothesis: "H1,H2", message: "mirror startCapture transition", data: [
-            "runId": "run1",
-            "generation": generation,
-            "previousEngine": engineToken(previousEngine),
-            "newEngine": engineToken(newEngine),
-            "isCapturing": isCapturing,
-            "isStartingCapture": isStartingCapture,
-            "isStopping": isStopping
-        ], sync: true)
-        // #endregion
-
-        // #region agent log
-        RegionShareDebugLog.write(hypothesis: "M,N,O", message: "mirror startCapture begin", data: [
-            "runId": "post-fix-v10",
-            "displayID": region.displayID,
-            "absoluteRect": NSStringFromRect(absoluteRect),
-            "isStopping": isStopping,
-            "engine": engineToken(newEngine)
-        ], sync: true)
-        // #endregion
 
         Task { [weak self] in
-            guard let self = self else { return }
+            await previousEngine?.stopCapture()
+            guard let self else {
+                await newEngine.stopCapture()
+                return
+            }
 
             do {
                 try await newEngine.startCapture()
-
                 await MainActor.run {
-                    if self.isStopping {
-                        Task {
-                            await newEngine.stopCapture()
-                            if self.captureEngine === newEngine {
-                                self.captureEngine = nil
-                            }
-                        }
-                    } else {
-                        self.isCapturing = true
-                        RegionShareManager.shared.setState(.streaming)
-                        // #region agent log
-                        RegionShareDebugLog.write(hypothesis: "H2", message: "mirror startCapture success state", data: [
-                            "runId": "run1",
-                            "generation": generation,
-                            "engine": self.engineToken(newEngine),
-                            "isCurrentEngine": self.isCurrentEngine(newEngine)
-                        ], sync: true)
-                        // #endregion
-                        // #region agent log
-                        RegionShareDebugLog.write(hypothesis: "M,N,O", message: "mirror capture streaming", data: [
-                            "runId": "post-fix-v4",
-                            "displayID": self.region.displayID
-                        ], sync: true)
-                        // #endregion
+                    guard self.captureGeneration == generation, self.wantsCapture else {
+                        Task { await newEngine.stopCapture() }
+                        return
                     }
+                    self.isCapturing = true
                     self.isStartingCapture = false
-                    self.isStopping = false
+                    RegionShareManager.shared.setState(.streaming)
                 }
             } catch {
                 await MainActor.run {
@@ -231,15 +172,9 @@ class RegionMirrorWindow: NSWindow {
                     if self.captureEngine === newEngine {
                         self.captureEngine = nil
                     }
-                    self.isStopping = false
+                    guard self.captureGeneration == generation else { return }
                     RegionShareManager.shared.setState(.idle)
                     print("❌ Failed to start capture: \(error)")
-                    // #region agent log
-                    RegionShareDebugLog.write(hypothesis: "M,N,O", message: "mirror startCapture catch", data: [
-                        "runId": "post-fix-v4",
-                        "error": String(describing: error)
-                    ], sync: true)
-                    // #endregion
                     self.showCaptureError(error)
                 }
             }
@@ -247,28 +182,14 @@ class RegionMirrorWindow: NSWindow {
     }
 
     func stopCapture() {
-        stopRequestGeneration += 1
-        let stopRequestID = stopRequestGeneration
-        // #region agent log
-        RegionShareDebugLog.write(hypothesis: "H2,H3", message: "mirror stopCapture invoked", data: [
-            "runId": "run1",
-            "engine": engineToken(captureEngine),
-            "isCapturing": isCapturing,
-            "isStartingCapture": isStartingCapture,
-            "isStopping": isStopping,
-            "stopRequestID": stopRequestID
-        ], sync: true)
-        // #endregion
-        if isStopping {
-            // #region agent log
-            RegionShareDebugLog.write(hypothesis: "H6", message: "mirror stopCapture re-entrant", data: [
-                "runId": "run2",
-                "engine": engineToken(captureEngine),
-                "stopRequestID": stopRequestID
-            ], sync: true)
-            // #endregion
-        }
+        wantsCapture = false
+        captureGeneration += 1
+        let generation = captureGeneration
         isStopping = true
+
+        captureEngine?.delegate = nil
+        captureEngine?.requestStop()
+        let engineAtStop = captureEngine
 
         guard isCapturing || isStartingCapture else {
             captureEngine = nil
@@ -277,45 +198,19 @@ class RegionMirrorWindow: NSWindow {
             return
         }
 
-        if isStartingCapture {
-            // #region agent log
-            RegionShareDebugLog.write(hypothesis: "H2", message: "mirror stopCapture deferred while starting", data: [
-                "runId": "run1",
-                "engine": engineToken(captureEngine),
-                "stopRequestID": stopRequestID
-            ], sync: true)
-            // #endregion
-            return
-        }
-
-        captureEngine?.delegate = nil
-        let engineAtStop = captureEngine
-        // #region agent log
-        RegionShareDebugLog.write(hypothesis: "U", message: "mirror stopCapture start", data: [
-            "runId": "post-fix-v10",
-            "engine": engineToken(engineAtStop)
-        ], sync: true)
-        // #endregion
-
         Task { [weak self] in
-            guard let self = self else { return }
             await engineAtStop?.stopCapture()
-
             await MainActor.run {
+                guard let self, self.captureGeneration == generation else { return }
                 if self.captureEngine === engineAtStop {
                     self.captureEngine = nil
                 }
                 self.isCapturing = false
+                self.isStartingCapture = false
                 self.isStopping = false
-                RegionShareManager.shared.setState(.idle)
-                // #region agent log
-                RegionShareDebugLog.write(hypothesis: "U", message: "mirror stopCapture complete", data: [
-                    "runId": "post-fix-v10",
-                    "stoppedEngine": self.engineToken(engineAtStop),
-                    "currentEngine": self.engineToken(self.captureEngine),
-                    "stopRequestID": stopRequestID
-                ], sync: true)
-                // #endregion
+                if !self.wantsCapture {
+                    RegionShareManager.shared.setState(.idle)
+                }
             }
         }
     }
@@ -338,28 +233,12 @@ class RegionMirrorWindow: NSWindow {
     }
 
     private func showCaptureError(_ error: Error) {
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-
-            let alert = NSAlert()
-            alert.messageText = "Capture Failed"
-            alert.informativeText = error.localizedDescription
-            alert.alertStyle = .warning
-            alert.addButton(withTitle: "OK")
-            alert.beginSheetModal(for: self)
-        }
-    }
-
-    deinit {
-        // #region agent log
-        RegionShareDebugLog.write(hypothesis: "H7", message: "mirror deinit", data: [
-            "runId": "run2",
-            "engine": engineToken(captureEngine),
-            "isCapturing": isCapturing,
-            "isStartingCapture": isStartingCapture,
-            "isStopping": isStopping
-        ], sync: true)
-        // #endregion
+        let alert = NSAlert()
+        alert.messageText = "Capture Failed"
+        alert.informativeText = error.localizedDescription
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        alert.beginSheetModal(for: self)
     }
 
     override var canBecomeKey: Bool { true }
@@ -368,24 +247,8 @@ class RegionMirrorWindow: NSWindow {
 
 extension RegionMirrorWindow: NSWindowDelegate {
     func windowWillClose(_ notification: Notification) {
-        // #region agent log
-        RegionShareDebugLog.write(hypothesis: "P", message: "mirror windowWillClose", data: [
-            "runId": "post-fix-v5",
-            "isCapturing": isCapturing,
-            "isStartingCapture": isStartingCapture
-        ], sync: true)
-        // #endregion
         captureEngine?.delegate = nil
         stopCapture()
-
-        // #region agent log
-        RegionShareDebugLog.write(hypothesis: "P", message: "mirror windowWillClose post-stop", data: [
-            "runId": "post-fix-v6",
-            "isCapturing": isCapturing,
-            "isStartingCapture": isStartingCapture
-        ], sync: true)
-        // #endregion
-
         RegionShareManager.shared.updateMirrorWindowFrame(frame)
     }
 
@@ -400,75 +263,19 @@ extension RegionMirrorWindow: NSWindowDelegate {
 
 extension RegionMirrorWindow: RegionCaptureDelegate {
     func captureEngine(_ engine: RegionCaptureEngine, didOutputFrame image: CGImage) {
-        let staleEngine = !isCurrentEngine(engine)
-        if staleEngine {
-            // #region agent log
-            RegionShareDebugLog.write(hypothesis: "H1", message: "stale didOutputFrame callback", data: [
-                "runId": "run1",
-                "callbackEngine": engineToken(engine),
-                "currentEngine": engineToken(captureEngine),
-                "isStopping": isStopping
-            ], sync: true)
-            // #endregion
-        }
-        guard !isStopping, isVisible, contentView != nil, imageView != nil else { return }
-        // #region agent log
-        if !hasLoggedFirstFrame {
-            hasLoggedFirstFrame = true
-            didLogFirstFrame = true
-            RegionShareDebugLog.write(hypothesis: "M,N", message: "mirror first frame received", data: [
-                "runId": "post-fix-v4",
-                "imageW": image.width,
-                "imageH": image.height
-            ], sync: true)
-        }
-        // #endregion
+        guard engine === captureEngine, !isStopping, isVisible, imageView != nil else { return }
         removePlaceholder()
 
         let nsImage = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
         imageView?.image = nsImage
-        // #region agent log
-        if didLogFirstFrame {
-            RegionShareDebugLog.write(hypothesis: "M,N", message: "mirror first frame rendered", data: [
-                "runId": "post-fix-v5"
-            ], sync: true)
-            didLogFirstFrame = false
-        }
-        // #endregion
     }
 
     func captureEngine(_ engine: RegionCaptureEngine, didFailWithError error: Error) {
-        let staleEngine = !isCurrentEngine(engine)
-        if staleEngine {
-            // #region agent log
-            RegionShareDebugLog.write(hypothesis: "H1,H4", message: "stale didFail callback", data: [
-                "runId": "run1",
-                "callbackEngine": engineToken(engine),
-                "currentEngine": engineToken(captureEngine),
-                "error": String(describing: error)
-            ], sync: true)
-            // #endregion
-        }
-        if isStopping || !isVisible {
-            // #region agent log
-            RegionShareDebugLog.write(hypothesis: "T", message: "mirror ignore fail while stopping/hidden", data: [
-                "runId": "post-fix-v9",
-                "isStopping": isStopping,
-                "isVisible": isVisible,
-                "error": String(describing: error)
-            ], sync: true)
-            // #endregion
-            return
-        }
+        guard engine === captureEngine else { return }
+        if isStopping || !isVisible { return }
         isCapturing = false
         isStartingCapture = false
         RegionShareManager.shared.setState(.idle)
-        // #region agent log
-        RegionShareDebugLog.write(hypothesis: "O", message: "mirror didFailWithError", data: [
-            "runId": "post-fix-v4",
-            "error": String(describing: error)
-        ], sync: true)
-        // #endregion
         showCaptureError(error)
     }
 }
@@ -484,13 +291,20 @@ extension RegionMirrorWindow: NSToolbarDelegate {
         return [Self.selectNewRegionItemID, .flexibleSpace]
     }
 
-    func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier, willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
+    func toolbar(
+        _ toolbar: NSToolbar,
+        itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
+        willBeInsertedIntoToolbar flag: Bool
+    ) -> NSToolbarItem? {
         if itemIdentifier == Self.selectNewRegionItemID {
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
             item.label = "New Region"
             item.paletteLabel = "Select New Region"
             item.toolTip = "Select a new screen region to share"
-            item.image = NSImage(systemSymbolName: "rectangle.dashed.badge.record", accessibilityDescription: "Select New Region")
+            item.image = NSImage(
+                systemSymbolName: "rectangle.dashed.badge.record",
+                accessibilityDescription: "Select New Region"
+            )
             item.target = self
             item.action = #selector(selectNewRegionClicked)
             return item

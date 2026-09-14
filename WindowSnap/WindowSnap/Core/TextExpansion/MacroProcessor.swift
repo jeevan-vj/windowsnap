@@ -68,19 +68,13 @@ enum MacroProcessor {
         var date = now
         var format: String?
 
-        if parts.count == 1 {
-            if let offset = parseOffset(parts[0]) {
-                date = Calendar.current.date(byAdding: offset.component, value: offset.value, to: now) ?? now
-            } else {
-                format = parts[0]
+        if let offset = parseOffset(parts[0]) {
+            date = Calendar.current.date(byAdding: offset.component, value: offset.value, to: now) ?? now
+            if parts.count > 1 {
+                format = parts.dropFirst().joined(separator: ":")
             }
-        } else if parts.count >= 2 {
-            if let offset = parseOffset(parts[0]) {
-                date = Calendar.current.date(byAdding: offset.component, value: offset.value, to: now) ?? now
-                format = parts[1]
-            } else {
-                format = parts[0]
-            }
+        } else if !spec.isEmpty {
+            format = spec
         }
 
         if let format, !format.isEmpty {

@@ -48,20 +48,13 @@ final class TextExpanderRuntimeController {
 
     @discardableResult
     func setDesiredEnabled(_ enabled: Bool) -> TextExpanderRuntimeState {
-        let missing = missingPermissions()
-        manager.isEnabled = enabled && missing.isEmpty
+        manager.isEnabled = enabled
         return reconcile()
     }
 
     @discardableResult
     func reconcile() -> TextExpanderRuntimeState {
-        let missing = missingPermissions()
-        if !missing.isEmpty {
-            manager.isEnabled = false
-        }
-        let newState: TextExpanderRuntimeState = missing.isEmpty
-            ? (manager.isEnabled ? .running : .disabled)
-            : .needsPermission(missing)
+        let newState = state
         switch newState {
         case .running:
             engine.start()

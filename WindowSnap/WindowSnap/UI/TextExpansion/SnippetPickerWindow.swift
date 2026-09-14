@@ -16,7 +16,8 @@ final class SnippetPickerWindow: NSWindow {
     private var filteredSnippets: [TextExpansionSnippet] = []
     private var displayItems: [SnippetPickerSectionItem] = []
     private var selectedIndex: Int = 0
-    var onSnippetSelected: ((TextExpansionSnippet) -> Void)?
+    var onSnippetSelected: ((TextExpansionSnippet, NSRunningApplication?) -> Void)?
+    private var previousApp: NSRunningApplication?
 
     init() {
         super.init(
@@ -91,6 +92,7 @@ final class SnippetPickerWindow: NSWindow {
     }
 
     func presentNearMouse() {
+        previousApp = NSWorkspace.shared.frontmostApplication
         let mouseLocation = NSEvent.mouseLocation
         let screen = NSScreen.screens.first { NSMouseInRect(mouseLocation, $0.frame, false) } ?? NSScreen.main
         let visibleFrame = screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? .zero
@@ -162,8 +164,9 @@ final class SnippetPickerWindow: NSWindow {
 
     @objc private func insertSelectedSnippet() {
         guard let snippet = selectedSnippet() else { return }
+        let targetApp = previousApp
         orderOut(nil)
-        onSnippetSelected?(snippet)
+        onSnippetSelected?(snippet, targetApp)
     }
 
     override func keyDown(with event: NSEvent) {

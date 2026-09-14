@@ -94,14 +94,14 @@ final class PermissionFlowTests: XCTestCase {
         let controller = TextExpanderRuntimeController(manager: manager, missingPermissions: { missing })
 
         XCTAssertEqual(controller.setDesiredEnabled(true), .needsPermission([.accessibility]))
-        XCTAssertFalse(manager.isEnabled)
+        XCTAssertTrue(manager.isEnabled)
 
         missing = [.inputMonitoring]
         XCTAssertEqual(controller.setDesiredEnabled(true), .needsPermission([.inputMonitoring]))
-        XCTAssertFalse(manager.isEnabled)
+        XCTAssertTrue(manager.isEnabled)
 
         missing = []
-        XCTAssertEqual(controller.setDesiredEnabled(true), .running)
+        XCTAssertEqual(controller.reconcile(), .running)
         XCTAssertTrue(manager.isEnabled)
         controller.setDesiredEnabled(false)
     }

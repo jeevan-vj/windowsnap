@@ -210,8 +210,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func showSnippetPicker() {
         if snippetPickerWindow == nil {
             snippetPickerWindow = SnippetPickerWindow()
-            snippetPickerWindow?.onSnippetSelected = { [weak self] snippet in
-                self?.textExpansionEngine?.performExpansion(snippet: snippet)
+            snippetPickerWindow?.onSnippetSelected = { [weak self] snippet, targetApp in
+                self?.textExpansionEngine?.performExpansion(snippet: snippet, targetApp: targetApp)
             }
         }
 

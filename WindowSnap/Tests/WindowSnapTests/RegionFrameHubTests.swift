@@ -35,7 +35,7 @@ final class RegionFrameHubTests: XCTestCase {
         XCTAssertTrue(metadata.isActive)
 
         let frameData = try Data(contentsOf: hub.currentFrameURL)
-        XCTAssertEqual(frameData.count, CVPixelBufferGetDataSize(pixelBuffer))
+        XCTAssertEqual(frameData.count, 64 * 36 * 4)
     }
 
     func testMarkInactiveReplacesLatestFrameWithPlaceholder() throws {

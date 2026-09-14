@@ -43,6 +43,21 @@ final class MacroProcessorTests: XCTestCase {
         XCTAssertEqual(result, formatter.string(from: fixedDate))
     }
 
+    func testDateFormatWithColons() {
+        let result = MacroProcessor.expand("{date:HH:mm}", now: fixedDate, clipboard: nil)
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        XCTAssertEqual(result, formatter.string(from: fixedDate))
+    }
+
+    func testDateOffsetAndFormatWithColons() {
+        let result = MacroProcessor.expand("{date:+1d:HH:mm}", now: fixedDate, clipboard: nil)
+        let expectedDate = Calendar.current.date(byAdding: .day, value: 1, to: fixedDate)!
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        XCTAssertEqual(result, formatter.string(from: expectedDate))
+    }
+
     func testCombinedOffsetAndFormat() {
         let result = MacroProcessor.expand("{date:+1d:yyyy-MM-dd}", now: fixedDate, clipboard: nil)
         let expectedDate = Calendar.current.date(byAdding: .day, value: 1, to: fixedDate)!

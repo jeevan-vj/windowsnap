@@ -310,6 +310,21 @@ final class TextExpanderManager {
         return !replacement.isEmpty
     }
 
+    func validateContent(
+        contentType: SnippetContentType,
+        replacement: String,
+        richData: Data?
+    ) -> Bool {
+        switch contentType {
+        case .plainText:
+            return validateReplacement(replacement)
+        case .richText:
+            return !replacement.isEmpty || !(richData ?? Data()).isEmpty
+        case .image:
+            return !(richData ?? Data()).isEmpty
+        }
+    }
+
     // MARK: - Import/Export
 
     func exportSnippets() -> Data? {
@@ -330,7 +345,12 @@ final class TextExpanderManager {
             var seenTriggers = Set<String>()
 
             for snippet in importedSnippets {
-                guard validateTrigger(snippet.trigger), validateReplacement(snippet.replacement) else { continue }
+                guard validateTrigger(snippet.trigger),
+                      validateContent(
+                        contentType: snippet.contentType,
+                        replacement: snippet.replacement,
+                        richData: snippet.richData
+                      ) else { continue }
                 guard !seenTriggers.contains(snippet.trigger) else { continue }
                 seenTriggers.insert(snippet.trigger)
                 validSnippets.append(snippet)
@@ -514,7 +534,6 @@ final class TextExpanderManager {
             TextExpansionSnippet(trigger: ":gbr", replacement: "git branch", groupName: "Git"),
             TextExpansionSnippet(trigger: ":glog", replacement: "git log --oneline -10", groupName: "Git"),
             TextExpansionSnippet(trigger: ":gdf", replacement: "git diff", groupName: "Git"),
-            TextExpansionSnippet(trigger: ":grh", replacement: "git reset --hard HEAD", groupName: "Git"),
 
             // === CODE BLOCKS ===
             TextExpansionSnippet(trigger: ":try", replacement: "try {\n    {cursor}\n} catch (error) {\n    console.error(error);\n}", groupName: "Code"),

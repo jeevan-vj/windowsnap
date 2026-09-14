@@ -10,23 +10,20 @@ protocol RegionCaptureDelegate: AnyObject {
     func captureEngine(_ engine: RegionCaptureEngine, didFailWithError error: Error)
 }
 
-class RegionCaptureEngine: NSObject {
-    private static let lastStopLock = NSLock()
-    private static var lastStopCompletedAtMs: Int?
-
+final class RegionCaptureEngine: NSObject {
     weak var delegate: RegionCaptureDelegate?
     weak var frameSink: RegionFrameSink?
 
     private var stream: SCStream?
     private var streamOutput: CaptureStreamOutput?
-    private var isRunning = false
-    private var isStoppingRequested = false
 
     private let displayID: CGDirectDisplayID
     private var _cropRect: CGRect
     private let frameRate: Int
-    private let engineID = UUID().uuidString
-    private let sampleHandlerQueue = DispatchQueue(label: "com.windowsnap.regionshare.sample-handler", qos: .userInteractive)
+    private let sampleHandlerQueue = DispatchQueue(
+        label: "com.windowsnap.regionshare.sample-handler",
+        qos: .userInteractive
+    )
 
     private let cropRectLock = NSLock()
     private var cropRect: CGRect {
@@ -44,12 +41,9 @@ class RegionCaptureEngine: NSObject {
 
     private let ciContext = CIContext(options: [.useSoftwareRenderer: false])
     private let renderLock = NSLock()
-    private var didLogFirstFrame = false
-    private let frameStateLock = NSLock()
-    private var frameSequence = 0
-    private var didLogEarlyDropWhileStopping = false
-    private var inFlightFrames = 0
-    private var didLogConcurrentFrameProcessing = false
+    private let stateLock = NSLock()
+    private var isRunning = false
+    private var isStoppingRequested = false
 
     init(displayID: CGDirectDisplayID, cropRect: CGRect, frameRate: Int = 30) {
         self.displayID = displayID
@@ -62,67 +56,30 @@ class RegionCaptureEngine: NSObject {
         cropRect = rect
     }
 
-    func startCapture() async throws {
-        guard !isRunning else { return }
-        isStoppingRequested = false
-        let nowMs = Int(Date().timeIntervalSince1970 * 1000)
-        Self.lastStopLock.lock()
-        let previousStopMs = Self.lastStopCompletedAtMs
-        Self.lastStopLock.unlock()
-        let msSinceLastStop = previousStopMs.map { nowMs - $0 } ?? -1
-        // #region agent log
-        RegionShareDebugLog.write(hypothesis: "H5", message: "engine startCapture entry", data: [
-            "runId": "run6",
-            "engineID": engineID,
-            "displayID": displayID,
-            "isRunning": isRunning,
-            "isMainThread": Thread.isMainThread,
-            "msSinceLastStop": msSinceLastStop
-        ], sync: true)
-        // #endregion
+    /// Marks the engine so an in-flight `startCapture()` aborts after the next await.
+    func requestStop() {
+        stateLock.lock()
+        isStoppingRequested = true
+        stateLock.unlock()
+    }
 
-        // #region agent log
-        RegionShareDebugLog.write(hypothesis: "H14,H15", message: "engine content fetch begin", data: [
-            "runId": "run6",
-            "engineID": engineID,
-            "displayID": displayID,
-            "isMainThread": Thread.isMainThread,
-            "msSinceLastStop": msSinceLastStop
-        ], sync: true)
-        // #endregion
-        let content: SCShareableContent
-        do {
-            content = try await SCShareableContent.current
-        } catch {
-            // #region agent log
-            RegionShareDebugLog.write(hypothesis: "H14,H15", message: "engine content fetch throw", data: [
-                "runId": "run6",
-                "engineID": engineID,
-                "error": String(describing: error)
-            ], sync: true)
-            // #endregion
-            throw error
-        }
-        // #region agent log
-        RegionShareDebugLog.write(hypothesis: "H14,H15", message: "engine content fetch end", data: [
-            "runId": "run6",
-            "engineID": engineID,
-            "displayCount": content.displays.count,
-            "isMainThread": Thread.isMainThread
-        ], sync: true)
-        // #endregion
+    func startCapture() async throws {
+        guard canBeginStart() else { return }
+
+        let content = try await SCShareableContent.current
+        guard !stopWasRequested() else { return }
 
         guard let display = content.displays.first(where: { $0.displayID == displayID }) else {
-            // #region agent log
-            RegionShareDebugLog.write(hypothesis: "J", message: "startCapture: display NOT found", data: ["runId": "post-fix", "displayID": displayID, "available": content.displays.map { $0.displayID }], sync: true)
-            // #endregion
             throw CaptureError.displayNotFound
         }
 
-        // #region agent log
-        RegionShareDebugLog.write(hypothesis: "J", message: "startCapture: display found", data: ["runId": "post-fix", "displayID": displayID, "w": display.width, "h": display.height], sync: true)
-        // #endregion
-        let filter = SCContentFilter(display: display, excludingWindows: [])
+        let excludedWindows: [SCWindow]
+        if let bundleID = Bundle.main.bundleIdentifier {
+            excludedWindows = content.windows.filter { $0.owningApplication?.bundleIdentifier == bundleID }
+        } else {
+            excludedWindows = []
+        }
+        let filter = SCContentFilter(display: display, excludingWindows: excludedWindows)
 
         let config = SCStreamConfiguration()
         config.width = Int(display.width)
@@ -133,44 +90,24 @@ class RegionCaptureEngine: NSObject {
         config.queueDepth = 3
 
         let stream = SCStream(filter: filter, configuration: config, delegate: self)
-
         let output = CaptureStreamOutput { [weak self] sampleBuffer in
             self?.processSampleBuffer(sampleBuffer)
         }
 
         try stream.addStreamOutput(output, type: .screen, sampleHandlerQueue: sampleHandlerQueue)
-
         try await stream.startCapture()
 
-        self.stream = stream
-        self.streamOutput = output
-        self.isRunning = true
+        if !commitStartedStream(stream, output: output) {
+            try? await stream.stopCapture()
+            return
+        }
 
-        // #region agent log
-        RegionShareDebugLog.write(hypothesis: "J", message: "startCapture: stream running", data: ["runId": "post-fix", "displayID": displayID], sync: true)
-        // #endregion
         print("🎬 Capture started for display \(displayID)")
     }
 
     func stopCapture() async {
-        // #region agent log
-        RegionShareDebugLog.write(hypothesis: "H5", message: "engine stopCapture entry", data: [
-            "runId": "run1",
-            "engineID": engineID,
-            "isRunning": isRunning,
-            "hasStream": stream != nil
-        ], sync: true)
-        // #endregion
-        guard isRunning, let stream = stream else {
-            // #region agent log
-            RegionShareDebugLog.write(hypothesis: "H5", message: "engine stopCapture no-op", data: [
-                "runId": "run1",
-                "engineID": engineID
-            ], sync: true)
-            // #endregion
-            return
-        }
-        isStoppingRequested = true
+        requestStop()
+        guard let stream = takeRunningStream() else { return }
 
         do {
             try await stream.stopCapture()
@@ -178,66 +115,50 @@ class RegionCaptureEngine: NSObject {
             print("⚠️ Error stopping capture: \(error)")
         }
 
-        self.stream = nil
-        self.streamOutput = nil
-        self.isRunning = false
-        self.isStoppingRequested = false
-        let stopCompletedMs = Int(Date().timeIntervalSince1970 * 1000)
-        Self.lastStopLock.lock()
-        Self.lastStopCompletedAtMs = stopCompletedMs
-        Self.lastStopLock.unlock()
-        // #region agent log
-        RegionShareDebugLog.write(hypothesis: "H5", message: "engine stopCapture complete", data: [
-            "runId": "run6",
-            "engineID": engineID,
-            "stopCompletedAtMs": stopCompletedMs
-        ], sync: true)
-        // #endregion
-
+        markStopped()
         print("⏹️ Capture stopped")
     }
 
+    private func canBeginStart() -> Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return !isRunning && !isStoppingRequested
+    }
+
+    private func stopWasRequested() -> Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return isStoppingRequested
+    }
+
+    private func commitStartedStream(_ stream: SCStream, output: CaptureStreamOutput) -> Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        if isStoppingRequested { return false }
+        self.stream = stream
+        self.streamOutput = output
+        self.isRunning = true
+        return true
+    }
+
+    private func takeRunningStream() -> SCStream? {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        guard isRunning else { return nil }
+        return stream
+    }
+
+    private func markStopped() {
+        stateLock.lock()
+        stream = nil
+        streamOutput = nil
+        isRunning = false
+        isStoppingRequested = false
+        stateLock.unlock()
+    }
+
     private func processSampleBuffer(_ sampleBuffer: CMSampleBuffer) {
-        frameStateLock.lock()
-        inFlightFrames += 1
-        let currentInFlightFrames = inFlightFrames
-        if currentInFlightFrames > 1, !didLogConcurrentFrameProcessing {
-            didLogConcurrentFrameProcessing = true
-            // #region agent log
-            RegionShareDebugLog.write(hypothesis: "H16", message: "concurrent frame processing detected", data: [
-                "runId": "post-fix-run7",
-                "engineID": engineID,
-                "inFlightFrames": currentInFlightFrames
-            ], sync: true)
-            // #endregion
-        }
-        frameStateLock.unlock()
-
-        defer {
-            frameStateLock.lock()
-            inFlightFrames -= 1
-            frameStateLock.unlock()
-        }
-
-        frameStateLock.lock()
-        frameSequence += 1
-        let currentFrame = frameSequence
-        frameStateLock.unlock()
-
-        if isStoppingRequested || (delegate == nil && frameSink == nil) {
-            if !didLogEarlyDropWhileStopping {
-                didLogEarlyDropWhileStopping = true
-                // #region agent log
-                RegionShareDebugLog.write(hypothesis: "H10", message: "engine dropped frame early", data: [
-                    "runId": "post-fix-run4",
-                    "engineID": engineID,
-                    "frame": currentFrame,
-                    "isStoppingRequested": isStoppingRequested,
-                    "delegateNil": delegate == nil,
-                    "frameSinkNil": frameSink == nil
-                ], sync: true)
-                // #endregion
-            }
+        if stopWasRequested() || (delegate == nil && frameSink == nil) {
             return
         }
 
@@ -267,24 +188,6 @@ class RegionCaptureEngine: NSObject {
             CGRect(x: 0, y: 0, width: pixelWidth, height: pixelHeight)
         )
 
-        // #region agent log
-        if !didLogFirstFrame {
-            didLogFirstFrame = true
-            RegionShareDebugLog.write(hypothesis: "K", message: "processSampleBuffer first frame", data: [
-                "runId": "post-fix-v2",
-                "displayID": displayID,
-                "displayBounds": NSStringFromRect(displayBounds),
-                "pixelW": CVPixelBufferGetWidth(pixelBuffer),
-                "pixelH": CVPixelBufferGetHeight(pixelBuffer),
-                "cropRect": NSStringFromRect(currentCropRect),
-                "localYFromBottom": localYFromBottom,
-                "localYFromTop": localYFromTop,
-                "scaledCropRect": NSStringFromRect(scaledCropRect),
-                "clampedCropRect": NSStringFromRect(clampedCropRect)
-            ], sync: true)
-        }
-        // #endregion
-
         guard clampedCropRect.width > 0, clampedCropRect.height > 0 else { return }
 
         let outputWidth = max(1, Int(clampedCropRect.width.rounded(.down)))
@@ -294,7 +197,12 @@ class RegionCaptureEngine: NSObject {
         var renderedPixelBuffer: CVPixelBuffer?
         autoreleasepool {
             let croppedImage = ciImage.cropped(to: clampedCropRect)
-            let translatedImage = croppedImage.transformed(by: CGAffineTransform(translationX: -clampedCropRect.origin.x, y: -clampedCropRect.origin.y))
+            let translatedImage = croppedImage.transformed(
+                by: CGAffineTransform(
+                    translationX: -clampedCropRect.origin.x,
+                    y: -clampedCropRect.origin.y
+                )
+            )
             renderLock.lock()
             renderedImage = ciContext.createCGImage(translatedImage, from: outputRect)
             renderedPixelBuffer = makePixelBuffer(width: outputWidth, height: outputHeight)
@@ -359,47 +267,21 @@ class RegionCaptureEngine: NSObject {
             }
         }
     }
-
-    deinit {
-        // #region agent log
-        RegionShareDebugLog.write(hypothesis: "H7", message: "engine deinit", data: [
-            "runId": "run6",
-            "engineID": engineID,
-            "displayID": displayID,
-            "isRunning": isRunning,
-            "isStoppingRequested": isStoppingRequested
-        ], sync: true)
-        // #endregion
-    }
 }
 
 extension RegionCaptureEngine: SCStreamDelegate {
     func stream(_ stream: SCStream, didStopWithError error: Error) {
-        // #region agent log
-        RegionShareDebugLog.write(hypothesis: "H4,H5", message: "engine didStopWithError callback", data: [
-            "runId": "run1",
-            "engineID": engineID,
-            "isStoppingRequested": isStoppingRequested,
-            "isMainThread": Thread.isMainThread,
-            "error": String(describing: error)
-        ], sync: true)
-        // #endregion
-        if isStoppingRequested {
-            // #region agent log
-            RegionShareDebugLog.write(hypothesis: "T", message: "stream stopped during intentional stop", data: [
-                "runId": "post-fix-v9",
-                "displayID": displayID,
-                "error": String(describing: error)
-            ], sync: true)
-            // #endregion
-            isRunning = false
+        stateLock.lock()
+        let wasIntentional = isStoppingRequested
+        isRunning = false
+        if wasIntentional {
             isStoppingRequested = false
-            return
         }
+        stateLock.unlock()
+
+        if wasIntentional { return }
 
         print("❌ Stream stopped with error: \(error)")
-        isRunning = false
-
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
             self.delegate?.captureEngine(self, didFailWithError: error)
@@ -407,7 +289,7 @@ extension RegionCaptureEngine: SCStreamDelegate {
     }
 }
 
-private class CaptureStreamOutput: NSObject, SCStreamOutput {
+private final class CaptureStreamOutput: NSObject, SCStreamOutput {
     private let handler: (CMSampleBuffer) -> Void
 
     init(handler: @escaping (CMSampleBuffer) -> Void) {
@@ -415,7 +297,11 @@ private class CaptureStreamOutput: NSObject, SCStreamOutput {
         super.init()
     }
 
-    func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
+    func stream(
+        _ stream: SCStream,
+        didOutputSampleBuffer sampleBuffer: CMSampleBuffer,
+        of type: SCStreamOutputType
+    ) {
         guard type == .screen else { return }
         handler(sampleBuffer)
     }

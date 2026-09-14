@@ -11,7 +11,12 @@ class TextExpanderWindow: NSWindowController, NSTableViewDelegate, NSTableViewDa
     private var enabledCheckbox: NSButton!
     private var permissionStatusLabel: NSTextField!
     private var permissionButton: NSButton!
+    private var allSnippets: [TextExpansionSnippet] = []
     private var snippets: [TextExpansionSnippet] = []
+    private var searchField: NSSearchField!
+    private var caseSensitiveCheckbox: NSButton!
+    private var wordBoundaryCheckbox: NSButton!
+    private var snippetEditor: SnippetEditorWindow?
     private var runtimeStateObserver: NSObjectProtocol?
     
     override init(window: NSWindow?) {
@@ -21,7 +26,7 @@ class TextExpanderWindow: NSWindowController, NSTableViewDelegate, NSTableViewDa
     
     convenience init() {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 600, height: 450),
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 520),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
@@ -40,7 +45,7 @@ class TextExpanderWindow: NSWindowController, NSTableViewDelegate, NSTableViewDa
         window.title = "Text Expander"
         window.center()
         window.isRestorable = false
-        window.minSize = NSSize(width: 500, height: 350)
+        window.minSize = NSSize(width: 560, height: 420)
         
         setupContentView()
         loadSnippets()
@@ -59,6 +64,7 @@ class TextExpanderWindow: NSWindowController, NSTableViewDelegate, NSTableViewDa
         super.showWindow(sender)
         loadSnippets()
         updatePermissionStatus()
+        refreshMatchingSettings()
     }
     
     private func setupContentView() {
@@ -105,8 +111,36 @@ class TextExpanderWindow: NSWindowController, NSTableViewDelegate, NSTableViewDa
         contentView.addSubview(permissionButton)
         
         updatePermissionStatus()
+
+        yPos -= 28
+
+        caseSensitiveCheckbox = NSButton(
+            checkboxWithTitle: "Case-sensitive triggers",
+            target: self,
+            action: #selector(toggleCaseSensitive(_:))
+        )
+        caseSensitiveCheckbox.frame = NSRect(x: 20, y: yPos, width: 200, height: 22)
+        contentView.addSubview(caseSensitiveCheckbox)
+
+        wordBoundaryCheckbox = NSButton(
+            checkboxWithTitle: "Require word boundary",
+            target: self,
+            action: #selector(toggleWordBoundary(_:))
+        )
+        wordBoundaryCheckbox.frame = NSRect(x: 230, y: yPos, width: 200, height: 22)
+        contentView.addSubview(wordBoundaryCheckbox)
+        refreshMatchingSettings()
+
+        yPos -= 32
+
+        searchField = NSSearchField(frame: NSRect(x: 20, y: yPos, width: contentView.bounds.width - 40, height: 22))
+        searchField.placeholderString = "Search snippets"
+        searchField.target = self
+        searchField.action = #selector(searchChanged)
+        searchField.autoresizingMask = [.width]
+        contentView.addSubview(searchField)
         
-        yPos -= 35
+        yPos -= 10
         
         scrollView = NSScrollView(frame: NSRect(x: 20, y: 60, width: contentView.bounds.width - 40, height: yPos - 70))
         scrollView.hasVerticalScroller = true
@@ -186,13 +220,27 @@ class TextExpanderWindow: NSWindowController, NSTableViewDelegate, NSTableViewDa
     }
     
     private func loadSnippets() {
-        snippets = TextExpanderManager.shared.getAllSnippets()
+        allSnippets = TextExpanderManager.shared.getAllSnippets()
+        applyFilter()
+    }
+
+    private func applyFilter() {
+        snippets = SnippetPickerFilterModel.filter(
+            snippets: allSnippets,
+            searchText: searchField?.stringValue ?? "",
+            activeGroup: nil,
+            includeDisabled: true
+        )
         tableView.reloadData()
+    }
+
+    @objc private func searchChanged() {
+        applyFilter()
     }
     
     private func updatePermissionStatus() {
         let state = TextExpanderRuntimeController.shared.state
-        enabledCheckbox.state = state == .running ? .on : .off
+        enabledCheckbox.state = TextExpanderManager.shared.isEnabled ? .on : .off
         switch state {
         case .running:
             permissionStatusLabel.stringValue = "✓ Enabled and running"
@@ -223,6 +271,24 @@ class TextExpanderWindow: NSWindowController, NSTableViewDelegate, NSTableViewDa
     
     @objc private func requestPermission() {
         InputMonitoringPermissions.showSetupAlert()
+    }
+
+    private func refreshMatchingSettings() {
+        let settings = TextExpanderManager.shared.settings
+        caseSensitiveCheckbox?.state = settings.caseSensitive ? .on : .off
+        wordBoundaryCheckbox?.state = settings.requireWordBoundary ? .on : .off
+    }
+
+    @objc private func toggleCaseSensitive(_ sender: NSButton) {
+        var settings = TextExpanderManager.shared.settings
+        settings.caseSensitive = sender.state == .on
+        TextExpanderManager.shared.updateSettings(settings)
+    }
+
+    @objc private func toggleWordBoundary(_ sender: NSButton) {
+        var settings = TextExpanderManager.shared.settings
+        settings.requireWordBoundary = sender.state == .on
+        TextExpanderManager.shared.updateSettings(settings)
     }
     
     @objc private func addSnippet() {
@@ -339,109 +405,22 @@ class TextExpanderWindow: NSWindowController, NSTableViewDelegate, NSTableViewDa
     }
     
     private func showSnippetEditor(snippet: TextExpansionSnippet?) {
-        let alert = NSAlert()
-        alert.messageText = snippet == nil ? "Add Snippet" : "Edit Snippet"
-        alert.addButton(withTitle: "Save")
-        alert.addButton(withTitle: "Cancel")
-        
-        let accessoryView = NSView(frame: NSRect(x: 0, y: 0, width: 350, height: 160))
-        
-        let triggerLabel = NSTextField(labelWithString: "Trigger:")
-        triggerLabel.frame = NSRect(x: 0, y: 110, width: 80, height: 20)
-        accessoryView.addSubview(triggerLabel)
-        
-        let triggerField = NSTextField(frame: NSRect(x: 85, y: 108, width: 265, height: 24))
-        triggerField.stringValue = snippet?.trigger ?? ":"
-        triggerField.placeholderString = ":email"
-        accessoryView.addSubview(triggerField)
-        
-        let replacementLabel = NSTextField(labelWithString: "Replacement:")
-        replacementLabel.frame = NSRect(x: 0, y: 75, width: 80, height: 20)
-        accessoryView.addSubview(replacementLabel)
-        
-        let replacementScrollView = NSScrollView(frame: NSRect(x: 85, y: 40, width: 265, height: 80))
-        replacementScrollView.hasVerticalScroller = true
-        replacementScrollView.borderType = .bezelBorder
-        
-        let replacementTextView = NSTextView(frame: NSRect(x: 0, y: 0, width: 265, height: 80))
-        replacementTextView.isEditable = true
-        replacementTextView.isRichText = false
-        replacementTextView.font = NSFont.systemFont(ofSize: 13)
-        replacementTextView.string = snippet?.replacement ?? ""
-        replacementScrollView.documentView = replacementTextView
-        accessoryView.addSubview(replacementScrollView)
-
-        let groupLabel = NSTextField(labelWithString: "Group:")
-        groupLabel.frame = NSRect(x: 0, y: 10, width: 80, height: 20)
-        accessoryView.addSubview(groupLabel)
-
-        let groupField = NSTextField(frame: NSRect(x: 85, y: 8, width: 265, height: 24))
-        groupField.stringValue = snippet?.groupName ?? ""
-        groupField.placeholderString = "Work"
-        accessoryView.addSubview(groupField)
-
-        let hintLabel = NSTextField(labelWithString: "Use {date}, {time}, {cursor}, {field:Name}, {popup:Day:Mon|Tue|Wed}")
-        hintLabel.frame = NSRect(x: 85, y: -10, width: 265, height: 16)
-        hintLabel.font = NSFont.systemFont(ofSize: 10)
-        hintLabel.textColor = .secondaryLabelColor
-        accessoryView.addSubview(hintLabel)
-        
-        alert.accessoryView = accessoryView
-        
-        window?.makeFirstResponder(triggerField)
-        
-        while alert.runModal() == .alertFirstButtonReturn {
-            let trigger = triggerField.stringValue.trimmingCharacters(in: .whitespaces)
-            let replacement = replacementTextView.string
-            let groupName = groupField.stringValue.trimmingCharacters(in: .whitespaces)
-            let normalizedGroup = groupName.isEmpty ? nil : groupName
-            
-            guard TextExpanderManager.shared.validateTrigger(trigger) else {
-                let errorAlert = NSAlert()
-                errorAlert.messageText = "Invalid Trigger"
-                errorAlert.informativeText = "Trigger must be at least 2 characters and cannot contain newlines or tabs."
-                errorAlert.alertStyle = .warning
-                errorAlert.runModal()
-                continue
-            }
-            
-            guard TextExpanderManager.shared.validateReplacement(replacement) else {
-                let errorAlert = NSAlert()
-                errorAlert.messageText = "Invalid Replacement"
-                errorAlert.informativeText = "Replacement text cannot be empty."
-                errorAlert.alertStyle = .warning
-                errorAlert.runModal()
-                continue
-            }
-            
+        let editor = SnippetEditorWindow(snippet: snippet)
+        editor.onSave = { [weak self] updated in
             let saved: Bool
-            if let existingSnippet = snippet {
-                let updated = existingSnippet.withUpdate(
-                    trigger: trigger,
-                    replacement: replacement,
-                    groupName: .some(normalizedGroup)
-                )
+            if snippet != nil {
                 saved = TextExpanderManager.shared.updateSnippet(updated)
             } else {
-                let newSnippet = TextExpansionSnippet(
-                    trigger: trigger,
-                    replacement: replacement,
-                    groupName: normalizedGroup
-                )
-                saved = TextExpanderManager.shared.addSnippet(newSnippet)
+                saved = TextExpanderManager.shared.addSnippet(updated)
             }
-            if !saved {
-                let errorAlert = NSAlert()
-                errorAlert.messageText = snippet == nil ? "Add Failed" : "Update Failed"
-                errorAlert.informativeText = "A snippet with this trigger already exists."
-                errorAlert.alertStyle = .warning
-                errorAlert.runModal()
-                continue
+            if saved {
+                self?.loadSnippets()
             }
-            
-            loadSnippets()
-            break
+            return saved
         }
+        snippetEditor = editor
+        editor.showWindow(nil)
+        editor.window?.makeKeyAndOrderFront(nil)
     }
     
     // MARK: - NSTableViewDataSource
@@ -463,6 +442,7 @@ class TextExpanderWindow: NSWindowController, NSTableViewDelegate, NSTableViewDa
             let checkbox = NSButton(checkboxWithTitle: "", target: self, action: #selector(toggleSnippetEnabled(_:)))
             checkbox.state = snippet.isEnabled ? .on : .off
             checkbox.tag = row
+            checkbox.identifier = NSUserInterfaceItemIdentifier(snippet.id.uuidString)
             checkbox.setAccessibilityLabel("Enable snippet \(snippet.trigger)")
             return checkbox
             
@@ -496,10 +476,17 @@ class TextExpanderWindow: NSWindowController, NSTableViewDelegate, NSTableViewDa
     }
     
     @objc private func toggleSnippetEnabled(_ sender: NSButton) {
-        let row = sender.tag
-        guard row >= 0 && row < snippets.count else { return }
-        
-        _ = TextExpanderManager.shared.toggleSnippetEnabled(id: snippets[row].id)
+        let snippetID: UUID?
+        if let identifier = sender.identifier?.rawValue {
+            snippetID = UUID(uuidString: identifier)
+        } else if sender.tag >= 0 && sender.tag < snippets.count {
+            snippetID = snippets[sender.tag].id
+        } else {
+            snippetID = nil
+        }
+        guard let snippetID else { return }
+
+        _ = TextExpanderManager.shared.toggleSnippetEnabled(id: snippetID)
         loadSnippets()
     }
 }

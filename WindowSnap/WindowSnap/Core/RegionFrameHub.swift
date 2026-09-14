@@ -1,5 +1,6 @@
 import CoreMedia
 import CoreVideo
+import Darwin
 import Foundation
 
 struct RegionFrameMetadata: Codable, Equatable {
@@ -40,11 +41,19 @@ final class RegionFrameHub: RegionFrameSink {
             resolvedDirectory = directory
         } else if let appGroupURL = fileManager.containerURL(forSecurityApplicationGroupIdentifier: Self.appGroupIdentifier) {
             resolvedDirectory = appGroupURL.appendingPathComponent("RegionFrameHub", isDirectory: true)
+        } else if let appSupport = fileManager.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first {
+            resolvedDirectory = appSupport.appendingPathComponent(
+                "WindowSnap/RegionFrameHub",
+                isDirectory: true
+            )
         } else {
-            resolvedDirectory = fileManager
-                .urls(for: .applicationSupportDirectory, in: .userDomainMask)
-                .first!
-                .appendingPathComponent("WindowSnap/RegionFrameHub", isDirectory: true)
+            resolvedDirectory = fileManager.temporaryDirectory.appendingPathComponent(
+                "WindowSnap/RegionFrameHub",
+                isDirectory: true
+            )
         }
 
         self.directory = resolvedDirectory
@@ -112,9 +121,7 @@ final class RegionFrameHub: RegionFrameSink {
         CVPixelBufferLockBaseAddress(frame, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(frame, .readOnly) }
 
-        guard let baseAddress = CVPixelBufferGetBaseAddress(frame) else { return }
-        let byteCount = CVPixelBufferGetDataSize(frame)
-        let data = Data(bytes: baseAddress, count: byteCount)
+        guard let packedFrame = packedBGRAData(from: frame) else { return }
         let metadata = RegionFrameMetadata(
             width: CVPixelBufferGetWidth(frame),
             height: CVPixelBufferGetHeight(frame),
@@ -126,11 +133,35 @@ final class RegionFrameHub: RegionFrameSink {
         )
 
         do {
-            try data.write(to: frameURL, options: .atomic)
+            try packedFrame.write(to: frameURL, options: .atomic)
             let metadataData = try JSONEncoder().encode(metadata)
             try metadataData.write(to: metadataURL, options: .atomic)
         } catch {
             print("⚠️ Failed to publish region frame: \(error)")
         }
+    }
+
+    /// Copies BGRA pixels without row padding so the camera extension can
+    /// address them as `width * 4` bytes per row.
+    private func packedBGRAData(from frame: CVPixelBuffer) -> Data? {
+        guard let baseAddress = CVPixelBufferGetBaseAddress(frame) else { return nil }
+        let width = CVPixelBufferGetWidth(frame)
+        let height = CVPixelBufferGetHeight(frame)
+        let bytesPerRow = CVPixelBufferGetBytesPerRow(frame)
+        let packedBytesPerRow = width * 4
+        guard packedBytesPerRow > 0, height > 0, bytesPerRow >= packedBytesPerRow else { return nil }
+
+        var packed = Data(count: packedBytesPerRow * height)
+        packed.withUnsafeMutableBytes { dest in
+            guard let destBase = dest.baseAddress else { return }
+            for row in 0..<height {
+                memcpy(
+                    destBase.advanced(by: row * packedBytesPerRow),
+                    baseAddress.advanced(by: row * bytesPerRow),
+                    packedBytesPerRow
+                )
+            }
+        }
+        return packed
     }
 }

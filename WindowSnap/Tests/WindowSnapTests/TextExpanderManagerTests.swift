@@ -81,4 +81,21 @@ final class TextExpanderManagerTests: XCTestCase {
         XCTAssertTrue(manager.addSnippet(TextExpansionSnippet(trigger: ":two", replacement: "two")))
         XCTAssertNotNil(manager.findMatchingSnippet(for: ":two"))
     }
+
+    func testValidateContentRequiresImageData() {
+        XCTAssertTrue(manager.validateContent(contentType: .plainText, replacement: "hi", richData: nil))
+        XCTAssertFalse(manager.validateContent(contentType: .plainText, replacement: "", richData: nil))
+        XCTAssertTrue(manager.validateContent(contentType: .richText, replacement: "", richData: Data("rtf".utf8)))
+        XCTAssertFalse(manager.validateContent(contentType: .image, replacement: "Image", richData: nil))
+        XCTAssertTrue(manager.validateContent(contentType: .image, replacement: "Image", richData: Data([0x89])))
+    }
+
+    func testDefaultSnippetsDoNotIncludeHardGitReset() {
+        let suiteName = "TextExpanderDefaults.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        let populated = TextExpanderManager(userDefaults: defaults)
+        XCTAssertFalse(populated.getAllSnippets().contains { $0.trigger == ":grh" })
+        defaults.removePersistentDomain(forName: suiteName)
+    }
 }

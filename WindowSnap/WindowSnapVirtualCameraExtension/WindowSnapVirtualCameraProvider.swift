@@ -228,7 +228,10 @@ private final class SharedRegionFrameReader {
         guard let metadataData = try? Data(contentsOf: metadataURL),
               let metadata = try? JSONDecoder().decode(SharedRegionFrameMetadata.self, from: metadataData),
               let frameData = try? Data(contentsOf: frameURL),
-              metadata.pixelFormat == kCVPixelFormatType_32BGRA else {
+              metadata.pixelFormat == kCVPixelFormatType_32BGRA,
+              metadata.width > 0,
+              metadata.height > 0,
+              frameData.count == metadata.width * metadata.height * 4 else {
             return makePlaceholder(width: outputWidth, height: outputHeight)
         }
 

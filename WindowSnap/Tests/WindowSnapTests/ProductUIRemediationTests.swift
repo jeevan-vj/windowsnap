@@ -102,7 +102,17 @@ final class ProductUIRemediationTests: XCTestCase {
         )
 
         XCTAssertEqual(controller.setDesiredEnabled(true), .needsPermission([.inputMonitoring]))
-        XCTAssertFalse(manager.isEnabled)
+        XCTAssertTrue(manager.isEnabled)
+    }
+
+    func testSnippetEditorAndManagerWindowsLoad() throws {
+        let editor = SnippetEditorWindow(snippet: nil)
+        XCTAssertEqual(editor.window?.title, "Add Snippet")
+        XCTAssertNotNil(editor.window?.contentView)
+
+        let managerWindow = TextExpanderWindow()
+        XCTAssertEqual(managerWindow.window?.title, "Text Expander")
+        XCTAssertGreaterThanOrEqual(managerWindow.window?.minSize.height ?? 0, 420)
     }
 
     func testSettingsUsesFiveItemNativeToolbar() throws {

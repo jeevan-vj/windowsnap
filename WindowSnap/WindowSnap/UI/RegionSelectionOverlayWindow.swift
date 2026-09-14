@@ -13,7 +13,7 @@ private func screenMatchesDisplay(_ screen: NSScreen, _ displayID: CGDirectDispl
     return number.uint32Value == displayID
 }
 
-class RegionSelectionOverlayWindow: NSWindow {
+final class RegionSelectionOverlayWindow: NSWindow {
     
     weak var selectionDelegate: RegionSelectionDelegate?
     
@@ -42,17 +42,6 @@ class RegionSelectionOverlayWindow: NSWindow {
             defer: false
         )
         
-        // #region agent log
-        RegionShareDebugLog.write(hypothesis: "E", message: "overlay init frames", data: [
-            "displayID": displayID,
-            "runId": "post-fix",
-            "cgDisplayBounds": NSStringFromRect(self.displayBounds),
-            "matchedScreen": screen != nil,
-            "screenFrame": screen.map { NSStringFromRect($0.frame) } ?? "nil",
-            "windowFrame": NSStringFromRect(windowFrame)
-        ])
-        // #endregion
-        
         setupWindow(frame: windowFrame)
         setupSelectionView()
         setupKeyHandling()
@@ -78,6 +67,10 @@ class RegionSelectionOverlayWindow: NSWindow {
         ignoresMouseEvents = false
         animationBehavior = .none
         collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
+        // Swift owns this window via RegionShareController.selectionWindows.
+        // The AppKit default (true) extra-releases on close() and crashes on the
+        // next NSApplication autorelease-pool drain.
+        isReleasedWhenClosed = false
         
         setFrame(frame, display: true)
     }
@@ -116,15 +109,6 @@ class RegionSelectionOverlayWindow: NSWindow {
         let viewBounds = selectionView?.bounds ?? CGRect(origin: .zero, size: frame.size)
         let clampedRect = rect.intersection(viewBounds)
         
-        // #region agent log
-        RegionShareDebugLog.write(hypothesis: "L", message: "overlay selection clamp", data: [
-            "runId": "post-fix-v3",
-            "rawRect": NSStringFromRect(rect),
-            "viewBounds": NSStringFromRect(viewBounds),
-            "clampedRect": NSStringFromRect(clampedRect)
-        ], sync: true)
-        // #endregion
-        
         guard clampedRect.width >= 50 && clampedRect.height >= 50 else {
             print("⚠️ Selection too small, minimum 50x50")
             return
@@ -146,13 +130,6 @@ class RegionSelectionOverlayWindow: NSWindow {
     }
     
     private func handleCancel() {
-        // #region agent log
-        RegionShareDebugLog.write(hypothesis: "F,G", message: "overlay handleCancel", data: [
-            "displayID": displayID,
-            "runId": "post-fix",
-            "alreadyNotified": didNotifyDelegate
-        ], sync: true)
-        // #endregion
         guard !didNotifyDelegate else { return }
         didNotifyDelegate = true
         
@@ -167,36 +144,18 @@ class RegionSelectionOverlayWindow: NSWindow {
     }
     
     private func convertToScreenCoordinates(_ viewRect: CGRect) -> CGRect {
-        // NSView uses bottom-left origin within the overlay window. CGDisplayBounds uses
-        // bottom-left global display coordinates. Map the selection's distance-from-bottom
-        // proportionally into CG display space (NSScreen.frame and CGDisplayBounds can differ in Y).
-        let normalizedFromBottom = viewRect.origin.y / screenFrame.height
-        return CGRect(
-            x: displayBounds.origin.x + viewRect.origin.x,
-            y: displayBounds.origin.y + normalizedFromBottom * displayBounds.height,
-            width: viewRect.width,
-            height: viewRect.height
+        ShareRegion.captureRect(
+            fromViewRect: viewRect,
+            overlayFrame: screenFrame,
+            displayBounds: displayBounds
         )
     }
     
     override func close() {
-        // #region agent log
-        RegionShareDebugLog.write(hypothesis: "R", message: "overlay close begin", data: [
-            "runId": "post-fix-v7",
-            "displayID": displayID,
-            "hasContentView": contentView != nil
-        ], sync: true)
-        // #endregion
         removeKeyMonitor()
         selectionView?.onSelectionComplete = nil
         selectionView?.onSelectionCancel = nil
         super.close()
-        // #region agent log
-        RegionShareDebugLog.write(hypothesis: "R", message: "overlay close end", data: [
-            "runId": "post-fix-v7",
-            "displayID": displayID
-        ], sync: true)
-        // #endregion
     }
     
     deinit {

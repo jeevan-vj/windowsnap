@@ -16,7 +16,6 @@ final class TextExpansionEngine {
 
     private var isExpanding = false
     private var activeFillInFormController: FillInFormController?
-    private var expansionTargetApp: NSRunningApplication?
     private let expansionQueue = DispatchQueue(label: "com.windowsnap.textexpansion", qos: .userInteractive)
 
     private init() {
@@ -31,8 +30,13 @@ final class TextExpansionEngine {
 
     // MARK: - Expansion
 
-    func performExpansion(snippet: TextExpansionSnippet, triggerLength: Int = 0, values: [String: String] = [:]) {
-        guard !isExpanding else {
+    func performExpansion(
+        snippet: TextExpansionSnippet,
+        triggerLength: Int = 0,
+        values: [String: String] = [:],
+        targetApp: NSRunningApplication? = nil
+    ) {
+        guard !isExpanding, activeFillInFormController == nil else {
             AppLog.textExpansion.warning("Expansion already in progress, skipping")
             return
         }
@@ -40,9 +44,14 @@ final class TextExpansionEngine {
         if snippet.contentType == .plainText {
             let parsed = SnippetParser.parse(snippet.replacement)
             if parsed.hasFields && values.isEmpty {
-                expansionTargetApp = NSWorkspace.shared.frontmostApplication
+                let capturedApp = targetApp ?? NSWorkspace.shared.frontmostApplication
                 DispatchQueue.main.async { [weak self] in
-                    self?.presentFillInForm(for: snippet, triggerLength: triggerLength, parsed: parsed)
+                    self?.presentFillInForm(
+                        for: snippet,
+                        triggerLength: triggerLength,
+                        parsed: parsed,
+                        targetApp: capturedApp
+                    )
                 }
                 return
             }
@@ -54,12 +63,10 @@ final class TextExpansionEngine {
         AppLog.textExpansion.debug("Expanding snippet")
 
         let pasteboard = NSPasteboard.general
-        let previousContents = backupClipboard(pasteboard)
+        let previousContents = PasteboardSnapshot.capture(pasteboard)
         let prepared = prepareReplacement(for: snippet, values: values)
         let replacementText = prepared.text
         let leftArrowCount = prepared.leftArrowCount
-        let targetApp = expansionTargetApp
-        expansionTargetApp = nil
 
         let runKeyboardExpansion = { [weak self] in
             guard let self else { return }
@@ -77,33 +84,30 @@ final class TextExpansionEngine {
                     DispatchQueue.main.asyncAfter(deadline: .now() + ExpansionTiming.postPasteboardWriteDelay) {
                         self.simulatePaste()
 
-                        let finishExpansion = {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + ExpansionTiming.clipboardRestoreDelay) {
-                                self.restoreClipboard(
-                                    pasteboard,
-                                    contents: previousContents,
-                                    postWriteChangeCount: postWriteChangeCount
-                                )
+                        DispatchQueue.main.asyncAfter(deadline: .now() + ExpansionTiming.postPasteDelay) {
+                            self.expansionQueue.async {
+                                if let leftArrowCount, leftArrowCount > 0 {
+                                    self.moveCursorLeft(count: leftArrowCount)
+                                }
 
-                                TextExpanderManager.shared.recordExpansion(
-                                    trigger: snippet.trigger,
-                                    replacement: replacementText
-                                )
+                                DispatchQueue.main.asyncAfter(deadline: .now() + ExpansionTiming.clipboardRestoreDelay) {
+                                    if previousContents.restore(to: pasteboard, ifChangeCountIs: postWriteChangeCount) {
+                                        AppLog.textExpansion.debug("Clipboard restored")
+                                    } else {
+                                        AppLog.textExpansion.debug("Skipping clipboard restore; pasteboard changed since expansion write")
+                                    }
 
-                                self.isExpanding = false
-                                GlobalKeyCaptureService.shared.setExpanding(false)
+                                    TextExpanderManager.shared.recordExpansion(
+                                        trigger: snippet.trigger,
+                                        replacement: replacementText
+                                    )
 
-                                AppLog.textExpansion.debug("Expansion complete")
+                                    self.isExpanding = false
+                                    GlobalKeyCaptureService.shared.setExpanding(false)
+
+                                    AppLog.textExpansion.debug("Expansion complete")
+                                }
                             }
-                        }
-
-                        if let leftArrowCount, leftArrowCount > 0 {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + ExpansionTiming.postPasteDelay) {
-                                self.moveCursorLeft(count: leftArrowCount)
-                                finishExpansion()
-                            }
-                        } else {
-                            finishExpansion()
                         }
                     }
                 }
@@ -120,72 +124,28 @@ final class TextExpansionEngine {
         }
     }
 
-    private func presentFillInForm(for snippet: TextExpansionSnippet, triggerLength: Int, parsed: ParsedSnippet) {
+    private func presentFillInForm(
+        for snippet: TextExpansionSnippet,
+        triggerLength: Int,
+        parsed: ParsedSnippet,
+        targetApp: NSRunningApplication?
+    ) {
         let controller = FillInFormController(parsed: parsed) { [weak self] values in
             guard let self else { return }
             self.activeFillInFormController = nil
-            guard let values else {
-                self.isExpanding = false
-                GlobalKeyCaptureService.shared.setExpanding(false)
-                return
-            }
-            self.performExpansion(snippet: snippet, triggerLength: triggerLength, values: values)
+            guard let values else { return }
+            self.performExpansion(
+                snippet: snippet,
+                triggerLength: triggerLength,
+                values: values,
+                targetApp: targetApp
+            )
         }
         activeFillInFormController = controller
         controller.showModal()
     }
 
-    // MARK: - Clipboard Management
-
-    private struct ClipboardContents {
-        var items: [(NSPasteboard.PasteboardType, Data)] = []
-        var string: String?
-    }
-
-    private func backupClipboard(_ pasteboard: NSPasteboard) -> ClipboardContents {
-        var contents = ClipboardContents()
-
-        if let string = pasteboard.string(forType: .string) {
-            contents.string = string
-        }
-
-        if let items = pasteboard.pasteboardItems {
-            for item in items {
-                for type in item.types {
-                    if let data = item.data(forType: type) {
-                        contents.items.append((type, data))
-                    }
-                }
-            }
-        }
-
-        return contents
-    }
-
-    private func restoreClipboard(
-        _ pasteboard: NSPasteboard,
-        contents: ClipboardContents,
-        postWriteChangeCount: Int
-    ) {
-        guard pasteboard.changeCount == postWriteChangeCount else {
-            AppLog.textExpansion.debug("Skipping clipboard restore; pasteboard changed since expansion write")
-            return
-        }
-
-        pasteboard.clearContents()
-
-        if !contents.items.isEmpty {
-            let item = NSPasteboardItem()
-            for (type, data) in contents.items {
-                item.setData(data, forType: type)
-            }
-            pasteboard.writeObjects([item])
-        } else if let string = contents.string {
-            pasteboard.setString(string, forType: .string)
-        }
-
-        AppLog.textExpansion.debug("Clipboard restored")
-    }
+    // MARK: - Clipboard / Pasteboard
 
     private func writeToPasteboard(
         snippet: TextExpansionSnippet,
@@ -290,6 +250,10 @@ final class TextExpansionEngine {
     func stop() {
         GlobalKeyCaptureService.shared.stop()
         isExpanding = false
+        if let form = activeFillInFormController {
+            activeFillInFormController = nil
+            form.close()
+        }
         AppLog.textExpansion.info("TextExpansionEngine stopped")
     }
 

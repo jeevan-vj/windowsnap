@@ -9,6 +9,7 @@ final class GlobalKeyCaptureService {
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private var isRunning = false
+    private var appActivationObserver: NSObjectProtocol?
 
     private var typeBuffer: String = ""
     private let maxBufferLength = 64
@@ -34,6 +35,7 @@ final class GlobalKeyCaptureService {
 
         let eventMask: CGEventMask = (
             (1 << CGEventType.keyDown.rawValue)
+            | (1 << CGEventType.leftMouseDown.rawValue)
             | (1 << CGEventType.tapDisabledByTimeout.rawValue)
             | (1 << CGEventType.tapDisabledByUserInput.rawValue)
         )
@@ -45,7 +47,7 @@ final class GlobalKeyCaptureService {
             eventsOfInterest: eventMask,
             callback: { (proxy, type, event, refcon) -> Unmanaged<CGEvent>? in
                 guard let refcon = refcon else {
-                    return Unmanaged.passRetained(event)
+                    return Unmanaged.passUnretained(event)
                 }
 
                 let service = Unmanaged<GlobalKeyCaptureService>.fromOpaque(refcon).takeUnretainedValue()
@@ -69,6 +71,14 @@ final class GlobalKeyCaptureService {
         CFRunLoopAddSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
         CGEvent.tapEnable(tap: eventTap, enable: true)
 
+        appActivationObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            self?.clearBuffer()
+        }
+
         isRunning = true
         AppLog.textExpansion.info("GlobalKeyCaptureService started")
     }
@@ -82,6 +92,11 @@ final class GlobalKeyCaptureService {
 
         if let runLoopSource = runLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
+        }
+
+        if let appActivationObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(appActivationObserver)
+            self.appActivationObserver = nil
         }
 
         eventTap = nil
@@ -107,15 +122,25 @@ final class GlobalKeyCaptureService {
                 CGEvent.tapEnable(tap: tap, enable: true)
             }
             AppLog.textExpansion.debug("Re-enabled event tap after disable")
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
+        }
+
+        if TypeBufferPolicy.shouldClear(forEventType: type) {
+            clearBuffer()
+            return Unmanaged.passUnretained(event)
         }
 
         guard type == .keyDown else {
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
 
         guard !isExpanding else {
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
+        }
+
+        if TypeBufferPolicy.shouldIgnoreSecureInput(IsSecureEventInputEnabled()) {
+            clearBuffer()
+            return Unmanaged.passUnretained(event)
         }
 
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
@@ -126,7 +151,7 @@ final class GlobalKeyCaptureService {
 
         if hasCommand || hasControl {
             clearBuffer()
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
 
         if keyCode == Int64(kVK_Tab) {
@@ -141,29 +166,24 @@ final class GlobalKeyCaptureService {
                 return nil
             }
 
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
 
-        if keyCode == Int64(kVK_Escape) {
+        if TypeBufferPolicy.shouldClear(forKeyCode: keyCode) {
             clearBuffer()
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
 
         if keyCode == Int64(kVK_Delete) {
             if !typeBuffer.isEmpty {
                 typeBuffer.removeLast()
             }
-            return Unmanaged.passRetained(event)
-        }
-
-        if keyCode == Int64(kVK_Return) || keyCode == Int64(kVK_ANSI_KeypadEnter) {
-            clearBuffer()
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
 
         appendUnicodeString(from: event)
 
-        return Unmanaged.passRetained(event)
+        return Unmanaged.passUnretained(event)
     }
 
     // MARK: - Buffer Management
