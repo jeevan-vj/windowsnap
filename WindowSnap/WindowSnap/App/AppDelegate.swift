@@ -47,6 +47,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         clipboardManager?.stopMonitoring()
         textExpansionEngine?.stop()
         regionShareController?.stopVirtualCameraShare()
+        VirtualDisplayController.shared.disconnect()
         removeSleepWakeNotifications()
         stopHealthCheck()
     }
@@ -301,6 +302,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         
         regionShareController?.recoverVirtualCameraAfterWake()
+        VirtualDisplayController.shared.recoverAfterWake()
         windowManager = WindowManager.shared
         
         print("✅ WindowSnap reinitialized successfully after wake")

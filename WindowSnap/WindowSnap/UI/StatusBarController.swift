@@ -14,6 +14,8 @@ class StatusBarController: NSObject, NSMenuDelegate {
     private var textExpanderStateObserver: NSObjectProtocol?
     private var quickActionItems: [NSMenuItem] = []
     private weak var accessibilitySetupMenuItem: NSMenuItem?
+    private weak var connectVirtualScreenMenuItem: NSMenuItem?
+    private weak var disconnectVirtualScreenMenuItem: NSMenuItem?
 
     var menuForTesting: NSMenu? { statusItem.menu }
 
@@ -161,6 +163,18 @@ class StatusBarController: NSObject, NSMenuDelegate {
         showVirtualDisplayItem.toolTip = "Open the selected region as a stable window for Zoom, Meet, Teams, and other screen sharing pickers"
         regionShareMenu.addItem(showVirtualDisplayItem)
 
+        let connectVirtualScreenItem = NSMenuItem(title: "Connect Virtual Screen", action: #selector(connectVirtualScreen), keyEquivalent: "")
+        connectVirtualScreenItem.target = self
+        connectVirtualScreenItem.toolTip = "Create a real extra display named WindowSnap Display and open its preview"
+        regionShareMenu.addItem(connectVirtualScreenItem)
+        connectVirtualScreenMenuItem = connectVirtualScreenItem
+
+        let disconnectVirtualScreenItem = NSMenuItem(title: "Disconnect Virtual Screen", action: #selector(disconnectVirtualScreen), keyEquivalent: "")
+        disconnectVirtualScreenItem.target = self
+        disconnectVirtualScreenItem.toolTip = "Unplug the WindowSnap virtual display"
+        regionShareMenu.addItem(disconnectVirtualScreenItem)
+        disconnectVirtualScreenMenuItem = disconnectVirtualScreenItem
+
         if VirtualCameraExtensionManager.shared.isAvailable {
             let enableVirtualCameraItem = NSMenuItem(title: "Enable WindowSnap Virtual Camera", action: #selector(enableVirtualCameraShare), keyEquivalent: "")
             enableVirtualCameraItem.target = self
@@ -204,6 +218,7 @@ class StatusBarController: NSObject, NSMenuDelegate {
         menu.addItem(quitItem)
 
         refreshPermissionState()
+        refreshVirtualScreenMenuItems()
         updateTextExpanderMenuItem(for: TextExpanderRuntimeController.shared.state)
         return menu
     }
@@ -332,6 +347,7 @@ class StatusBarController: NSObject, NSMenuDelegate {
 
     func menuWillOpen(_ menu: NSMenu) {
         refreshPermissionState()
+        refreshVirtualScreenMenuItems()
         updateTextExpanderMenuItem(for: TextExpanderRuntimeController.shared.state)
     }
 
@@ -358,6 +374,20 @@ class StatusBarController: NSObject, NSMenuDelegate {
         RegionShareController.shared.showVirtualDisplayShare()
     }
 
+    @objc private func connectVirtualScreen() {
+        VirtualDisplayController.shared.connect()
+    }
+
+    @objc private func disconnectVirtualScreen() {
+        VirtualDisplayController.shared.disconnect()
+    }
+
+    private func refreshVirtualScreenMenuItems() {
+        let controller = VirtualDisplayController.shared
+        connectVirtualScreenMenuItem?.isEnabled = controller.state != .unavailable && controller.state != .connecting
+        disconnectVirtualScreenMenuItem?.isEnabled = controller.wantsConnection
+    }
+
     @objc private func enableVirtualCameraShare() {
         RegionShareController.shared.enableVirtualCameraShare()
     }
@@ -369,7 +399,13 @@ class StatusBarController: NSObject, NSMenuDelegate {
     @objc private func showRegionShareHelp() {
         let alert = NSAlert()
         alert.messageText = "Share WindowSnap Virtual Display"
-        alert.informativeText = "Choose Region Share > Show Virtual Display Window, then pick the window named “WindowSnap Virtual Display” in your video app's window sharing picker."
+        alert.informativeText = """
+        Virtual Screen: Choose Region Share > Connect Virtual Screen. In your video app, share the display named “WindowSnap Display”, or share the preview window with the same name.
+
+        Region window: Choose Show Virtual Display Window, then pick “WindowSnap Virtual Display” to share a cropped region of an existing screen.
+
+        Virtual Camera: Enable WindowSnap Virtual Camera and pick it as the camera.
+        """
         alert.alertStyle = .informational
         alert.addButton(withTitle: "OK")
         alert.runModal()

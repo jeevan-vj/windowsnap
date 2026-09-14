@@ -14,9 +14,14 @@ let package = Package(
     ],
     dependencies: [],
     targets: [
+        .target(
+            name: "CVirtualDisplay",
+            path: "CVirtualDisplay",
+            publicHeadersPath: "include"
+        ),
         .executableTarget(
             name: "WindowSnap",
-            dependencies: [],
+            dependencies: ["CVirtualDisplay"],
             path: "WindowSnap",
             exclude: ["App/Info.plist", "App/Assets.xcassets"],
             sources: [

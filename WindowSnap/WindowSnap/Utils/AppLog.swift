@@ -6,4 +6,5 @@ enum AppLog {
 
     static let textExpansion = Logger(subsystem: subsystem, category: "TextExpansion")
     static let permissions = Logger(subsystem: subsystem, category: "Permissions")
+    static let virtualDisplay = Logger(subsystem: subsystem, category: "VirtualDisplay")
 }

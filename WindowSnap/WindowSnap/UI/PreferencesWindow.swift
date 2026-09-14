@@ -61,6 +61,10 @@ final class PreferencesWindow: NSWindowController, NSToolbarDelegate {
     private weak var selectRegionButton: NSButton?
     private weak var openShareWindowButton: NSButton?
     private weak var enableVirtualCameraButton: NSButton?
+    private weak var virtualScreenStatusLabel: NSTextField?
+    private weak var connectVirtualScreenButton: NSButton?
+    private weak var disconnectVirtualScreenButton: NSButton?
+    private var virtualDisplayStateObserver: NSObjectProtocol?
 
     convenience init() {
         let window = NSWindow(
@@ -85,6 +89,9 @@ final class PreferencesWindow: NSWindowController, NSToolbarDelegate {
     }
 
     deinit {
+        if let virtualDisplayStateObserver {
+            NotificationCenter.default.removeObserver(virtualDisplayStateObserver)
+        }
         NotificationCenter.default.removeObserver(self)
     }
 
@@ -414,10 +421,35 @@ final class PreferencesWindow: NSWindowController, NSToolbarDelegate {
         openShareWindowButton = openShare
         enableVirtualCameraButton = enableCamera
 
-        let note = secondaryLabel("Use the share window while the optional virtual camera extension is awaiting approval or a restart.")
+        let virtualScreenRow = horizontalStack()
+        virtualScreenRow.addArrangedSubview(sectionHeading("Virtual Screen"))
+        let virtualScreenStatus = NSTextField(labelWithString: "")
+        virtualScreenRow.addArrangedSubview(virtualScreenStatus)
+        stack.addArrangedSubview(virtualScreenRow)
+        virtualScreenStatusLabel = virtualScreenStatus
+
+        let virtualScreenActions = horizontalStack()
+        let connectScreen = NSButton(title: "Connect Virtual Screen", target: self, action: #selector(connectVirtualScreenFromPreferences))
+        connectScreen.setAccessibilityLabel("Connect a real WindowSnap virtual display")
+        let disconnectScreen = NSButton(title: "Disconnect", target: self, action: #selector(disconnectVirtualScreenFromPreferences))
+        disconnectScreen.setAccessibilityLabel("Disconnect the WindowSnap virtual display")
+        virtualScreenActions.addArrangedSubview(connectScreen)
+        virtualScreenActions.addArrangedSubview(disconnectScreen)
+        stack.addArrangedSubview(virtualScreenActions)
+        connectVirtualScreenButton = connectScreen
+        disconnectVirtualScreenButton = disconnectScreen
+
+        let note = secondaryLabel("Region Share crops an existing screen. Virtual Screen adds a real extra display named WindowSnap Display. Use the share window while the optional virtual camera extension is awaiting approval or a restart.")
         stack.addArrangedSubview(note)
         VirtualCameraExtensionManager.shared.onStatusChanged = { [weak self] _ in
             DispatchQueue.main.async { self?.refreshRegionShareControls() }
+        }
+        virtualDisplayStateObserver = NotificationCenter.default.addObserver(
+            forName: VirtualDisplayController.didChangeStateNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.refreshVirtualScreenControls()
         }
         return view
     }
@@ -566,6 +598,16 @@ final class PreferencesWindow: NSWindowController, NSToolbarDelegate {
         RegionShareController.shared.showVirtualDisplayShare()
     }
 
+    @objc private func connectVirtualScreenFromPreferences() {
+        VirtualDisplayController.shared.connect()
+        refreshRegionShareControls()
+    }
+
+    @objc private func disconnectVirtualScreenFromPreferences() {
+        VirtualDisplayController.shared.disconnect()
+        refreshRegionShareControls()
+    }
+
     @objc private func applicationDidBecomeActive() {
         guard window?.isVisible == true else { return }
         refreshAllStates()
@@ -676,6 +718,38 @@ final class PreferencesWindow: NSWindowController, NSToolbarDelegate {
             selectedRegionLabel?.stringValue = "\(Int(rect.width)) × \(Int(rect.height))"
         } else {
             selectedRegionLabel?.stringValue = "No region selected"
+        }
+
+        refreshVirtualScreenControls()
+    }
+
+    private func refreshVirtualScreenControls() {
+        let controller = VirtualDisplayController.shared
+        connectVirtualScreenButton?.isEnabled = controller.state != .unavailable && controller.state != .connecting
+        disconnectVirtualScreenButton?.isEnabled = controller.wantsConnection
+
+        switch controller.state {
+        case .unavailable:
+            virtualScreenStatusLabel?.stringValue = "Unavailable on this macOS"
+            virtualScreenStatusLabel?.textColor = .secondaryLabelColor
+            connectVirtualScreenButton?.isEnabled = false
+        case .disconnected:
+            if controller.wantsConnection {
+                virtualScreenStatusLabel?.stringValue = "Reconnect needed"
+            } else {
+                virtualScreenStatusLabel?.stringValue = "Disconnected"
+            }
+            virtualScreenStatusLabel?.textColor = .secondaryLabelColor
+        case .connecting:
+            virtualScreenStatusLabel?.stringValue = "Connecting…"
+            virtualScreenStatusLabel?.textColor = .secondaryLabelColor
+        case .connected(let displayID):
+            if let bounds = RegionShareManager.shared.getDisplayBounds(for: displayID) {
+                virtualScreenStatusLabel?.stringValue = "Connected · \(Int(bounds.width)) × \(Int(bounds.height))"
+            } else {
+                virtualScreenStatusLabel?.stringValue = "Connected"
+            }
+            virtualScreenStatusLabel?.textColor = .systemGreen
         }
     }
 

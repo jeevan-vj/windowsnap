@@ -1,0 +1,5 @@
+module CVirtualDisplay {
+    header "CGVirtualDisplayPrivate.h"
+    export *
+    requires objc
+}
