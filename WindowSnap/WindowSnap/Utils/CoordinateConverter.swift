@@ -3,7 +3,42 @@ import AppKit
 import CoreGraphics
 
 class CoordinateConverter {
-    
+
+    /// Height of the primary display, used as the AX global Y origin (Spectacle-style).
+    static var primaryScreenHeight: CGFloat {
+        NSScreen.screens.first?.frame.height ?? 0
+    }
+
+    /// Convert an AppKit rect (bottom-left origin) to AX (top-left origin) using the primary screen height.
+    static func axRect(fromAppKitRect nsRect: CGRect, primaryScreenHeight: CGFloat) -> CGRect {
+        CGRect(
+            x: nsRect.origin.x,
+            y: primaryScreenHeight - nsRect.maxY,
+            width: nsRect.width,
+            height: nsRect.height
+        )
+    }
+
+    /// Convert an AX rect (top-left origin) to AppKit (bottom-left origin) using the primary screen height.
+    static func appKitRect(fromAXRect axRect: CGRect, primaryScreenHeight: CGFloat) -> CGRect {
+        CGRect(
+            x: axRect.origin.x,
+            y: primaryScreenHeight - axRect.maxY,
+            width: axRect.width,
+            height: axRect.height
+        )
+    }
+
+    /// Convert an AX point to AppKit using the primary screen height.
+    static func appKitPoint(fromAXPoint axPoint: CGPoint, primaryScreenHeight: CGFloat) -> CGPoint {
+        CGPoint(x: axPoint.x, y: primaryScreenHeight - axPoint.y)
+    }
+
+    /// Convert a global AppKit rect into the local coordinate space of a screen-sized overlay.
+    static func windowLocalRect(fromGlobalAppKitRect rect: CGRect, screenFrame: CGRect) -> CGRect {
+        rect.offsetBy(dx: -screenFrame.minX, dy: -screenFrame.minY)
+    }
+
     /// Convert from NSScreen coordinates (bottom-left origin) to Accessibility API coordinates (top-left origin)
     static func convertToAccessibilityCoordinates(_ point: CGPoint, on screen: NSScreen) -> CGPoint {
         let screenFrame = screen.frame

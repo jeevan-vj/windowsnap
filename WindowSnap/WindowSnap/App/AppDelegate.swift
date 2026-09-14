@@ -12,7 +12,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var throwController: WindowThrowController?
     private var workspaceManager: WorkspaceManager?
     private var clipboardManager: ClipboardManager?
-    private var clipboardHistoryWindow: ClipboardHistoryWindow?
     private var snippetPickerWindow: SnippetPickerWindow?
     private var textExpanderManager: TextExpanderManager?
     private var textExpansionEngine: TextExpansionEngine?
@@ -145,8 +144,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         throwController?.registerThrowShortcut(with: shortcutManager)
         
         // CLIPBOARD HISTORY FEATURE: Register clipboard history shortcut
-        let success = shortcutManager.registerGlobalShortcut("cmd+shift+v") { [weak self] in
-            self?.showClipboardHistory()
+        let success = shortcutManager.registerGlobalShortcut("cmd+shift+v") {
+            ClipboardHistoryPresenter.shared.toggle()
         }
         if !success {
             print("Failed to register clipboard history shortcut: cmd+shift+v")
@@ -192,19 +191,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         
         windowManager.snapWindow(focusedWindow, to: position)
-    }
-    
-    private func showClipboardHistory() {
-        if clipboardHistoryWindow == nil {
-            clipboardHistoryWindow = ClipboardHistoryWindow()
-        }
-
-        if clipboardHistoryWindow?.isVisible == true {
-            clipboardHistoryWindow?.requestClose()
-            return
-        }
-
-        clipboardHistoryWindow?.showWindow()
     }
 
     private func showSnippetPicker() {
@@ -346,11 +332,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         
-        guard accessibilityAvailable else { return }
+        if !AccessibilityPermissions.hasPermissions() {
+            accessibilityAvailable = false
+            return
+        }
+
+        accessibilityAvailable = true
 
         if !windowManager.testAccessibility() {
             print("⚠️ Health check failed - WindowManager accessibility lost - reinitializing...")
-            accessibilityAvailable = false
             scheduleWakeRecovery(delay: 0.5)
             return
         }

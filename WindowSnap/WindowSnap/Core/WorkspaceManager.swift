@@ -205,14 +205,11 @@ class WorkspaceManager {
         // Group windows by application
         for window in allWindows {
             let bundleId = getBundleIdentifier(for: window) ?? "unknown.\(window.applicationName)"
-            
-            // Determine screen index
-            let screenIndex = getScreenIndex(for: window)
-            
-            // Create window layout
+            let screenIndex = windowManager.screenIndexContainingAXRect(window.frame)
+            let appKitFrame = windowManager.appKitFrame(fromAX: window.frame)
             let windowLayout = WindowLayout(
                 windowTitle: window.windowTitle,
-                frame: window.frame,
+                frame: appKitFrame,
                 screenIndex: screenIndex
             )
             
@@ -313,36 +310,45 @@ class WorkspaceManager {
         }
         
         let currentWindows = windowManager.getAllWindows()
-        let appWindows = currentWindows.filter { $0.applicationName == appLayout.applicationName }
-        
+        var available = currentWindows.filter { $0.applicationName == appLayout.applicationName }
+
         var restoredCount = 0
-        
-        // Match saved window layouts with current windows (best effort)
-        for (index, windowLayout) in appLayout.windowLayouts.enumerated() {
-            guard index < appWindows.count else {
-                print("⚠️ Not enough windows for \(appLayout.applicationName)")
-                break
+
+        for windowLayout in appLayout.windowLayouts {
+            guard let currentWindow = Self.takeMatchingWindow(
+                title: windowLayout.windowTitle,
+                from: &available
+            ), currentWindow.axElement != nil else {
+                print("⚠️ No matching AX window for \(appLayout.applicationName) '\(windowLayout.windowTitle)'")
+                continue
             }
-            
-            let currentWindow = appWindows[index]
-            
-            // Get target screen
+
             guard let targetScreen = getScreen(at: windowLayout.screenIndex) else {
                 print("⚠️ Screen \(windowLayout.screenIndex) not available")
                 continue
             }
-            
-            // Calculate target frame for current screen setup
+
             let targetFrame = adjustFrameForCurrentScreen(windowLayout.frame, targetScreen: targetScreen)
-            
-            // Restore window position
             windowManager.moveAndResizeWindow(currentWindow, to: targetFrame)
             restoredCount += 1
-            
+
             print("   ✅ Restored: \(currentWindow.windowTitle) to screen \(windowLayout.screenIndex)")
         }
-        
+
         return restoredCount
+    }
+
+    /// Picks the window that should receive a saved layout.
+    /// Named titles must match exactly; untitled layouts take the next leftover window.
+    static func takeMatchingWindow(title: String, from available: inout [WindowInfo]) -> WindowInfo? {
+        if !title.isEmpty {
+            guard let index = available.firstIndex(where: { $0.windowTitle == title }) else {
+                return nil
+            }
+            return available.remove(at: index)
+        }
+        guard !available.isEmpty else { return nil }
+        return available.removeFirst()
     }
     
     // MARK: - Arrangement Management
@@ -489,19 +495,6 @@ class WorkspaceManager {
     private func getBundleIdentifier(for window: WindowInfo) -> String? {
         let runningApps = NSWorkspace.shared.runningApplications
         return runningApps.first { $0.processIdentifier == window.processID }?.bundleIdentifier
-    }
-    
-    /// Get the screen index for a window
-    private func getScreenIndex(for window: WindowInfo) -> Int {
-        let windowCenter = CGPoint(x: window.frame.midX, y: window.frame.midY)
-        
-        for (index, screen) in NSScreen.screens.enumerated() {
-            if screen.frame.contains(windowCenter) {
-                return index
-            }
-        }
-        
-        return 0 // Default to main screen
     }
     
     /// Get a running app by bundle identifier

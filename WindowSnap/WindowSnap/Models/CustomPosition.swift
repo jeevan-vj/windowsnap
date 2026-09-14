@@ -30,25 +30,32 @@ struct CustomPosition: Codable, Identifiable, Equatable {
         self.lastUsed = nil
     }
     
-    /// Create custom position from current window frame and screen
-    init?(name: String, from window: WindowInfo, on screen: NSScreen, shortcut: String? = nil) {
+    /// Create a custom position from an AppKit (bottom-left) window frame.
+    init?(name: String, appKitFrame: CGRect, on screen: NSScreen, shortcut: String? = nil) {
         let screenFrame = screen.visibleFrame
-        let windowFrame = window.frame
-        
-        // Validate that window is within screen bounds
-        guard screenFrame.contains(windowFrame) else {
+        let padded = screenFrame.insetBy(dx: -8, dy: -8)
+        guard padded.contains(CGPoint(x: appKitFrame.midX, y: appKitFrame.midY)) else {
             return nil
         }
-        
+
         self.id = UUID()
         self.name = name
-        self.widthPercent = windowFrame.width / screenFrame.width
-        self.heightPercent = windowFrame.height / screenFrame.height
-        self.xPercent = (windowFrame.minX - screenFrame.minX) / screenFrame.width
-        self.yPercent = (windowFrame.minY - screenFrame.minY) / screenFrame.height
+        self.widthPercent = max(0.0, min(1.0, appKitFrame.width / screenFrame.width))
+        self.heightPercent = max(0.0, min(1.0, appKitFrame.height / screenFrame.height))
+        self.xPercent = max(0.0, min(1.0, (appKitFrame.minX - screenFrame.minX) / screenFrame.width))
+        self.yPercent = max(0.0, min(1.0, (appKitFrame.minY - screenFrame.minY) / screenFrame.height))
         self.shortcut = shortcut
         self.createdDate = Date()
         self.lastUsed = nil
+    }
+
+    /// Create a custom position from a focused window whose `frame` is in AX space.
+    init?(name: String, from window: WindowInfo, on screen: NSScreen, shortcut: String? = nil) {
+        let appKitFrame = CoordinateConverter.appKitRect(
+            fromAXRect: window.frame,
+            primaryScreenHeight: CoordinateConverter.primaryScreenHeight
+        )
+        self.init(name: name, appKitFrame: appKitFrame, on: screen, shortcut: shortcut)
     }
     
     /// Calculate the actual frame for this custom position on the given screen
@@ -397,34 +404,31 @@ class CustomPositionManager {
     
     /// Get the screen containing the given window
     private func getScreenContainingWindow(_ window: WindowInfo) -> NSScreen? {
-        let windowCenter = CGPoint(
-            x: window.frame.midX,
-            y: window.frame.midY
-        )
-        
-        for screen in NSScreen.screens {
-            if screen.frame.contains(windowCenter) {
-                return screen
-            }
-        }
-        
-        return NSScreen.main
+        WindowManager.shared.screenContainingAXRect(window.frame)
     }
     
+    /// Create a custom position from a previously captured window (AX frame).
+    func createFromWindow(_ window: WindowInfo, name: String, shortcut: String? = nil) -> CustomPosition? {
+        guard let screen = WindowManager.shared.screenContainingAXRect(window.frame) else {
+            print("❌ Could not determine screen for custom position creation")
+            return nil
+        }
+
+        guard let position = CustomPosition(name: name, from: window, on: screen, shortcut: shortcut) else {
+            print("❌ Failed to create custom position from window")
+            return nil
+        }
+
+        return position
+    }
+
     /// Create a custom position from the current focused window
     func createFromCurrentWindow(name: String, shortcut: String? = nil) -> CustomPosition? {
-        guard let focusedWindow = WindowManager.shared.getFocusedWindow(),
-              let screen = getScreenContainingWindow(focusedWindow) else {
-            print("❌ No focused window or screen for custom position creation")
+        guard let focusedWindow = WindowManager.shared.getFocusedWindow() else {
+            print("❌ No focused window for custom position creation")
             return nil
         }
-        
-        guard let position = CustomPosition(name: name, from: focusedWindow, on: screen, shortcut: shortcut) else {
-            print("❌ Failed to create custom position from current window")
-            return nil
-        }
-        
-        return position
+        return createFromWindow(focusedWindow, name: name, shortcut: shortcut)
     }
     
     /// Validate a shortcut string

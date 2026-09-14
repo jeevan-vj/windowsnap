@@ -40,24 +40,21 @@ class WindowThrowController {
             return
         }
         
-        // Get the screen containing the window
-        guard let screen = getScreenContainingWindow(focusedWindow) else {
+        guard let screen = WindowManager.shared.screenContainingAXRect(focusedWindow.frame) else {
             print("❌ Could not determine screen for window")
             return
         }
-        
+
         print("🎯 Showing throw interface for window: '\(focusedWindow.windowTitle)'")
-        
-        // Calculate positions for this screen
+
         currentPositions = calculator.calculateThrowPositions(for: screen)
         currentWindow = focusedWindow
-        
-        // Create and show overlay
+
         overlayWindow = ThrowOverlayWindow()
-        overlayWindow?.displayPositions(currentPositions, for: focusedWindow)
+        overlayWindow?.displayPositions(currentPositions, for: focusedWindow, on: screen)
+        NSApp.activate(ignoringOtherApps: true)
         overlayWindow?.makeKeyAndOrderFront(nil)
-        
-        // Setup keyboard monitoring
+
         setupKeyboardMonitoring()
         isActive = true
         
@@ -141,23 +138,6 @@ class WindowThrowController {
             NSEvent.removeMonitor(monitor)
             keyEventMonitor = nil
         }
-    }
-    
-    /// Get the screen containing the given window
-    private func getScreenContainingWindow(_ window: WindowInfo) -> NSScreen? {
-        let windowCenter = CGPoint(
-            x: window.frame.midX,
-            y: window.frame.midY
-        )
-        
-        for screen in NSScreen.screens {
-            if screen.frame.contains(windowCenter) {
-                return screen
-            }
-        }
-        
-        // Fallback to main screen
-        return NSScreen.main
     }
     
     /// Check if throw overlay is currently active

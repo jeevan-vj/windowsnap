@@ -92,9 +92,15 @@ struct ClipboardHistoryItem: Codable {
             return content
             
         case .richText:
-            // For rich text, try to extract plain text for preview
-            let stripped = content.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression, range: nil)
-            return generatePreview(from: stripped, type: .text)
+            if let data = content.data(using: .utf8),
+               let attributed = try? NSAttributedString(
+                data: data,
+                options: [.documentType: NSAttributedString.DocumentType.rtf],
+                documentAttributes: nil
+               ) {
+                return generatePreview(from: attributed.string, type: .text)
+            }
+            return generatePreview(from: content, type: .text)
             
         case .image:
             return "[Image]"

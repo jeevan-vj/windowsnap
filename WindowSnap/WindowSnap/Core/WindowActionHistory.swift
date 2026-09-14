@@ -14,7 +14,7 @@ class WindowActionHistory {
     private let maxHistorySize = 50
     
     private struct LastActionInfo {
-        let position: GridPosition
+        let requestedPosition: GridPosition
         let windowID: String
         let cycleCount: Int
         let timestamp: Date
@@ -45,36 +45,34 @@ class WindowActionHistory {
         // Check if this is a continuation of the last action
         if let last = lastAction,
            last.windowID == windowID,
-           last.position.cycleGroup == position.cycleGroup,
+           last.requestedPosition.cycleGroup == position.cycleGroup,
            now.timeIntervalSince(last.timestamp) < cycleCooldown {
-            
-            // Continue cycling
+
             let nextCount = last.cycleCount + 1
             let nextPosition = getCyclePosition(for: position, count: nextCount)
-            
+
             print("🔄 CYCLING: \(position.displayName) → \(nextPosition.displayName) (cycle \(nextCount + 1))")
-            
+
             lastAction = LastActionInfo(
-                position: nextPosition,
+                requestedPosition: position,
                 windowID: windowID,
                 cycleCount: nextCount,
                 timestamp: now,
                 windowFrame: window.frame
             )
-            
+
             return nextPosition
         } else {
-            // Start new cycle
             print("🆕 NEW CYCLE: Starting with \(position.displayName)")
-            
+
             lastAction = LastActionInfo(
-                position: position,
+                requestedPosition: position,
                 windowID: windowID,
                 cycleCount: 0,
                 timestamp: now,
                 windowFrame: window.frame
             )
-            
+
             return position
         }
     }
@@ -150,13 +148,13 @@ class WindowActionHistory {
         }
         
         let lastState = undoStack.removeLast()
-        
-        // Get current state of the window for redo
-        if let currentWindow = WindowManager.shared.getFocusedWindow(),
-           getWindowIdentifier(currentWindow) == getWindowIdentifier(lastState.windowInfo) {
-            let currentState = WindowState(window: currentWindow, frame: currentWindow.frame, action: "Redo: \(lastState.actionName)")
-            redoStack.append(currentState)
-        }
+        let currentFrame = WindowManager.shared.currentAXFrame(of: lastState.windowInfo)
+            ?? lastState.windowInfo.frame
+        redoStack.append(WindowState(
+            window: lastState.windowInfo,
+            frame: currentFrame,
+            action: "Redo: \(lastState.actionName)"
+        ))
         
         print("⏪ UNDO: Restoring '\(lastState.windowInfo.windowTitle)' to \(lastState.frame)")
         return lastState
@@ -169,13 +167,13 @@ class WindowActionHistory {
         }
         
         let nextState = redoStack.removeLast()
-        
-        // Get current state for future undo
-        if let currentWindow = WindowManager.shared.getFocusedWindow(),
-           getWindowIdentifier(currentWindow) == getWindowIdentifier(nextState.windowInfo) {
-            let currentState = WindowState(window: currentWindow, frame: currentWindow.frame, action: nextState.actionName)
-            undoStack.append(currentState)
-        }
+        let currentFrame = WindowManager.shared.currentAXFrame(of: nextState.windowInfo)
+            ?? nextState.windowInfo.frame
+        undoStack.append(WindowState(
+            window: nextState.windowInfo,
+            frame: currentFrame,
+            action: nextState.actionName
+        ))
         
         print("⏩ REDO: Restoring '\(nextState.windowInfo.windowTitle)' to \(nextState.frame)")
         return nextState
@@ -187,6 +185,12 @@ class WindowActionHistory {
     
     func getRedoDescription() -> String? {
         return redoStack.last?.actionName
+    }
+
+    func resetForTesting() {
+        lastAction = nil
+        undoStack.removeAll()
+        redoStack.removeAll()
     }
 }
 

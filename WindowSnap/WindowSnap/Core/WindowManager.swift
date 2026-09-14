@@ -12,36 +12,51 @@ class WindowManager {
         guard let windowList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
             return []
         }
-        
+
         var windows: [WindowInfo] = []
-        
         for windowDict in windowList {
-            guard let windowInfo = parseWindowInfo(from: windowDict) else {
-                continue
-            }
+            guard let windowInfo = parseWindowInfo(from: windowDict) else { continue }
             windows.append(windowInfo)
         }
-        
-        return excludeSystemWindows(windows)
+
+        return attachAXElements(to: excludeSystemWindows(windows))
     }
-    
+
     func getFocusedWindow() -> WindowInfo? {
-        guard let frontmostApp = NSWorkspace.shared.frontmostApplication else {
-            return nil
-        }
-        
-        let appElement = AXUIElementCreateApplication(frontmostApp.processIdentifier)
+        guard let frontmostApp = NSWorkspace.shared.frontmostApplication else { return nil }
+        return getFocusedWindow(of: frontmostApp)
+    }
+
+    /// Focused window of a specific app. Used when WindowSnap is already frontmost.
+    func getFocusedWindow(of application: NSRunningApplication) -> WindowInfo? {
+        let appElement = AXUIElementCreateApplication(application.processIdentifier)
         var focusedWindow: CFTypeRef?
-        
         let result = AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &focusedWindow)
-        
-        guard result == .success,
-              let windowElement = focusedWindow else {
-            return nil
-        }
-        
-        let axElement = windowElement as! AXUIElement
-        return getWindowInfoFromAccessibility(axElement: axElement, processID: frontmostApp.processIdentifier)
+        guard result == .success, let windowElement = focusedWindow else { return nil }
+        guard CFGetTypeID(windowElement) == AXUIElementGetTypeID() else { return nil }
+        let axElement = unsafeBitCast(windowElement, to: AXUIElement.self)
+        return getWindowInfoFromAccessibility(axElement: axElement, processID: application.processIdentifier)
+    }
+
+    func screenContainingAXRect(_ axRect: CGRect) -> NSScreen? {
+        getScreenContainingAXRect(axRect)
+    }
+
+    func screenIndexContainingAXRect(_ axRect: CGRect) -> Int {
+        guard let screen = getScreenContainingAXRect(axRect) else { return 0 }
+        return NSScreen.screens.firstIndex(of: screen) ?? 0
+    }
+
+    func appKitFrame(fromAX axRect: CGRect) -> CGRect {
+        CoordinateConverter.appKitRect(
+            fromAXRect: axRect,
+            primaryScreenHeight: CoordinateConverter.primaryScreenHeight
+        )
+    }
+
+    func currentAXFrame(of window: WindowInfo) -> CGRect? {
+        guard let axElement = window.axElement else { return nil }
+        return axFrame(of: axElement)
     }
     
     // NEW: Get window info directly from AX API (like Spectacle does)
@@ -58,12 +73,12 @@ class WindowManager {
         var axPoint = CGPoint.zero
         var axSize = CGSize.zero
         
-        if let pos = position {
-            AXValueGetValue(pos as! AXValue, AXValueType.cgPoint, &axPoint)
+        if let pos = position, CFGetTypeID(pos) == AXValueGetTypeID() {
+            AXValueGetValue(unsafeBitCast(pos, to: AXValue.self), AXValueType.cgPoint, &axPoint)
         }
-        
-        if let sz = size {
-            AXValueGetValue(sz as! AXValue, AXValueType.cgSize, &axSize)
+
+        if let sz = size, CFGetTypeID(sz) == AXValueGetTypeID() {
+            AXValueGetValue(unsafeBitCast(sz, to: AXValue.self), AXValueType.cgSize, &axSize)
         }
         
         // This frame is already in AX coordinate system (top-left origin)
@@ -118,7 +133,11 @@ class WindowManager {
         print("Screen visible frame (AX): \(axScreenFrame)")
         
         // Calculate target frame directly in AX coordinate system using actual position
-        guard let targetAXFrame = calculateAXFrame(for: actualPosition, in: axScreenFrame) else {
+        guard let targetAXFrame = calculateAXFrame(
+            for: actualPosition,
+            in: axScreenFrame,
+            currentSize: window.frame.size
+        ) else {
             print("ERROR: Could not calculate AX target frame for position: \(actualPosition)")
             return
         }
@@ -307,38 +326,34 @@ class WindowManager {
     
     // Convert NSScreen visible frame to AX coordinate system
     private func convertNSScreenToAXCoordinates(_ nsFrame: CGRect) -> CGRect {
-        // Get the main screen height for Y conversion
-        let mainScreenHeight = NSScreen.screens[0].frame.height
-        
-        // Convert NSScreen (bottom-left origin) to AX (top-left origin)
-        let axY = mainScreenHeight - nsFrame.maxY
-        
-        return CGRect(
-            x: nsFrame.origin.x,
-            y: axY,
-            width: nsFrame.width,
-            height: nsFrame.height
+        CoordinateConverter.axRect(
+            fromAppKitRect: nsFrame,
+            primaryScreenHeight: CoordinateConverter.primaryScreenHeight
         )
     }
-    
+
     // Find screen containing AX coordinate rectangle
     private func getScreenContainingAXRect(_ axRect: CGRect) -> NSScreen? {
-        // Convert AX center point to NSScreen coordinates for detection
-        let axCenter = CGPoint(x: axRect.midX, y: axRect.midY)
-        let mainScreenHeight = NSScreen.screens[0].frame.height
-        let nsCenter = CGPoint(x: axCenter.x, y: mainScreenHeight - axCenter.y)
-        
+        let nsCenter = CoordinateConverter.appKitPoint(
+            fromAXPoint: CGPoint(x: axRect.midX, y: axRect.midY),
+            primaryScreenHeight: CoordinateConverter.primaryScreenHeight
+        )
+
         for screen in NSScreen.screens {
             if screen.frame.contains(nsCenter) {
                 return screen
             }
         }
-        
+
         return NSScreen.main
     }
-    
+
     // Calculate frame in AX coordinate system
-    private func calculateAXFrame(for position: GridPosition, in axScreenFrame: CGRect) -> CGRect? {
+    func calculateAXFrame(
+        for position: GridPosition,
+        in axScreenFrame: CGRect,
+        currentSize: CGSize? = nil
+    ) -> CGRect? {
         switch position {
         // Halves
         case .leftHalf:
@@ -391,13 +406,19 @@ class WindowManager {
         case .maximize:
             return axScreenFrame
         case .center:
-            let defaultSize = CGSize(width: min(800, axScreenFrame.width * 0.8), 
-                                   height: min(600, axScreenFrame.height * 0.8))
-            let centerOrigin = CGPoint(
-                x: axScreenFrame.minX + (axScreenFrame.width - defaultSize.width) / 2,
-                y: axScreenFrame.minY + (axScreenFrame.height - defaultSize.height) / 2
+            let fallback = CGSize(
+                width: min(800, axScreenFrame.width * 0.8),
+                height: min(600, axScreenFrame.height * 0.8)
             )
-            return CGRect(origin: centerOrigin, size: defaultSize)
+            let size = CGSize(
+                width: min(max(currentSize?.width ?? fallback.width, 100), axScreenFrame.width),
+                height: min(max(currentSize?.height ?? fallback.height, 100), axScreenFrame.height)
+            )
+            let centerOrigin = CGPoint(
+                x: axScreenFrame.minX + (axScreenFrame.width - size.width) / 2,
+                y: axScreenFrame.minY + (axScreenFrame.height - size.height) / 2
+            )
+            return CGRect(origin: centerOrigin, size: size)
         }
     }
     
@@ -499,6 +520,104 @@ class WindowManager {
         return NSScreen.screens.map { $0.frame }
     }
     
+    private func attachAXElements(to windows: [WindowInfo]) -> [WindowInfo] {
+        let grouped = Dictionary(grouping: windows, by: \.processID)
+        var attached: [WindowInfo] = []
+
+        for (processID, pidWindows) in grouped {
+            let appElement = AXUIElementCreateApplication(processID)
+            var windowsRef: CFTypeRef?
+            let status = AXUIElementCopyAttributeValue(
+                appElement,
+                kAXWindowsAttribute as CFString,
+                &windowsRef
+            )
+
+            guard status == .success, let axWindows = windowsRef as? [AXUIElement] else {
+                attached.append(contentsOf: pidWindows)
+                continue
+            }
+
+            var remaining = axWindows
+            for window in pidWindows {
+                if let match = takeMatchingAXWindow(
+                    title: window.windowTitle,
+                    cgFrame: window.frame,
+                    from: &remaining
+                ), let axFrame = axFrame(of: match) {
+                    attached.append(WindowInfo(
+                        windowID: window.windowID,
+                        processID: window.processID,
+                        applicationName: window.applicationName,
+                        windowTitle: window.windowTitle,
+                        frame: axFrame,
+                        isMinimized: window.isMinimized,
+                        isOnScreen: window.isOnScreen,
+                        axElement: match
+                    ))
+                } else {
+                    attached.append(window)
+                }
+            }
+        }
+
+        return attached
+    }
+
+    private func takeMatchingAXWindow(
+        title: String,
+        cgFrame: CGRect,
+        from remaining: inout [AXUIElement]
+    ) -> AXUIElement? {
+        if !title.isEmpty {
+            for (index, element) in remaining.enumerated() {
+                if axTitle(of: element) == title {
+                    return remaining.remove(at: index)
+                }
+            }
+        }
+
+        for (index, element) in remaining.enumerated() {
+            guard let frame = axFrame(of: element) else { continue }
+            let closeX = abs(frame.midX - cgFrame.midX) < 24
+            let closeY = abs(frame.midY - cgFrame.midY) < 24
+            let closeSize = abs(frame.width - cgFrame.width) < 24 && abs(frame.height - cgFrame.height) < 24
+            if closeX && closeY && closeSize {
+                return remaining.remove(at: index)
+            }
+        }
+
+        return nil
+    }
+
+    private func axTitle(of element: AXUIElement) -> String {
+        var title: CFTypeRef?
+        AXUIElementCopyAttributeValue(element, kAXTitleAttribute as CFString, &title)
+        return title as? String ?? ""
+    }
+
+    private func axFrame(of element: AXUIElement) -> CGRect? {
+        var position: CFTypeRef?
+        var size: CFTypeRef?
+        AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &position)
+        AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &size)
+
+        var axPoint = CGPoint.zero
+        var axSize = CGSize.zero
+        var hasPosition = false
+        var hasSize = false
+
+        if let pos = position, CFGetTypeID(pos) == AXValueGetTypeID() {
+            hasPosition = AXValueGetValue(unsafeBitCast(pos, to: AXValue.self), .cgPoint, &axPoint)
+        }
+        if let sz = size, CFGetTypeID(sz) == AXValueGetTypeID() {
+            hasSize = AXValueGetValue(unsafeBitCast(sz, to: AXValue.self), .cgSize, &axSize)
+        }
+
+        guard hasPosition, hasSize else { return nil }
+        return CGRect(origin: axPoint, size: axSize)
+    }
+
     private func parseWindowInfo(from dict: [String: Any]) -> WindowInfo? {
         guard let windowID = dict[kCGWindowNumber as String] as? CGWindowID,
               let processID = dict[kCGWindowOwnerPID as String] as? pid_t,
@@ -537,12 +656,12 @@ class WindowManager {
         var point = CGPoint.zero
         var cgSize = CGSize.zero
         
-        if let pos = position {
-            AXValueGetValue(pos as! AXValue, AXValueType.cgPoint, &point)
+        if let pos = position, CFGetTypeID(pos) == AXValueGetTypeID() {
+            AXValueGetValue(unsafeBitCast(pos, to: AXValue.self), AXValueType.cgPoint, &point)
         }
-        
-        if let sz = size {
-            AXValueGetValue(sz as! AXValue, AXValueType.cgSize, &cgSize)
+
+        if let sz = size, CFGetTypeID(sz) == AXValueGetTypeID() {
+            AXValueGetValue(unsafeBitCast(sz, to: AXValue.self), AXValueType.cgSize, &cgSize)
         }
         
         let windowTitle = title as? String ?? ""

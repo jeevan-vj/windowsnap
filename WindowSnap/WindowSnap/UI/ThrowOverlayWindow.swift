@@ -26,14 +26,11 @@ class ThrowOverlayWindow: NSWindow {
         ignoresMouseEvents = false
         collectionBehavior = [.canJoinAllSpaces, .stationary]
         isReleasedWhenClosed = false
-        
-        // Make window cover the entire screen
-        if let screen = NSScreen.main {
-            setFrame(screen.frame, display: true)
-        }
-        
         setupContentView()
     }
+
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
     
     private func setupContentView() {
         let containerView = NSView(frame: contentRect(forFrameRect: frame))
@@ -42,22 +39,26 @@ class ThrowOverlayWindow: NSWindow {
         contentView = containerView
     }
     
-    /// Display the throw positions on the overlay
-    func displayPositions(_ positions: [ThrowPosition], for targetWindow: WindowInfo) {
+    /// Display the throw positions on the overlay covering `screen`.
+    func displayPositions(_ positions: [ThrowPosition], for targetWindow: WindowInfo, on screen: NSScreen) {
+        setFrame(screen.frame, display: true)
+        contentView?.frame = contentRect(forFrameRect: frame)
         clearPositions()
-        
+
         guard let containerView = contentView else { return }
-        
-        // Create position views
+
         for position in positions {
+            let localFrame = CoordinateConverter.windowLocalRect(
+                fromGlobalAppKitRect: position.frame,
+                screenFrame: screen.frame
+            )
             let positionView = ThrowPositionView(throwPosition: position)
-            positionView.frame = position.frame
+            positionView.frame = localFrame
             containerView.addSubview(positionView)
             positionViews.append(positionView)
         }
-        
-        // Highlight the current window's frame
-        highlightCurrentWindow(targetWindow)
+
+        highlightCurrentWindow(targetWindow, on: screen)
     }
     
     /// Highlight a specific position by index
@@ -89,28 +90,33 @@ class ThrowOverlayWindow: NSWindow {
     }
     
     /// Highlight the current window's position
-    private func highlightCurrentWindow(_ window: WindowInfo) {
+    private func highlightCurrentWindow(_ window: WindowInfo, on screen: NSScreen) {
         guard let containerView = contentView else { return }
-        
-        let currentWindowView = NSView(frame: window.frame)
+
+        let appKitFrame = CoordinateConverter.appKitRect(
+            fromAXRect: window.frame,
+            primaryScreenHeight: CoordinateConverter.primaryScreenHeight
+        )
+        let localFrame = CoordinateConverter.windowLocalRect(
+            fromGlobalAppKitRect: appKitFrame,
+            screenFrame: screen.frame
+        )
+
+        let currentWindowView = NSView(frame: localFrame)
         currentWindowView.wantsLayer = true
         currentWindowView.layer?.backgroundColor = NSColor.systemBlue.withAlphaComponent(0.3).cgColor
         currentWindowView.layer?.borderColor = NSColor.systemBlue.cgColor
         currentWindowView.layer?.borderWidth = 2.0
         currentWindowView.layer?.cornerRadius = 4.0
-        
+
         containerView.addSubview(currentWindowView)
-        
-        // Add label showing current window
+
         let label = NSTextField(labelWithString: "Current: \(window.windowTitle)")
         label.textColor = .white
         label.backgroundColor = NSColor.systemBlue.withAlphaComponent(0.8)
         label.font = NSFont.systemFont(ofSize: 12, weight: .medium)
         label.sizeToFit()
-        label.frame.origin = CGPoint(
-            x: window.frame.minX + 8,
-            y: window.frame.maxY - label.frame.height - 8
-        )
+        label.frame.origin = CGPoint(x: 8, y: max(8, localFrame.height - label.frame.height - 8))
         currentWindowView.addSubview(label)
     }
     

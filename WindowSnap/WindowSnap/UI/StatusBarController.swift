@@ -6,7 +6,6 @@ class StatusBarController: NSObject, NSMenuDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private var preferencesWindow: PreferencesWindow?
     private var textExpanderWindow: TextExpanderWindow?
-    private var clipboardHistoryWindow: ClipboardHistoryWindow?
     private var customPositionsWindow: CustomPositionsWindow?
     private var workspaceArrangementsWindow: WorkspaceArrangementsWindow?
     private var pauseClipboardMenuItem: NSMenuItem?
@@ -253,7 +252,9 @@ class StatusBarController: NSObject, NSMenuDelegate {
     }
 
     @objc private func showCustomPositions() {
+        let sourceWindow = WindowManager.shared.getFocusedWindow()
         if customPositionsWindow == nil { customPositionsWindow = CustomPositionsWindow() }
+        customPositionsWindow?.sourceWindowForCapture = sourceWindow
         customPositionsWindow?.showWindow(nil)
         customPositionsWindow?.window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -294,14 +295,7 @@ class StatusBarController: NSObject, NSMenuDelegate {
     }
 
     @objc private func showClipboardHistory() {
-        if clipboardHistoryWindow == nil {
-            clipboardHistoryWindow = ClipboardHistoryWindow()
-        }
-        if clipboardHistoryWindow?.isVisible == true {
-            clipboardHistoryWindow?.requestClose()
-        } else {
-            clipboardHistoryWindow?.showWindow()
-        }
+        ClipboardHistoryPresenter.shared.toggle()
     }
 
     private func observeClipboardPauseState() {

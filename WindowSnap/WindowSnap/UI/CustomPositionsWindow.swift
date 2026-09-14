@@ -10,6 +10,7 @@ class CustomPositionsWindow: NSWindowController {
     private var editButton: NSButton!
     private var deleteButton: NSButton!
     private var testButton: NSButton!
+    var sourceWindowForCapture: WindowInfo?
     
     override init(window: NSWindow?) {
         super.init(window: window)
@@ -150,11 +151,11 @@ class CustomPositionsWindow: NSWindowController {
     // MARK: - Button Actions
     
     @objc private func addCurrentWindow() {
-        guard WindowManager.shared.getFocusedWindow() != nil else {
-            showAlert(title: "No Window", message: "Please focus on a window first, then try again.")
+        guard sourceWindowForCapture != nil else {
+            showAlert(title: "No Window", message: "Focus a window, then open Custom Positions from the menu again.")
             return
         }
-        
+
         showAddPositionDialog(fromCurrentWindow: true)
     }
     
@@ -209,7 +210,10 @@ class CustomPositionsWindow: NSWindowController {
     // MARK: - Dialog Methods
     
     private func showAddPositionDialog(fromCurrentWindow: Bool) {
-        let dialog = CustomPositionDialog(fromCurrentWindow: fromCurrentWindow)
+        let dialog = CustomPositionDialog(
+            fromCurrentWindow: fromCurrentWindow,
+            sourceWindow: sourceWindowForCapture
+        )
         dialog.onCommit = { [weak self] position in
             self?.customPositionManager.addPosition(position) ?? .failure(.persistenceFailed)
         }
@@ -319,13 +323,15 @@ class CustomPositionDialog: NSWindowController {
     
     private let fromCurrentWindow: Bool
     private let editingPosition: CustomPosition?
+    private let sourceWindow: WindowInfo?
     
     var customPosition: CustomPosition?
     var onCommit: ((CustomPosition) -> Result<Void, ManagedConfigurationError>)?
     
-    init(fromCurrentWindow: Bool = false, editing: CustomPosition? = nil) {
+    init(fromCurrentWindow: Bool = false, editing: CustomPosition? = nil, sourceWindow: WindowInfo? = nil) {
         self.fromCurrentWindow = fromCurrentWindow
         self.editingPosition = editing
+        self.sourceWindow = sourceWindow
         
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 450, height: 350),
@@ -505,7 +511,15 @@ class CustomPositionDialog: NSWindowController {
         let finalShortcut = shortcut.isEmpty ? nil : shortcut
         
         if fromCurrentWindow {
-            customPosition = CustomPositionManager.shared.createFromCurrentWindow(name: name, shortcut: finalShortcut)
+            if let sourceWindow {
+                customPosition = CustomPositionManager.shared.createFromWindow(
+                    sourceWindow,
+                    name: name,
+                    shortcut: finalShortcut
+                )
+            } else {
+                customPosition = nil
+            }
         } else if let editingPosition {
             customPosition = editingPosition.updating(
                 name: name,

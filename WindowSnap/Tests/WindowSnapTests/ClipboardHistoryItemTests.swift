@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 @testable import WindowSnap
 import XCTest
@@ -21,9 +22,16 @@ final class ClipboardHistoryItemTests: XCTestCase {
         XCTAssertEqual(preview, url)
     }
 
-    func testRichTextPreviewStripsMarkup() {
-        let preview = ClipboardHistoryItem.makePreview(from: "<b>Hello</b> world", type: .richText)
+    func testRichTextPreviewStripsMarkup() throws {
+        let attributed = NSAttributedString(string: "Hello world")
+        let rtf = try attributed.data(
+            from: NSRange(location: 0, length: attributed.length),
+            documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]
+        )
+        let rtfString = try XCTUnwrap(String(data: rtf, encoding: .utf8))
+        let preview = ClipboardHistoryItem.makePreview(from: rtfString, type: .richText)
         XCTAssertEqual(preview, "Hello world")
+        XCTAssertFalse(preview.contains("\\rtf"))
     }
 
     func testImagePreviewPlaceholder() {

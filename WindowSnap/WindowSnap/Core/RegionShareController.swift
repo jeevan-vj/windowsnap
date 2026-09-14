@@ -12,6 +12,9 @@ final class RegionShareController: NSObject {
     private var wantsVirtualCameraCapture = false
     private var virtualCameraGeneration = 0
     private var pendingPresentationMode: RegionSharePresentationMode = .floatingMirror
+    private var regionBeforeReselection: ShareRegion?
+    private var isReselecting = false
+    private var shouldRestoreMirrorOnCancel = false
 
     private override init() {
         super.init()
@@ -100,11 +103,12 @@ final class RegionShareController: NSObject {
     }
 
     func selectNewRegion() {
-        // Keep the existing mirror window alive during reselection to avoid close/recreate races.
+        regionBeforeReselection = RegionShareManager.shared.currentRegion
+        isReselecting = true
+        shouldRestoreMirrorOnCancel = mirrorWindow != nil
         mirrorWindow?.stopCapture()
         mirrorWindow?.orderOut(nil)
         stopVirtualCameraCapture()
-        RegionShareManager.shared.clearRegion()
         startRegionSelection()
     }
 
@@ -293,19 +297,22 @@ extension RegionShareController: RegionSelectionDelegate {
 
         guard let displayBounds = RegionShareManager.shared.getDisplayBounds(for: displayID) else {
             print("❌ Could not get display bounds for selection")
-            RegionShareManager.shared.setState(.idle)
+            abortSelectionWithoutNewRegion()
             return
         }
 
         let boundedRect = rect.intersection(displayBounds)
         guard boundedRect.width >= 50 && boundedRect.height >= 50 else {
-            RegionShareManager.shared.setState(.idle)
+            abortSelectionWithoutNewRegion()
             return
         }
 
         let normalizedRect = ShareRegion.normalizedRect(from: boundedRect, in: displayBounds)
         let region = ShareRegion(displayID: displayID, normalizedRect: normalizedRect)
 
+        isReselecting = false
+        regionBeforeReselection = nil
+        shouldRestoreMirrorOnCancel = false
         RegionShareManager.shared.setRegion(region)
         createAndShowMirrorWindow(for: region, mode: pendingPresentationMode)
         if wantsVirtualCameraCapture {
@@ -317,7 +324,26 @@ extension RegionShareController: RegionSelectionDelegate {
         guard !didHandleSelection else { return }
         didHandleSelection = true
         closeSelectionOverlay()
-        RegionShareManager.shared.setState(.idle)
+        abortSelectionWithoutNewRegion()
         print("🚫 Region selection cancelled")
+    }
+
+    private func abortSelectionWithoutNewRegion() {
+        if isReselecting, let previous = regionBeforeReselection {
+            RegionShareManager.shared.setRegion(previous)
+            if shouldRestoreMirrorOnCancel {
+                createAndShowMirrorWindow(for: previous, mode: pendingPresentationMode)
+            }
+            if wantsVirtualCameraCapture {
+                startVirtualCameraCapture(for: previous)
+            }
+            RegionShareManager.shared.setState(wantsVirtualCameraCapture ? .streaming : .idle)
+        } else {
+            RegionShareManager.shared.setState(.idle)
+        }
+
+        isReselecting = false
+        regionBeforeReselection = nil
+        shouldRestoreMirrorOnCancel = false
     }
 }

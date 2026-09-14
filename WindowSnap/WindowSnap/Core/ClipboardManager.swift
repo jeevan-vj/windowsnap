@@ -192,10 +192,15 @@ class ClipboardManager: NSObject {
             pasteboard.setString(item.content, forType: .string)
             
         case .richText:
-            // For rich text, try to set both plain and rich text
-            pasteboard.setString(item.content, forType: .string)
             if let rtfData = item.content.data(using: .utf8) {
                 pasteboard.setData(rtfData, forType: .rtf)
+                if let attributed = try? NSAttributedString(
+                    data: rtfData,
+                    options: [.documentType: NSAttributedString.DocumentType.rtf],
+                    documentAttributes: nil
+                ) {
+                    pasteboard.setString(attributed.string, forType: .string)
+                }
             }
             
         case .image:
@@ -214,9 +219,11 @@ class ClipboardManager: NSObject {
             }
         }
         
-        // Update our change count to avoid re-adding this item
-        lastChangeCount = pasteboard.changeCount
-        
+        let updatedChangeCount = pasteboard.changeCount
+        processingQueue.async { [weak self] in
+            self?.lastChangeCount = updatedChangeCount
+        }
+
         print("📋 Copied \(ClipboardLogMetadata.summary(for: item))")
     }
     
@@ -308,14 +315,10 @@ class ClipboardManager: NSObject {
     
     private func checkForClipboardChanges() {
         let currentChangeCount = pasteboard.changeCount
-
-        guard currentChangeCount != lastChangeCount else { return }
-
-        lastChangeCount = currentChangeCount
-
-        // Process clipboard content on background queue to avoid blocking UI
         processingQueue.async { [weak self] in
-            self?.processClipboardContent()
+            guard let self, currentChangeCount != self.lastChangeCount else { return }
+            self.lastChangeCount = currentChangeCount
+            self.processClipboardContent()
         }
     }
     
