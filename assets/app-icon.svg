@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg width="512" height="512" viewBox="0 0 512 512" version="1.1" xmlns="http://www.w3.org/2000/svg">
+  <title>WindowSnap Icon Concept</title>
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4F8BFF" />
+      <stop offset="100%" stop-color="#224B9F" />
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.9" />
+      <stop offset="100%" stop-color="#D6E6FF" stop-opacity="0.9" />
+    </linearGradient>
+  </defs>
+  <rect x="16" y="16" width="480" height="480" rx="96" fill="url(#bg)" />
+
+  <!-- Grid representation -->
+  <g stroke="#FFFFFF" stroke-opacity="0.55" stroke-width="8">
+    <line x1="96" y1="128" x2="416" y2="128" />
+    <line x1="96" y1="224" x2="416" y2="224" />
+    <line x1="96" y1="320" x2="416" y2="320" />
+    <line x1="176" y1="96" x2="176" y2="416" />
+    <line x1="272" y1="96" x2="272" y2="416" />
+    <line x1="368" y1="96" x2="368" y2="416" />
+  </g>
+
+  <!-- Focused snapped window block -->
+  <rect x="192" y="144" width="176" height="160" rx="12" fill="url(#accent)" stroke="#FFFFFF" stroke-width="6" />
+  <rect x="208" y="160" width="56" height="40" rx="6" fill="#4F8BFF" opacity="0.9" />
+  <rect x="272" y="160" width="80" height="40" rx="6" fill="#4F8BFF" opacity="0.75" />
+  <rect x="208" y="208" width="144" height="64" rx="8" fill="#4F8BFF" opacity="0.85" />
+
+  <!-- Snap arrow motif -->
+  <path d="M144 368 L208 304 L224 320 L176 368 L224 416 L208 432 Z" fill="#FFFFFF" fill-opacity="0.9" />
+</svg>
