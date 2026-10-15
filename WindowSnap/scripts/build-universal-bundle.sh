@@ -8,6 +8,35 @@ APP_NAME="WindowSnap"
 BUNDLE_ID="com.jeevanwijerathna.windowsnap"
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
+# Stable signing identity for local/dev builds. macOS ties Screen Recording and
+# Accessibility grants to the code signature, so ad-hoc or alternating
+# identities make the permission prompt come back on every rebuild.
+#   SIGNING_IDENTITY  explicit identity (name or SHA-1); default: Developer ID
+#                     for team 88282K637B, else Apple Development
+#   ALLOW_ADHOC=1     intentionally build ad-hoc (not usable for Region Share QA)
+#   REGION_SHARE_QA=1 fail instead of falling back to ad-hoc
+if [[ -z "${CODESIGN_ID:-}" && "${ALLOW_ADHOC:-0}" != "1" ]]; then
+  if resolved_identity="$("$ROOT_DIR/scripts/resolve-local-signing-identity.sh")"; then
+    IFS=$'\t' read -r CODESIGN_ID resolved_team resolved_label <<<"$resolved_identity"
+    if [[ "$CODESIGN_ID" == "-" ]]; then
+      CODESIGN_ID=""
+    else
+      if [[ -z "${TEAM_ID:-}" && -n "$resolved_team" ]]; then TEAM_ID="$resolved_team"; export TEAM_ID; fi
+      export CODESIGN_ID
+      echo "🔐 Local signing identity: $resolved_label (team ${resolved_team:-unknown})"
+    fi
+  fi
+fi
+if [[ -z "${CODESIGN_ID:-}" ]]; then
+  if [[ "${REGION_SHARE_QA:-0}" == "1" ]]; then
+    echo "❌ REGION_SHARE_QA=1 but no signing identity is available. Ad-hoc builds cannot keep a Screen Recording grant." >&2
+    echo "   Set SIGNING_IDENTITY or install a Developer ID / Apple Development certificate." >&2
+    exit 1
+  fi
+  echo "⚠️  Building AD-HOC signed. Do not use this build for Region Share / Screen Recording QA:" >&2
+  echo "   macOS will not match an existing grant after the next rebuild. See docs/REGION_SHARE_PACKAGING.md." >&2
+fi
+
 # Read version from VERSION file (semantic versioning)
 VERSION_FILE="$ROOT_DIR/VERSION"
 if [[ ! -f "$VERSION_FILE" ]]; then

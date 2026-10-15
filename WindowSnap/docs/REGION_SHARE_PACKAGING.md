@@ -53,3 +53,93 @@ so the default developer build continues to support virtual displays.
 Do not embed or otherwise link the `CVirtualDisplay` product in an App Store
 archive. The virtual camera system extension is a separate feature and must
 still be signed and provisioned with its required entitlements if it is shipped.
+
+## Signing identity for local and QA builds
+
+macOS stores the Screen Recording grant against the app's *code requirement*
+(bundle ID **and** signing identity), not just its bundle ID. A grant for an
+Apple Development-signed `dist/WindowSnap.app` does not apply to a Developer
+ID-signed `/Applications/WindowSnap.app`, and an ad-hoc build changes identity
+on every rebuild. tccd then logs `Failed to match existing code requirement`
+for `kTCCServiceScreenCapture` and the prompt keeps coming back.
+
+Local and dev builds therefore always sign with one stable identity, chosen by
+`scripts/resolve-local-signing-identity.sh`:
+
+1. `SIGNING_IDENTITY` (identity name or SHA-1 fingerprint), if set
+2. the `Developer ID Application` identity for team `88282K637B`
+   (override the team with `WINDOWSNAP_TEAM_ID`)
+3. the first `Apple Development` identity
+
+`build-universal-bundle.sh` (and `build_bundle.sh` / `quick-install.sh`) and
+`quick-run.sh` use it whenever `CODESIGN_ID` is not set, and derive `TEAM_ID`
+from the identity name. When several identities share a name, the SHA-1 is
+used so `codesign` is not ambiguous.
+
+```sh
+# Default: Developer ID for 88282K637B if installed
+./scripts/build-universal-bundle.sh
+
+# Pin a specific identity
+SIGNING_IDENTITY="Developer ID Application: Jeevan Wijerathna (88282K637B)" ./scripts/quick-run.sh
+
+# Region Share QA: fail rather than fall back to ad-hoc
+REGION_SHARE_QA=1 ./scripts/build-universal-bundle.sh
+```
+
+Ad-hoc builds print a warning. With `REGION_SHARE_QA=1` they are refused.
+`build-adhoc-release.sh` sets `ALLOW_ADHOC=1` explicitly and refuses to run
+under `REGION_SHARE_QA=1`. `quick-run.sh` no longer silently re-signs ad-hoc
+when signing fails.
+
+Pick **one** identity and one install location for QA. If you test from
+`/Applications`, install a Developer ID build there and don't also grant
+`dist/WindowSnap.app`.
+
+At launch, and whenever the permission flow fails, WindowSnap logs the bundle
+path, signing team (or ad-hoc), and preflight result under the `Permissions`
+category. It warns when it is ad-hoc signed or running from outside
+`/Applications`:
+
+```sh
+log stream --predicate 'subsystem == "com.jeevanwijerathna.windowsnap" AND category == "Permissions"' --info
+codesign -dv --verbose=2 /Applications/WindowSnap.app 2>&1 | grep -E 'Authority|TeamIdentifier'
+```
+
+## Permission flow
+
+- The state comes from `CGPreflightScreenCaptureAccess()` only. ScreenCaptureKit
+  is never probed to decide permission state.
+- `CGRequestScreenCaptureAccess()` runs only after an explicit user action,
+  and at most once per launch.
+- Requested this launch but preflight is still false → **Restart required**.
+  *Restart WindowSnap* relaunches the same bundle and quits.
+- Requested in an earlier launch but preflight is false → **recovery alert**
+  (stale or mismatched grant), shown at most every 30 seconds. It offers
+  *Open Settings* and *Restart WindowSnap*.
+
+## Troubleshooting: permission keeps asking
+
+1. Check which copy is running and how it is signed (see the log commands
+   above). It should be `/Applications/WindowSnap.app` with
+   `TeamIdentifier=88282K637B`.
+2. Quit WindowSnap.
+3. Open **System Settings > Privacy & Security > Screen & System Audio
+   Recording**. Select every `WindowSnap` row and remove it with **−**.
+4. Install a Developer ID-signed build in `/Applications` (for example
+   `./scripts/build-universal-bundle.sh`, then copy `dist/WindowSnap.app`).
+   Don't run other copies such as `dist/` or DerivedData builds.
+5. Launch `/Applications/WindowSnap.app` and choose **Set Up…** in Region Share
+   preferences. Allow it in the system prompt or Settings.
+6. When WindowSnap shows **Restart required**, click **Restart WindowSnap**.
+
+If it still fails, you can clear the stored decision for this bundle ID with
+the command below. It is documented here for manual use only. No WindowSnap
+script runs it.
+
+```sh
+tccutil reset ScreenCapture com.jeevanwijerathna.windowsnap
+```
+
+Then repeat steps 5–6. This also clears the grant for every other copy that
+shares the bundle ID.

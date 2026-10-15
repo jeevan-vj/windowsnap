@@ -12,14 +12,21 @@ APP_DIR="$DIST_DIR/${APP_NAME}.app"
 echo "⚡ Quick rebuild and run"
 echo "========================"
 
-# Find Apple Development certificate
-CODESIGN_ID=$(security find-identity -v -p codesigning 2>/dev/null | grep "Apple Development" | head -1 | sed 's/.*"\(.*\)".*/\1/' || echo "")
-
-if [[ -z "$CODESIGN_ID" ]]; then
-    echo "⚠️  No Apple Development certificate found, using ad-hoc signing"
+# One stable identity (SIGNING_IDENTITY, else Developer ID for team 88282K637B,
+# else Apple Development) so Screen Recording grants survive rebuilds.
+CODESIGN_ID=""
+if resolved_identity="$("$ROOT_DIR/scripts/resolve-local-signing-identity.sh")"; then
+    IFS=$'\t' read -r CODESIGN_ID resolved_team resolved_label <<<"$resolved_identity"
+    echo "🔐 Using: $resolved_label (team ${resolved_team:-unknown})"
+    if [[ -z "${TEAM_ID:-}" && -n "$resolved_team" ]]; then export TEAM_ID="$resolved_team"; fi
+fi
+if [[ -z "$CODESIGN_ID" || "$CODESIGN_ID" == "-" ]]; then
+    if [[ "${REGION_SHARE_QA:-0}" == "1" ]]; then
+        echo "❌ No signing identity; ad-hoc builds cannot keep a Screen Recording grant" >&2
+        exit 1
+    fi
+    echo "⚠️  No signing identity found, using ad-hoc signing (not usable for Region Share QA)"
     CODESIGN_ID="-"
-else
-    echo "🔐 Using: $CODESIGN_ID"
 fi
 
 # Build debug binary
@@ -37,8 +44,12 @@ fi
 # Check if app bundle exists
 if [[ ! -d "$APP_DIR" ]]; then
     echo "📦 App bundle not found, running full build first..."
-    export CODESIGN_ID
-    bash "$ROOT_DIR/scripts/build_bundle.sh"
+    if [[ "$CODESIGN_ID" == "-" ]]; then
+        CODESIGN_ID="" ALLOW_ADHOC=1 bash "$ROOT_DIR/scripts/build_bundle.sh"
+    else
+        export CODESIGN_ID
+        bash "$ROOT_DIR/scripts/build_bundle.sh"
+    fi
 else
     # Just copy the new binary to existing bundle
     echo "📋 Updating binary in app bundle..."
@@ -47,9 +58,11 @@ else
     
     # Sign with developer certificate for consistent identity
     echo "🔏 Signing app bundle..."
-    codesign --force --sign "$CODESIGN_ID" --deep "$APP_DIR" 2>/dev/null || {
-        echo "⚠️  Signing failed, trying ad-hoc..."
-        codesign --force --sign "-" "$APP_DIR" 2>/dev/null || true
+    # Do not silently fall back to ad-hoc: that changes the code identity and
+    # macOS stops matching the existing Screen Recording grant.
+    codesign --force --sign "$CODESIGN_ID" --deep "$APP_DIR" || {
+        echo "❌ Signing with $CODESIGN_ID failed; not falling back to ad-hoc" >&2
+        exit 1
     }
 fi
 
@@ -63,6 +76,4 @@ open "$APP_DIR"
 echo "✅ Done! Check menu bar for WindowSnap icon."
 echo ""
 echo "💡 If permission still not working:"
-echo "   1. Open System Settings → Privacy & Security → Screen Recording"
-echo "   2. Remove old WindowSnap entries"
-echo "   3. Run this script again and grant permission to the new entry"
+echo "   See 'Permission keeps asking' in docs/REGION_SHARE_PACKAGING.md"
