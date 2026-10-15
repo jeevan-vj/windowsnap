@@ -153,6 +153,16 @@ if [[ "${BUILD_VIRTUAL_CAMERA_EXTENSION:-0}" == "1" ]]; then
   EXTENSION_BUNDLE="$("$ROOT_DIR/scripts/build-virtual-camera-extension.sh")"
   mkdir -p "$SYSTEM_EXTENSIONS_DIR"
   cp -R "$EXTENSION_BUNDLE" "$SYSTEM_EXTENSIONS_DIR/"
+  EXTENSION_ID="${WINDOWSNAP_VIRTUAL_CAMERA_ID:-com.jeevanwijerathna.windowsnap.VirtualCameraExtension}"
+  /usr/libexec/PlistBuddy -c "Add :WindowSnapVirtualCameraBundleIdentifier string $EXTENSION_ID" "$CONTENTS_DIR/Info.plist" 2>/dev/null \
+    || /usr/libexec/PlistBuddy -c "Set :WindowSnapVirtualCameraBundleIdentifier $EXTENSION_ID" "$CONTENTS_DIR/Info.plist"
+  if [[ -n "${TEAM_ID:-}" ]]; then
+    CAMERA_APP_GROUP_ID="$TEAM_ID.$EXTENSION_ID"
+  else
+    CAMERA_APP_GROUP_ID="${WINDOWSNAP_DEVELOPMENT_APP_GROUP_ID:-group.$BUNDLE_ID}"
+  fi
+  /usr/libexec/PlistBuddy -c "Add :WindowSnapCameraAppGroupIdentifier string $CAMERA_APP_GROUP_ID" "$CONTENTS_DIR/Info.plist" 2>/dev/null \
+    || /usr/libexec/PlistBuddy -c "Set :WindowSnapCameraAppGroupIdentifier $CAMERA_APP_GROUP_ID" "$CONTENTS_DIR/Info.plist"
   echo -e "${GREEN}✓${NC} Virtual camera extension embedded"
   echo ""
 fi
@@ -161,7 +171,7 @@ fi
 echo -e "${YELLOW}[7/7]${NC} Code signing..."
 ENTITLEMENTS_FILE="$ROOT_DIR/WindowSnap.entitlements"
 if [[ "${BUILD_VIRTUAL_CAMERA_EXTENSION:-0}" == "1" ]]; then
-  ENTITLEMENTS_FILE="$ROOT_DIR/WindowSnapVirtualCameraHost.entitlements"
+  ENTITLEMENTS_FILE="$ROOT_DIR/.build/virtual-camera-extension/WindowSnapVirtualCameraHost.entitlements"
 fi
 if [[ -n "${CODESIGN_ID:-}" ]]; then
   echo "   Signing with identity: $CODESIGN_ID"

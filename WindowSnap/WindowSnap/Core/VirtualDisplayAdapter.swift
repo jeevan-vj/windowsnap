@@ -1,4 +1,6 @@
+#if !APP_STORE
 import CVirtualDisplay
+#endif
 import CoreGraphics
 import Foundation
 
@@ -9,25 +11,44 @@ final class VirtualDisplayAdapter: VirtualDisplayCreating {
     static let productID: UInt32 = 0x5653
     static let serialNumber: UInt32 = 0x0001
 
+    #if !APP_STORE
     private let queue = DispatchQueue(label: "com.windowsnap.virtual-display")
     private var display: CGVirtualDisplay?
+    #endif
 
     var isAvailable: Bool {
+        #if APP_STORE
+        false
+        #else
         NSClassFromString("CGVirtualDisplay") != nil
             && NSClassFromString("CGVirtualDisplayDescriptor") != nil
             && NSClassFromString("CGVirtualDisplaySettings") != nil
             && NSClassFromString("CGVirtualDisplayMode") != nil
+        #endif
     }
 
-    var isConnected: Bool { display != nil }
+    var isConnected: Bool {
+        #if APP_STORE
+        false
+        #else
+        display != nil
+        #endif
+    }
 
     var displayID: CGDirectDisplayID? {
+        #if APP_STORE
+        nil
+        #else
         guard let display else { return nil }
         let identifier = display.displayID
         return identifier == 0 ? nil : identifier
+        #endif
     }
 
     func connect(presets: [VirtualDisplayPreset]) throws -> CGDirectDisplayID {
+        #if APP_STORE
+        throw VirtualDisplayError.unavailable
+        #else
         guard isAvailable else { throw VirtualDisplayError.unavailable }
         guard display == nil else { throw VirtualDisplayError.alreadyConnected }
 
@@ -64,9 +85,12 @@ final class VirtualDisplayAdapter: VirtualDisplayCreating {
 
         display = created
         return identifier
+        #endif
     }
 
     func disconnect() {
+        #if !APP_STORE
         display = nil
+        #endif
     }
 }

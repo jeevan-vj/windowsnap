@@ -6,7 +6,7 @@ extension Notification.Name {
     static let builtInShortcutsDidChange = Notification.Name("builtInShortcutsDidChange")
 }
 
-class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusBarController: StatusBarController?
     private var windowManager: WindowManager?
     private var shortcutManager: ShortcutManager?
@@ -63,7 +63,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         shortcutManager = ShortcutManager()
         ShortcutManager.active = shortcutManager
         statusBarController = StatusBarController()
-        throwController = WindowThrowController.shared
+        throwController = MainActor.assumeIsolated { WindowThrowController.shared }
         workspaceManager = WorkspaceManager.shared
         clipboardManager = ClipboardManager.shared
         textExpanderManager = TextExpanderManager.shared
@@ -164,7 +164,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         
         // RECTANGLE PRO FEATURE: Register window throw shortcut
-        throwController?.registerThrowShortcut(with: shortcutManager)
+        MainActor.assumeIsolated {
+            throwController?.registerThrowShortcut(with: shortcutManager)
+        }
         
         // CLIPBOARD HISTORY FEATURE: Register clipboard history shortcut
         let success = shortcutManager.registerGlobalShortcut("cmd+shift+v") {
@@ -185,8 +187,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         clipboardManager?.startMonitoring()
         
         // REGION SHARE FEATURE: Register region share shortcut
-        regionShareController = RegionShareController.shared
-        regionShareController?.registerShortcut(with: shortcutManager)
+        MainActor.assumeIsolated {
+            regionShareController = RegionShareController.shared
+            regionShareController?.registerShortcut(with: shortcutManager)
+        }
 
         // User-defined shortcuts register after built-ins so conflicts are reported
         // without displacing the app's documented defaults.
@@ -323,7 +327,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             textExpansionEngine?.restart()
         }
         
-        regionShareController?.recoverVirtualCameraAfterWake()
+        MainActor.assumeIsolated {
+            regionShareController?.recoverVirtualCameraAfterWake()
+        }
         VirtualDisplayController.shared.recoverAfterWake()
         windowManager = WindowManager.shared
         

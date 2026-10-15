@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 
-class StatusBarController: NSObject, NSMenuDelegate {
+final class StatusBarController: NSObject, NSMenuDelegate {
     var onShowAccessibilitySetup: (() -> Void)?
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private var preferencesWindow: PreferencesWindow?
@@ -367,11 +367,15 @@ class StatusBarController: NSObject, NSMenuDelegate {
     }
 
     @objc private func showRegionShare() {
-        RegionShareController.shared.showRegionShare()
+        MainActor.assumeIsolated {
+            RegionShareController.shared.showRegionShare()
+        }
     }
 
     @objc private func showVirtualDisplayShare() {
-        RegionShareController.shared.showVirtualDisplayShare()
+        MainActor.assumeIsolated {
+            RegionShareController.shared.showVirtualDisplayShare()
+        }
     }
 
     @objc private func connectVirtualScreen() {
@@ -389,11 +393,15 @@ class StatusBarController: NSObject, NSMenuDelegate {
     }
 
     @objc private func enableVirtualCameraShare() {
-        RegionShareController.shared.enableVirtualCameraShare()
+        MainActor.assumeIsolated {
+            RegionShareController.shared.enableVirtualCameraShare()
+        }
     }
 
     @objc private func selectNewRegion() {
-        RegionShareController.shared.selectNewRegion()
+        MainActor.assumeIsolated {
+            RegionShareController.shared.selectNewRegion()
+        }
     }
 
     @objc private func showRegionShareHelp() {

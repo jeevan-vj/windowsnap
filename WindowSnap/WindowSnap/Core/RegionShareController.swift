@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 
+@MainActor
 final class RegionShareController: NSObject {
 
     static let shared = RegionShareController()
@@ -205,6 +206,7 @@ final class RegionShareController: NSObject {
         let generation = virtualCameraGeneration
         let absoluteRect = region.absoluteRect(for: displayBounds)
         let oldEngine = virtualCameraCaptureEngine
+        oldEngine?.frameSink = nil
         oldEngine?.requestStop()
 
         let engine = RegionCaptureEngine(displayID: region.displayID, cropRect: absoluteRect, frameRate: 30)
@@ -221,6 +223,7 @@ final class RegionShareController: NSObject {
                     guard controller.virtualCameraGeneration == generation,
                           controller.wantsVirtualCameraCapture,
                           controller.virtualCameraCaptureEngine === engine else {
+                        engine.frameSink = nil
                         Task { await engine.stopCapture() }
                         return
                     }
@@ -228,6 +231,7 @@ final class RegionShareController: NSObject {
                 }
             } catch {
                 await MainActor.run {
+                    engine.frameSink = nil
                     if controller.virtualCameraCaptureEngine === engine {
                         controller.virtualCameraCaptureEngine = nil
                     }
@@ -247,6 +251,7 @@ final class RegionShareController: NSObject {
             return
         }
 
+        engine.frameSink = nil
         engine.requestStop()
         virtualCameraCaptureEngine = nil
         Task {

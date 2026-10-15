@@ -2,10 +2,12 @@ import AppKit
 import Foundation
 
 /// The overlay window that displays throw position options
-class ThrowOverlayWindow: NSWindow {
+@MainActor
+final class ThrowOverlayWindow: NSWindow {
     
     private var positionViews: [ThrowPositionView] = []
     private var highlightedIndex: Int = -1
+    var onCancel: (() -> Void)?
     
     init() {
         super.init(
@@ -27,6 +29,20 @@ class ThrowOverlayWindow: NSWindow {
         collectionBehavior = [.canJoinAllSpaces, .stationary]
         isReleasedWhenClosed = false
         setupContentView()
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
+        setAccessibilityLabel("Window throw positions")
+        setAccessibilityHelp("Use the arrow keys to choose a position, Return to confirm, or Escape to cancel.")
+        setAccessibilityCustomActions([
+            NSAccessibilityCustomAction(name: "Confirm highlighted position") { [weak self] in
+                self?.confirmHighlightedPosition() ?? false
+            },
+            NSAccessibilityCustomAction(name: "Cancel window throw") { [weak self] in
+                guard let self else { return false }
+                self.onCancel?()
+                return true
+            }
+        ])
     }
 
     override var canBecomeKey: Bool { true }
@@ -35,7 +51,7 @@ class ThrowOverlayWindow: NSWindow {
     private func setupContentView() {
         let containerView = NSView(frame: contentRect(forFrameRect: frame))
         containerView.wantsLayer = true
-        containerView.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.3).cgColor
+        containerView.layer?.backgroundColor = NSColor.underPageBackgroundColor.withAlphaComponent(0.55).cgColor
         contentView = containerView
     }
     
@@ -47,18 +63,24 @@ class ThrowOverlayWindow: NSWindow {
 
         guard let containerView = contentView else { return }
 
-        for position in positions {
+        for (index, position) in positions.enumerated() {
             let localFrame = CoordinateConverter.windowLocalRect(
                 fromGlobalAppKitRect: position.frame,
                 screenFrame: screen.frame
             )
             let positionView = ThrowPositionView(throwPosition: position)
+            positionView.onActivate = { [weak self] in
+                self?.selectPosition(at: index + 1)
+            }
             positionView.frame = localFrame
             containerView.addSubview(positionView)
             positionViews.append(positionView)
         }
 
         highlightCurrentWindow(targetWindow, on: screen)
+        if !positionViews.isEmpty {
+            highlightPosition(1)
+        }
     }
     
     /// Highlight a specific position by index
@@ -81,10 +103,36 @@ class ThrowOverlayWindow: NSWindow {
         guard arrayIndex >= 0 && arrayIndex < positionViews.count else { return nil }
         return positionViews[arrayIndex].throwPosition
     }
+
+    func moveHighlight(by offset: Int) {
+        guard !positionViews.isEmpty else { return }
+        let current = highlightedIndex >= 0 ? highlightedIndex : 0
+        let next = (current + offset + positionViews.count) % positionViews.count
+        highlightPosition(next + 1)
+    }
+
+    @discardableResult
+    func confirmHighlightedPosition() -> Bool {
+        guard positionViews.indices.contains(highlightedIndex) else {
+            NSSound.beep()
+            return false
+        }
+        selectPosition(at: highlightedIndex + 1)
+        return true
+    }
+
+    private func selectPosition(at index: Int) {
+        guard let position = getPosition(for: index) else { return }
+        NotificationCenter.default.post(
+            name: .throwPositionSelected,
+            object: self,
+            userInfo: ["index": index, "position": position]
+        )
+    }
     
     /// Clear all position views
     private func clearPositions() {
-        positionViews.forEach { $0.removeFromSuperview() }
+        contentView?.subviews.forEach { $0.removeFromSuperview() }
         positionViews.removeAll()
         highlightedIndex = -1
     }
@@ -104,16 +152,16 @@ class ThrowOverlayWindow: NSWindow {
 
         let currentWindowView = NSView(frame: localFrame)
         currentWindowView.wantsLayer = true
-        currentWindowView.layer?.backgroundColor = NSColor.systemBlue.withAlphaComponent(0.3).cgColor
-        currentWindowView.layer?.borderColor = NSColor.systemBlue.cgColor
+        currentWindowView.layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.25).cgColor
+        currentWindowView.layer?.borderColor = NSColor.controlAccentColor.cgColor
         currentWindowView.layer?.borderWidth = 2.0
         currentWindowView.layer?.cornerRadius = 4.0
 
         containerView.addSubview(currentWindowView)
 
         let label = NSTextField(labelWithString: "Current: \(window.windowTitle)")
-        label.textColor = .white
-        label.backgroundColor = NSColor.systemBlue.withAlphaComponent(0.8)
+        label.textColor = .labelColor
+        label.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.45)
         label.font = NSFont.systemFont(ofSize: 12, weight: .medium)
         label.sizeToFit()
         label.frame.origin = CGPoint(x: 8, y: max(8, localFrame.height - label.frame.height - 8))
@@ -128,11 +176,7 @@ class ThrowOverlayWindow: NSWindow {
             if positionView.frame.contains(clickLocation) {
                 highlightPosition(index + 1) // Convert to 1-based
                 // Notify delegate or use callback
-                NotificationCenter.default.post(
-                    name: .throwPositionSelected,
-                    object: nil,
-                    userInfo: ["index": index + 1, "position": positionView.throwPosition]
-                )
+                selectPosition(at: index + 1)
                 return
             }
         }
@@ -142,11 +186,13 @@ class ThrowOverlayWindow: NSWindow {
 }
 
 /// Individual position view in the throw overlay
-class ThrowPositionView: NSView {
+@MainActor
+final class ThrowPositionView: NSView {
     
     let throwPosition: ThrowPosition
     private let calculator = ThrowPositionCalculator()
     private var isHighlighted = false
+    var onActivate: (() -> Void)?
     
     init(throwPosition: ThrowPosition) {
         self.throwPosition = throwPosition
@@ -161,12 +207,23 @@ class ThrowPositionView: NSView {
     private func setupView() {
         wantsLayer = true
         updateAppearance()
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+        setAccessibilityLabel("\(throwPosition.shortDisplayName), key \(calculator.getKeyCharacter(for: throwPosition.keyIndex))")
+        setAccessibilityHelp("Moves the current window to \(throwPosition.displayName).")
+        setAccessibilityCustomActions([
+            NSAccessibilityCustomAction(name: "Choose position") { [weak self] in
+                guard let self else { return false }
+                self.onActivate?()
+                return true
+            }
+        ])
         
         // Add key label
         let keyLabel = NSTextField(labelWithString: calculator.getKeyCharacter(for: throwPosition.keyIndex))
         keyLabel.font = NSFont.boldSystemFont(ofSize: 24)
-        keyLabel.textColor = .white
-        keyLabel.backgroundColor = NSColor.black.withAlphaComponent(0.7)
+        keyLabel.textColor = .labelColor
+        keyLabel.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.85)
         keyLabel.alignment = .center
         keyLabel.frame = CGRect(x: 8, y: frame.height - 40, width: 32, height: 32)
         addSubview(keyLabel)
@@ -174,8 +231,8 @@ class ThrowPositionView: NSView {
         // Add position name label
         let nameLabel = NSTextField(labelWithString: throwPosition.shortDisplayName)
         nameLabel.font = NSFont.systemFont(ofSize: 14, weight: .medium)
-        nameLabel.textColor = .white
-        nameLabel.backgroundColor = NSColor.black.withAlphaComponent(0.5)
+        nameLabel.textColor = .labelColor
+        nameLabel.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.7)
         nameLabel.alignment = .center
         nameLabel.sizeToFit()
         nameLabel.frame.size.width += 16 // Add padding
@@ -193,12 +250,12 @@ class ThrowPositionView: NSView {
     
     private func updateAppearance() {
         if isHighlighted {
-            layer?.backgroundColor = NSColor.systemBlue.withAlphaComponent(0.4).cgColor
-            layer?.borderColor = NSColor.systemBlue.cgColor
+            layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.4).cgColor
+            layer?.borderColor = NSColor.controlAccentColor.cgColor
             layer?.borderWidth = 3.0
         } else {
-            layer?.backgroundColor = NSColor.gray.withAlphaComponent(0.2).cgColor
-            layer?.borderColor = NSColor.white.withAlphaComponent(0.5).cgColor
+            layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.35).cgColor
+            layer?.borderColor = NSColor.separatorColor.cgColor
             layer?.borderWidth = 1.0
         }
         layer?.cornerRadius = 6.0

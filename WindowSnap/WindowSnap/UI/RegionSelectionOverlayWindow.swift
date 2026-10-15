@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 
+@MainActor
 protocol RegionSelectionDelegate: AnyObject {
     func regionSelectionDidComplete(displayID: CGDirectDisplayID, rect: CGRect)
     func regionSelectionDidCancel()
@@ -13,6 +14,7 @@ private func screenMatchesDisplay(_ screen: NSScreen, _ displayID: CGDirectDispl
     return number.uint32Value == displayID
 }
 
+@MainActor
 final class RegionSelectionOverlayWindow: NSWindow {
     
     weak var selectionDelegate: RegionSelectionDelegate?
@@ -90,11 +92,22 @@ final class RegionSelectionOverlayWindow: NSWindow {
     
     private func setupKeyHandling() {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            if event.keyCode == 53 { // Escape key
-                self?.handleCancel()
+            guard let self else { return event }
+            switch event.keyCode {
+            case 53: // Escape
+                self.handleCancel()
                 return nil
+            case 36, 76: // Return and keypad Enter
+                guard self.isKeyWindow else { return event }
+                self.selectionView?.confirmSelection()
+                return nil
+            case 123, 124, 125, 126: // Arrow keys
+                guard self.isKeyWindow else { return event }
+                self.selectionView?.handleArrowKey(event)
+                return nil
+            default:
+                return event
             }
-            return event
         }
     }
     
@@ -158,15 +171,12 @@ final class RegionSelectionOverlayWindow: NSWindow {
         super.close()
     }
     
-    deinit {
-        removeKeyMonitor()
-    }
-    
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
 }
 
-class RegionSelectionView: NSView {
+@MainActor
+final class RegionSelectionView: NSView {
     
     var onSelectionComplete: ((CGRect) -> Void)?
     var onSelectionCancel: (() -> Void)?
@@ -175,10 +185,10 @@ class RegionSelectionView: NSView {
     private var selectionRect: CGRect = .zero
     private var isDragging = false
     
-    private let overlayColor = NSColor.black.withAlphaComponent(0.4)
-    private let selectionBorderColor = NSColor.systemBlue
-    private let selectionFillColor = NSColor.systemBlue.withAlphaComponent(0.15)
-    private let guideColor = NSColor.white.withAlphaComponent(0.3)
+    private let overlayColor = NSColor.underPageBackgroundColor.withAlphaComponent(0.72)
+    private let selectionBorderColor = NSColor.controlAccentColor
+    private let selectionFillColor = NSColor.controlAccentColor.withAlphaComponent(0.18)
+    private let guideColor = NSColor.separatorColor.withAlphaComponent(0.8)
     
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -192,6 +202,20 @@ class RegionSelectionView: NSView {
     private func setupView() {
         wantsLayer = true
         layer?.backgroundColor = overlayColor.cgColor
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
+        setAccessibilityLabel("Screen region selection")
+        setAccessibilityHelp("Drag to select. Return confirms, Escape cancels, arrow keys move, and Option plus arrow keys resize.")
+        setAccessibilityCustomActions([
+            NSAccessibilityCustomAction(name: "Confirm selection") { [weak self] in
+                self?.confirmSelection() ?? false
+            },
+            NSAccessibilityCustomAction(name: "Cancel selection") { [weak self] in
+                guard let self else { return false }
+                self.onSelectionCancel?()
+                return true
+            }
+        ])
         
         addTrackingArea(NSTrackingArea(
             rect: bounds,
@@ -207,7 +231,7 @@ class RegionSelectionView: NSView {
         overlayColor.setFill()
         bounds.fill()
         
-        if isDragging && selectionRect.width > 0 && selectionRect.height > 0 {
+        if selectionRect.width > 0 && selectionRect.height > 0 {
             drawSelection()
             drawGuides()
             drawDimensions()
@@ -239,7 +263,7 @@ class RegionSelectionView: NSView {
             CGPoint(x: selectionRect.maxX, y: selectionRect.midY)
         ]
         
-        NSColor.white.setFill()
+        NSColor.controlBackgroundColor.setFill()
         selectionBorderColor.setStroke()
         
         for handle in handles {
@@ -283,19 +307,21 @@ class RegionSelectionView: NSView {
         
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.monospacedSystemFont(ofSize: 14, weight: .medium),
-            .foregroundColor: NSColor.white,
-            .backgroundColor: NSColor.black.withAlphaComponent(0.7)
+            .foregroundColor: NSColor.labelColor
         ]
         
         let textSize = dimensionText.size(withAttributes: attributes)
+        let labelWidth = textSize.width + 12
+        let labelHeight = textSize.height + 4
+        let proposedY = selectionRect.maxY + 8
         let textRect = CGRect(
-            x: selectionRect.midX - textSize.width / 2 - 6,
-            y: selectionRect.maxY + 8,
-            width: textSize.width + 12,
-            height: textSize.height + 4
+            x: min(max(bounds.minX + 4, selectionRect.midX - labelWidth / 2), bounds.maxX - labelWidth - 4),
+            y: proposedY + labelHeight <= bounds.maxY ? proposedY : max(bounds.minY + 4, selectionRect.minY - labelHeight - 8),
+            width: labelWidth,
+            height: labelHeight
         )
         
-        NSColor.black.withAlphaComponent(0.7).setFill()
+        NSColor.windowBackgroundColor.withAlphaComponent(0.92).setFill()
         NSBezierPath(roundedRect: textRect, xRadius: 4, yRadius: 4).fill()
         
         dimensionText.draw(
@@ -305,14 +331,14 @@ class RegionSelectionView: NSView {
     }
     
     private func drawInstructions() {
-        let instructions = "Drag to select a region to share\nPress ESC to cancel"
+        let instructions = "Drag to select a region to share\nReturn confirms • Esc cancels"
         
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.alignment = .center
         
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 24, weight: .medium),
-            .foregroundColor: NSColor.white,
+            .foregroundColor: NSColor.labelColor,
             .paragraphStyle: paragraphStyle
         ]
         
@@ -346,6 +372,7 @@ class RegionSelectionView: NSView {
         let maxY = max(start.y, current.y)
         
         selectionRect = CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+        updateAccessibilityValue()
         needsDisplay = true
     }
     
@@ -353,11 +380,10 @@ class RegionSelectionView: NSView {
         guard isDragging else { return }
         
         isDragging = false
-        
-        if selectionRect.width >= 50 && selectionRect.height >= 50 {
-            onSelectionComplete?(selectionRect)
-        } else {
+
+        if selectionRect.width < 50 || selectionRect.height < 50 {
             selectionRect = .zero
+            updateAccessibilityValue()
             needsDisplay = true
         }
         
@@ -365,11 +391,68 @@ class RegionSelectionView: NSView {
     }
     
     override func keyDown(with event: NSEvent) {
-        if event.keyCode == 53 { // Escape
+        switch event.keyCode {
+        case 53:
             onSelectionCancel?()
-        } else {
+        case 36, 76:
+            _ = confirmSelection()
+        case 123, 124, 125, 126:
+            handleArrowKey(event)
+        default:
             super.keyDown(with: event)
         }
+    }
+
+    @discardableResult
+    func confirmSelection() -> Bool {
+        guard selectionRect.width >= 50, selectionRect.height >= 50 else {
+            NSSound.beep()
+            return false
+        }
+        onSelectionComplete?(selectionRect)
+        return true
+    }
+
+    func handleArrowKey(_ event: NSEvent) {
+        guard [123, 124, 125, 126].contains(event.keyCode) else { return }
+        if selectionRect.isEmpty {
+            let size = CGSize(width: min(320, bounds.width), height: min(180, bounds.height))
+            selectionRect = CGRect(
+                x: bounds.midX - size.width / 2,
+                y: bounds.midY - size.height / 2,
+                width: size.width,
+                height: size.height
+            )
+        }
+
+        let amount: CGFloat = event.modifierFlags.contains(.shift) ? 10 : 1
+        let delta: CGPoint
+        switch event.keyCode {
+        case 123: delta = CGPoint(x: -amount, y: 0)
+        case 124: delta = CGPoint(x: amount, y: 0)
+        case 125: delta = CGPoint(x: 0, y: -amount)
+        default: delta = CGPoint(x: 0, y: amount)
+        }
+
+        if event.modifierFlags.contains(.option) {
+            let width = max(50, min(bounds.maxX - selectionRect.minX, selectionRect.width + delta.x))
+            let height = max(50, min(bounds.maxY - selectionRect.minY, selectionRect.height + delta.y))
+            selectionRect.size = CGSize(width: width, height: height)
+        } else {
+            selectionRect.origin.x = min(max(bounds.minX, selectionRect.origin.x + delta.x), bounds.maxX - selectionRect.width)
+            selectionRect.origin.y = min(max(bounds.minY, selectionRect.origin.y + delta.y), bounds.maxY - selectionRect.height)
+        }
+        updateAccessibilityValue()
+        needsDisplay = true
+    }
+
+    private func updateAccessibilityValue() {
+        if selectionRect.isEmpty {
+            setAccessibilityValue("No region selected")
+        } else {
+            setAccessibilityValue("\(Int(selectionRect.width)) by \(Int(selectionRect.height)) points")
+        }
+        NSAccessibility.post(element: self, notification: .valueChanged)
     }
     
     override var acceptsFirstResponder: Bool { true }

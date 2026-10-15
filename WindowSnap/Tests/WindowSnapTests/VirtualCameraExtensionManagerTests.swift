@@ -25,6 +25,20 @@ final class VirtualCameraExtensionManagerTests: XCTestCase {
         XCTAssertEqual(manager.status, .unavailable)
         XCTAssertEqual(activator.activationCount, 0)
     }
+
+    func testDuplicateActivationWhileRequestIsInFlightIsIgnored() {
+        let activator = StubVirtualCameraExtensionActivator()
+        let manager = VirtualCameraExtensionManager(
+            activator: activator,
+            extensionAvailability: { true }
+        )
+
+        manager.activate()
+        manager.activate()
+
+        XCTAssertEqual(manager.status, .activating)
+        XCTAssertEqual(activator.activationCount, 1)
+    }
 }
 
 private final class StubVirtualCameraExtensionActivator: VirtualCameraExtensionActivating {

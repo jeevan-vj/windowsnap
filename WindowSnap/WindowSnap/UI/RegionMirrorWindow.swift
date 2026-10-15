@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 
+@MainActor
 final class RegionMirrorWindow: NSWindow {
 
     private var captureEngine: RegionCaptureEngine?
@@ -261,7 +262,7 @@ extension RegionMirrorWindow: NSWindowDelegate {
     }
 }
 
-extension RegionMirrorWindow: RegionCaptureDelegate {
+extension RegionMirrorWindow: @preconcurrency RegionCaptureDelegate {
     func captureEngine(_ engine: RegionCaptureEngine, didOutputFrame image: CGImage) {
         guard engine === captureEngine, !isStopping, isVisible, imageView != nil else { return }
         removePlaceholder()

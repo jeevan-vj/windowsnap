@@ -2,6 +2,7 @@ import CoreMedia
 import CoreVideo
 import Darwin
 import Foundation
+import IOSurface
 
 struct RegionFrameMetadata: Codable, Equatable {
     let width: Int
@@ -11,6 +12,8 @@ struct RegionFrameMetadata: Codable, Equatable {
     let presentationTimeSeconds: Double
     let updatedAt: Date
     let isPlaceholder: Bool
+    let surfaceID: UInt32
+    let sequence: UInt64
 
     var isActive: Bool {
         Date().timeIntervalSince(updatedAt) < 2.0 && !isPlaceholder
@@ -18,15 +21,33 @@ struct RegionFrameMetadata: Codable, Equatable {
 }
 
 final class RegionFrameHub: RegionFrameSink {
-    static let appGroupIdentifier = "group.com.jeevanwijerathna.windowsnap"
+    static let defaultAppGroupIdentifier = "group.com.jeevanwijerathna.windowsnap"
     static let shared = RegionFrameHub()
 
-    private let queue = DispatchQueue(label: "com.windowsnap.region-frame-hub")
+    static var appGroupIdentifier: String {
+        Bundle.main.object(forInfoDictionaryKey: "WindowSnapCameraAppGroupIdentifier") as? String
+            ?? defaultAppGroupIdentifier
+    }
+
+    private struct PendingFrame {
+        let pixelBuffer: CVPixelBuffer
+        let presentationTime: CMTime
+        let sequence: UInt64
+    }
+
+    private let queue = DispatchQueue(label: "com.windowsnap.region-frame-hub", qos: .userInteractive)
+    private let pendingLock = NSLock()
     private let directory: URL
     private let metadataURL: URL
-    private let frameURL: URL
+    private let legacyFrameURL: URL
     private let frameRate: Int
     private let fileManager: FileManager
+    private var pendingFrame: PendingFrame?
+    private var isDrainScheduled = false
+    private var nextSequence: UInt64 = 0
+    private var lastPublishedPresentationTime = CMTime.invalid
+    private var pools: [String: CVPixelBufferPool] = [:]
+    private var publishedBuffer: CVPixelBuffer?
 
     init(
         directory: URL? = nil,
@@ -39,7 +60,9 @@ final class RegionFrameHub: RegionFrameSink {
         let resolvedDirectory: URL
         if let directory {
             resolvedDirectory = directory
-        } else if let appGroupURL = fileManager.containerURL(forSecurityApplicationGroupIdentifier: Self.appGroupIdentifier) {
+        } else if let appGroupURL = fileManager.containerURL(
+            forSecurityApplicationGroupIdentifier: Self.appGroupIdentifier
+        ) {
             resolvedDirectory = appGroupURL.appendingPathComponent("RegionFrameHub", isDirectory: true)
         } else if let appSupport = fileManager.urls(
             for: .applicationSupportDirectory,
@@ -58,7 +81,7 @@ final class RegionFrameHub: RegionFrameSink {
 
         self.directory = resolvedDirectory
         self.metadataURL = resolvedDirectory.appendingPathComponent("metadata.json")
-        self.frameURL = resolvedDirectory.appendingPathComponent("latest.bgra")
+        self.legacyFrameURL = resolvedDirectory.appendingPathComponent("latest.bgra")
     }
 
     var currentMetadata: RegionFrameMetadata? {
@@ -68,100 +91,202 @@ final class RegionFrameHub: RegionFrameSink {
         }
     }
 
-    var currentFrameURL: URL { frameURL }
+    /// Retained for source compatibility. Frames are now shared through `surfaceID` in metadata.
+    var currentFrameURL: URL { legacyFrameURL }
     var currentMetadataURL: URL { metadataURL }
 
     func prepare() {
         queue.sync {
             try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-            writePlaceholderFrameLocked(width: 1280, height: 720)
+            try? fileManager.removeItem(at: legacyFrameURL)
+            publishPlaceholderLocked(width: 1280, height: 720)
         }
     }
 
     func markInactive() {
-        queue.async {
-            self.writePlaceholderFrameLocked(width: 1280, height: 720)
+        pendingLock.lock()
+        pendingFrame = nil
+        pendingLock.unlock()
+        queue.async { [weak self] in
+            self?.publishPlaceholderLocked(width: 1280, height: 720)
         }
     }
 
     func regionCaptureDidOutputFrame(_ frame: CVPixelBuffer, presentationTime: CMTime) {
-        queue.async {
-            self.writeFrameLocked(frame, presentationTime: presentationTime, isPlaceholder: false)
+        pendingLock.lock()
+        nextSequence &+= 1
+        pendingFrame = PendingFrame(
+            pixelBuffer: frame,
+            presentationTime: presentationTime,
+            sequence: nextSequence
+        )
+        let shouldSchedule = !isDrainScheduled
+        isDrainScheduled = true
+        pendingLock.unlock()
+
+        guard shouldSchedule else { return }
+        queue.async { [weak self] in
+            self?.drainPendingFramesLocked()
         }
     }
 
-    private func writePlaceholderFrameLocked(width: Int, height: Int) {
-        var pixelBuffer: CVPixelBuffer?
-        let attributes = [
-            kCVPixelBufferCGImageCompatibilityKey: true,
-            kCVPixelBufferCGBitmapContextCompatibilityKey: true
-        ] as CFDictionary
-        let status = CVPixelBufferCreate(
-            kCFAllocatorDefault,
-            width,
-            height,
-            kCVPixelFormatType_32BGRA,
-            attributes,
-            &pixelBuffer
-        )
-        guard status == kCVReturnSuccess, let pixelBuffer else { return }
+    private func drainPendingFramesLocked() {
+        while true {
+            pendingLock.lock()
+            guard let pendingFrame else {
+                isDrainScheduled = false
+                pendingLock.unlock()
+                return
+            }
+            self.pendingFrame = nil
+            pendingLock.unlock()
+
+            if lastPublishedPresentationTime.isValid,
+               pendingFrame.presentationTime.isValid,
+               CMTimeCompare(pendingFrame.presentationTime, lastPublishedPresentationTime) <= 0 {
+                continue
+            }
+
+            publishFrameLocked(
+                pendingFrame.pixelBuffer,
+                presentationTime: pendingFrame.presentationTime,
+                sequence: pendingFrame.sequence,
+                isPlaceholder: false
+            )
+        }
+    }
+
+    private func publishPlaceholderLocked(width: Int, height: Int) {
+        pendingLock.lock()
+        nextSequence &+= 1
+        let sequence = nextSequence
+        pendingLock.unlock()
+        guard let pixelBuffer = makePooledPixelBuffer(width: width, height: height) else { return }
 
         CVPixelBufferLockBaseAddress(pixelBuffer, [])
         if let base = CVPixelBufferGetBaseAddress(pixelBuffer) {
             memset(base, 28, CVPixelBufferGetDataSize(pixelBuffer))
         }
         CVPixelBufferUnlockBaseAddress(pixelBuffer, [])
-
-        writeFrameLocked(pixelBuffer, presentationTime: .zero, isPlaceholder: true)
+        lastPublishedPresentationTime = .invalid
+        writeMetadataLocked(
+            for: pixelBuffer,
+            presentationTime: .zero,
+            sequence: sequence,
+            isPlaceholder: true
+        )
     }
 
-    private func writeFrameLocked(_ frame: CVPixelBuffer, presentationTime: CMTime, isPlaceholder: Bool) {
-        try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+    private func publishFrameLocked(
+        _ source: CVPixelBuffer,
+        presentationTime: CMTime,
+        sequence: UInt64,
+        isPlaceholder: Bool
+    ) {
+        guard CVPixelBufferGetPixelFormatType(source) == kCVPixelFormatType_32BGRA else { return }
+        let width = CVPixelBufferGetWidth(source)
+        let height = CVPixelBufferGetHeight(source)
+        guard let destination = makePooledPixelBuffer(width: width, height: height) else { return }
 
-        CVPixelBufferLockBaseAddress(frame, .readOnly)
-        defer { CVPixelBufferUnlockBaseAddress(frame, .readOnly) }
+        CVPixelBufferLockBaseAddress(source, .readOnly)
+        CVPixelBufferLockBaseAddress(destination, [])
+        defer {
+            CVPixelBufferUnlockBaseAddress(destination, [])
+            CVPixelBufferUnlockBaseAddress(source, .readOnly)
+        }
 
-        guard let packedFrame = packedBGRAData(from: frame) else { return }
+        guard let sourceBase = CVPixelBufferGetBaseAddress(source),
+              let destinationBase = CVPixelBufferGetBaseAddress(destination) else { return }
+        let sourceBytesPerRow = CVPixelBufferGetBytesPerRow(source)
+        let destinationBytesPerRow = CVPixelBufferGetBytesPerRow(destination)
+        let bytesToCopy = width * 4
+        guard sourceBytesPerRow >= bytesToCopy, destinationBytesPerRow >= bytesToCopy else { return }
+
+        for row in 0..<height {
+            memcpy(
+                destinationBase.advanced(by: row * destinationBytesPerRow),
+                sourceBase.advanced(by: row * sourceBytesPerRow),
+                bytesToCopy
+            )
+        }
+
+        lastPublishedPresentationTime = presentationTime
+        writeMetadataLocked(
+            for: destination,
+            presentationTime: presentationTime,
+            sequence: sequence,
+            isPlaceholder: isPlaceholder
+        )
+    }
+
+    private func writeMetadataLocked(
+        for pixelBuffer: CVPixelBuffer,
+        presentationTime: CMTime,
+        sequence: UInt64,
+        isPlaceholder: Bool
+    ) {
+        guard let unmanagedSurface = CVPixelBufferGetIOSurface(pixelBuffer) else { return }
+        let surfaceID = IOSurfaceGetID(unmanagedSurface.takeUnretainedValue())
         let metadata = RegionFrameMetadata(
-            width: CVPixelBufferGetWidth(frame),
-            height: CVPixelBufferGetHeight(frame),
+            width: CVPixelBufferGetWidth(pixelBuffer),
+            height: CVPixelBufferGetHeight(pixelBuffer),
             frameRate: frameRate,
-            pixelFormat: CVPixelBufferGetPixelFormatType(frame),
+            pixelFormat: CVPixelBufferGetPixelFormatType(pixelBuffer),
             presentationTimeSeconds: presentationTime.seconds.isFinite ? presentationTime.seconds : 0,
             updatedAt: Date(),
-            isPlaceholder: isPlaceholder
+            isPlaceholder: isPlaceholder,
+            surfaceID: surfaceID,
+            sequence: sequence
         )
 
         do {
-            try packedFrame.write(to: frameURL, options: .atomic)
+            try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
             let metadataData = try JSONEncoder().encode(metadata)
             try metadataData.write(to: metadataURL, options: .atomic)
+            publishedBuffer = pixelBuffer
         } catch {
-            print("⚠️ Failed to publish region frame: \(error)")
+            print("⚠️ Failed to publish region frame metadata: \(error)")
         }
     }
 
-    /// Copies BGRA pixels without row padding so the camera extension can
-    /// address them as `width * 4` bytes per row.
-    private func packedBGRAData(from frame: CVPixelBuffer) -> Data? {
-        guard let baseAddress = CVPixelBufferGetBaseAddress(frame) else { return nil }
-        let width = CVPixelBufferGetWidth(frame)
-        let height = CVPixelBufferGetHeight(frame)
-        let bytesPerRow = CVPixelBufferGetBytesPerRow(frame)
-        let packedBytesPerRow = width * 4
-        guard packedBytesPerRow > 0, height > 0, bytesPerRow >= packedBytesPerRow else { return nil }
-
-        var packed = Data(count: packedBytesPerRow * height)
-        packed.withUnsafeMutableBytes { dest in
-            guard let destBase = dest.baseAddress else { return }
-            for row in 0..<height {
-                memcpy(
-                    destBase.advanced(by: row * packedBytesPerRow),
-                    baseAddress.advanced(by: row * bytesPerRow),
-                    packedBytesPerRow
-                )
+    private func makePooledPixelBuffer(width: Int, height: Int) -> CVPixelBuffer? {
+        let key = "\(width)x\(height)"
+        let pool: CVPixelBufferPool
+        if let existing = pools[key] {
+            pool = existing
+        } else {
+            var createdPool: CVPixelBufferPool?
+            let poolAttributes = [kCVPixelBufferPoolMinimumBufferCountKey: 3] as CFDictionary
+            // The camera extension receives the surface by ID through the shared metadata file.
+            // Use the literal key to support that legacy handoff without referencing the SDK's
+            // deprecated symbol (the signed extension and host share one application group).
+            let surfaceProperties = ["IOSurfaceIsGlobal" as CFString: true] as CFDictionary
+            let pixelAttributes = [
+                kCVPixelBufferWidthKey: width,
+                kCVPixelBufferHeightKey: height,
+                kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_32BGRA,
+                kCVPixelBufferIOSurfacePropertiesKey: surfaceProperties
+            ] as CFDictionary
+            guard CVPixelBufferPoolCreate(
+                kCFAllocatorDefault,
+                poolAttributes,
+                pixelAttributes,
+                &createdPool
+            ) == kCVReturnSuccess, let createdPool else {
+                return nil
             }
+            pools[key] = createdPool
+            pool = createdPool
         }
-        return packed
+
+        var pixelBuffer: CVPixelBuffer?
+        guard CVPixelBufferPoolCreatePixelBuffer(
+            kCFAllocatorDefault,
+            pool,
+            &pixelBuffer
+        ) == kCVReturnSuccess else {
+            return nil
+        }
+        return pixelBuffer
     }
 }

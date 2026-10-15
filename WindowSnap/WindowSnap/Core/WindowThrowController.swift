@@ -3,7 +3,8 @@ import AppKit
 import Carbon
 
 /// Controls the window throw interface - Rectangle Pro's signature feature
-class WindowThrowController {
+@MainActor
+final class WindowThrowController {
     
     static let shared = WindowThrowController()
     
@@ -17,10 +18,6 @@ class WindowThrowController {
     
     private init() {
         setupNotifications()
-    }
-    
-    deinit {
-        hideThrowOverlay()
     }
     
     private func setupNotifications() {
@@ -51,6 +48,7 @@ class WindowThrowController {
         currentWindow = focusedWindow
 
         overlayWindow = ThrowOverlayWindow()
+        overlayWindow?.onCancel = { [weak self] in self?.hideThrowOverlay() }
         overlayWindow?.displayPositions(currentPositions, for: focusedWindow, on: screen)
         NSApp.activate(ignoringOtherApps: true)
         overlayWindow?.makeKeyAndOrderFront(nil)
@@ -114,6 +112,21 @@ class WindowThrowController {
             // Handle escape to cancel
             if event.keyCode == 53 { // Escape key
                 self.hideThrowOverlay()
+                return nil
+            }
+
+            if event.keyCode == 36 || event.keyCode == 76 { // Return or keypad Enter
+                _ = self.overlayWindow?.confirmHighlightedPosition()
+                return nil
+            }
+
+            if event.keyCode == 123 || event.keyCode == 125 {
+                self.overlayWindow?.moveHighlight(by: -1)
+                return nil
+            }
+
+            if event.keyCode == 124 || event.keyCode == 126 {
+                self.overlayWindow?.moveHighlight(by: 1)
                 return nil
             }
             
