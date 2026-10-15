@@ -3,6 +3,7 @@ import Foundation
 
 extension Notification.Name {
     static let openPreferences = Notification.Name("openPreferences")
+    static let builtInShortcutsDidChange = Notification.Name("builtInShortcutsDidChange")
 }
 
 class AppDelegate: NSObject, NSApplicationDelegate {
@@ -24,6 +25,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupMenuBarApp()
+        configureShortcutDefaults()
         initializeManagers()
         accessibilityAvailable = AccessibilityPermissions.hasPermissions()
         setupSleepWakeNotifications()
@@ -59,6 +61,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func initializeManagers() {
         windowManager = WindowManager.shared
         shortcutManager = ShortcutManager()
+        ShortcutManager.active = shortcutManager
         statusBarController = StatusBarController()
         throwController = WindowThrowController.shared
         workspaceManager = WorkspaceManager.shared
@@ -68,6 +71,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         setupDefaultShortcuts()
         setupTextExpander()
+    }
+
+    private func configureShortcutDefaults() {
+        let preferences = PreferencesManager.shared
+        preferences.prepareBuiltInShortcuts()
+        guard !preferences.hasChosenShortcutDefaults else { return }
+
+        let isRunningTests = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+        guard preferences.isFirstRun, !isRunningTests, !preferences.hasCustomizedBuiltInShortcuts else {
+            preferences.markShortcutDefaultsChoiceHandled()
+            return
+        }
+
+        let alert = NSAlert()
+        alert.messageText = "Choose Window Shortcuts"
+        alert.informativeText = "Rectangle-style Control–Option shortcuts avoid common text-editing commands."
+        alert.addButton(withTitle: "Use Rectangle-style ⌃⌥")
+        alert.addButton(withTitle: "Keep Legacy ⌘⇧")
+        preferences.chooseShortcutDefaults(keepLegacy: alert.runModal() == .alertSecondButtonReturn)
     }
 
     @discardableResult
@@ -364,6 +386,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             name: .openPreferences,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(builtInShortcutsChanged),
+            name: .builtInShortcutsDidChange,
+            object: nil
+        )
+    }
+
+    @objc private func builtInShortcutsChanged() {
+        shortcutManager?.unregisterAllShortcuts()
+        setupDefaultShortcuts()
     }
     
     @objc private func openPreferencesRequested() {

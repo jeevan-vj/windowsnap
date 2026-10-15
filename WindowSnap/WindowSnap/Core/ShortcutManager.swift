@@ -6,6 +6,7 @@ enum ShortcutRegistrationResult: Equatable {
     case registered
     case invalid
     case alreadyRegistered
+    case takenByAnotherApp
     case systemRejected(OSStatus)
 
     var failureMessage: String? {
@@ -16,17 +17,75 @@ enum ShortcutRegistrationResult: Equatable {
             return "Enter a shortcut such as cmd+option+1."
         case .alreadyRegistered:
             return "That shortcut is already assigned to another action."
+        case .takenByAnotherApp:
+            return "This shortcut is already in use by macOS or another app."
         case .systemRejected:
             return "macOS could not register that shortcut. It may be used by another app."
         }
     }
 }
 
+enum BuiltInShortcutAction: String, CaseIterable {
+    case leftHalf, rightHalf, topHalf, bottomHalf
+    case topLeft, topRight, bottomLeft, bottomRight
+    case leftThird, rightThird, leftTwoThirds, rightTwoThirds
+    case maximize, center
+    case undo, redo, nextDisplay, previousDisplay, makeLarger, makeSmaller
+
+    var title: String {
+        if let position = gridPosition { return position.displayName }
+        switch self {
+        case .undo: return "Undo Window Action"
+        case .redo: return "Redo Window Action"
+        case .nextDisplay: return "Move to Next Display"
+        case .previousDisplay: return "Move to Previous Display"
+        case .makeLarger: return "Make Window Larger"
+        case .makeSmaller: return "Make Window Smaller"
+        default: preconditionFailure("Grid action has no title")
+        }
+    }
+
+    var gridPosition: GridPosition? {
+        GridPosition(rawValue: rawValue)
+    }
+}
+
+struct ShortcutDefaultsMigration {
+    static let legacy: [String: String] = [
+        "leftHalf": "cmd+shift+left", "rightHalf": "cmd+shift+right",
+        "topHalf": "cmd+shift+up", "bottomHalf": "cmd+shift+down",
+        "topLeft": "cmd+option+1", "topRight": "cmd+option+2",
+        "bottomLeft": "cmd+option+3", "bottomRight": "cmd+option+4",
+        "leftThird": "cmd+option+left", "rightThird": "cmd+option+right",
+        "leftTwoThirds": "cmd+option+up", "rightTwoThirds": "cmd+option+down",
+        "maximize": "cmd+shift+m", "center": "cmd+shift+c"
+    ]
+
+    static let rectangleStyle: [String: String] = [
+        "leftHalf": "ctrl+option+left", "rightHalf": "ctrl+option+right",
+        "topHalf": "ctrl+option+up", "bottomHalf": "ctrl+option+down",
+        "topLeft": "ctrl+option+u", "topRight": "ctrl+option+i",
+        "bottomLeft": "ctrl+option+j", "bottomRight": "ctrl+option+k",
+        "leftThird": "ctrl+option+d", "rightThird": "ctrl+option+g",
+        "leftTwoThirds": "ctrl+option+e", "rightTwoThirds": "ctrl+option+t",
+        "maximize": "ctrl+option+return", "center": "ctrl+option+c"
+    ]
+
+    static func migrate(_ stored: [String: String]?, explicitlyKeptLegacy: Bool = false) -> [String: String] {
+        guard !explicitlyKeptLegacy else { return stored ?? legacy }
+        guard let stored else { return rectangleStyle }
+        return stored == legacy ? rectangleStyle : stored
+    }
+}
+
 class ShortcutManager {
-    private var registeredShortcuts: [String: EventHotKeyRef] = [:]
-    private var shortcutToHotKeyID: [String: UInt32] = [:]
+    static weak var active: ShortcutManager?
+
+    private var registeredShortcuts: [KeyboardShortcut: EventHotKeyRef] = [:]
+    private var shortcutToHotKeyID: [KeyboardShortcut: UInt32] = [:]
     private var hotKeyIDToAction: [UInt32: () -> Void] = [:]
-    private var shortcutStringToAction: [String: () -> Void] = [:]
+    private var shortcutToAction: [KeyboardShortcut: () -> Void] = [:]
+    private(set) var registrationResults: [KeyboardShortcut: ShortcutRegistrationResult] = [:]
     private var eventHandler: EventHandlerRef?
     private var nextHotKeyID: UInt32 = 1
     
@@ -69,14 +128,15 @@ class ShortcutManager {
     }
 
     func registerGlobalShortcutDetailed(_ shortcutString: String, action: @escaping () -> Void) -> ShortcutRegistrationResult {
-        if registeredShortcuts[shortcutString] != nil {
-            print("Shortcut already registered: \(shortcutString)")
-            return .alreadyRegistered
-        }
-        
-        guard let (keyCode, modifiers) = parseShortcutString(shortcutString) else {
+        guard let shortcut = try? KeyboardShortcut.parse(shortcutString) else {
             print("Failed to parse shortcut: \(shortcutString)")
             return .invalid
+        }
+
+        if registeredShortcuts[shortcut] != nil {
+            print("Shortcut already registered: \(shortcutString)")
+            registrationResults[shortcut] = .alreadyRegistered
+            return .alreadyRegistered
         }
         
         let signature = OSType("WSAP".fourCharCodeValue)
@@ -85,303 +145,179 @@ class ShortcutManager {
         let hotKeyID = EventHotKeyID(signature: signature, id: keyID)
         
         var hotKeyRef: EventHotKeyRef?
-        let result = RegisterEventHotKey(keyCode, modifiers, hotKeyID, GetApplicationEventTarget(), 0, &hotKeyRef)
+        let result = RegisterEventHotKey(shortcut.keyCode, shortcut.modifierFlags, hotKeyID, GetApplicationEventTarget(), 0, &hotKeyRef)
         
         guard result == noErr, let hotKey = hotKeyRef else {
             print("Failed to register hotkey: \(shortcutString)")
-            return .systemRejected(result)
+            let registrationResult: ShortcutRegistrationResult = result == eventHotKeyExistsErr
+                ? .takenByAnotherApp
+                : .systemRejected(result)
+            registrationResults[shortcut] = registrationResult
+            return registrationResult
         }
         
-        registeredShortcuts[shortcutString] = hotKey
-        shortcutToHotKeyID[shortcutString] = keyID
+        registeredShortcuts[shortcut] = hotKey
+        shortcutToHotKeyID[shortcut] = keyID
         hotKeyIDToAction[keyID] = action
-        shortcutStringToAction[shortcutString] = action
+        shortcutToAction[shortcut] = action
+        registrationResults[shortcut] = .registered
         
         print("Successfully registered shortcut: \(shortcutString)")
         return .registered
     }
 
     func isValidShortcutSyntax(_ shortcutString: String) -> Bool {
-        parseShortcutString(shortcutString) != nil
+        (try? KeyboardShortcut.parse(shortcutString)) != nil
+    }
+
+    func registrationResult(for shortcutString: String) -> ShortcutRegistrationResult? {
+        guard let shortcut = try? KeyboardShortcut.parse(shortcutString) else { return .invalid }
+        return registrationResults[shortcut]
     }
     
     func unregisterShortcut(_ shortcutString: String) {
-        guard let hotKeyRef = registeredShortcuts[shortcutString],
-              let keyID = shortcutToHotKeyID[shortcutString] else { return }
+        guard let shortcut = try? KeyboardShortcut.parse(shortcutString),
+              let hotKeyRef = registeredShortcuts[shortcut],
+              let keyID = shortcutToHotKeyID[shortcut] else { return }
         
         UnregisterEventHotKey(hotKeyRef)
-        registeredShortcuts.removeValue(forKey: shortcutString)
-        shortcutToHotKeyID.removeValue(forKey: shortcutString)
+        registeredShortcuts.removeValue(forKey: shortcut)
+        shortcutToHotKeyID.removeValue(forKey: shortcut)
         hotKeyIDToAction.removeValue(forKey: keyID)
-        shortcutStringToAction.removeValue(forKey: shortcutString)
+        shortcutToAction.removeValue(forKey: shortcut)
+        registrationResults.removeValue(forKey: shortcut)
         
         print("Unregistered shortcut: \(shortcutString)")
     }
     
     func unregisterAllShortcuts() {
-        for (shortcutString, hotKeyRef) in registeredShortcuts {
+        for (shortcut, hotKeyRef) in registeredShortcuts {
             UnregisterEventHotKey(hotKeyRef)
-            print("Unregistered shortcut: \(shortcutString)")
+            print("Unregistered shortcut: \(shortcut.displayString)")
         }
         registeredShortcuts.removeAll()
         shortcutToHotKeyID.removeAll()
         hotKeyIDToAction.removeAll()
-        shortcutStringToAction.removeAll()
+        shortcutToAction.removeAll()
+        registrationResults.removeAll()
     }
     
     func getDefaultShortcuts() -> [String: GridPosition] {
-        return [
-            "cmd+shift+left": .leftHalf,
-            "cmd+shift+right": .rightHalf,
-            "cmd+shift+up": .topHalf,
-            "cmd+shift+down": .bottomHalf,
-            "cmd+option+1": .topLeft,
-            "cmd+option+2": .topRight,
-            "cmd+option+3": .bottomLeft,
-            "cmd+option+4": .bottomRight,
-            "cmd+option+left": .leftThird,
-            "cmd+option+right": .rightThird,
-            "cmd+option+up": .leftTwoThirds,
-            "cmd+option+down": .rightTwoThirds,
-            "cmd+shift+m": .maximize,
-            "cmd+shift+c": .center
-        ]
+        BuiltInShortcutAction.allCases.reduce(into: [:]) { shortcuts, action in
+            guard let position = action.gridPosition else { return }
+            shortcuts[shortcutString(for: action)] = position
+        }
     }
+
+    func shortcutString(for action: BuiltInShortcutAction) -> String {
+        PreferencesManager.shared.builtInShortcuts[action.rawValue]
+            ?? ShortcutDefaultsMigration.rectangleStyle[action.rawValue]
+            ?? Self.nonGridDefaults[action]!
+    }
+
+    static let nonGridDefaults: [BuiltInShortcutAction: String] = [
+        .undo: "cmd+option+z", .redo: "cmd+option+shift+z",
+        .nextDisplay: "ctrl+option+cmd+right", .previousDisplay: "ctrl+option+cmd+left",
+        .makeLarger: "ctrl+option+shift+right", .makeSmaller: "ctrl+option+shift+left"
+    ]
     
     // SPECTACLE PRODUCTIVITY: Get undo/redo shortcuts
     func getUndoRedoShortcuts() -> [String: () -> Void] {
-        return [
-            "cmd+option+z": {
-                let windowManager = WindowManager.shared
-                if windowManager.undoLastAction() {
-                    print("⏪ UNDO: Successfully undid last action")
-                } else {
-                    print("❌ UNDO: No actions to undo")
-                }
-            },
-            "cmd+option+shift+z": {
-                let windowManager = WindowManager.shared
-                if windowManager.redoLastAction() {
-                    print("⏩ REDO: Successfully redid last action")
-                } else {
-                    print("❌ REDO: No actions to redo")
-                }
+        var shortcuts: [String: () -> Void] = [:]
+        shortcuts[shortcutString(for: .undo)] = {
+            let windowManager = WindowManager.shared
+            if windowManager.undoLastAction() {
+                print("⏪ UNDO: Successfully undid last action")
+            } else {
+                print("❌ UNDO: No actions to undo")
             }
-        ]
+        }
+        shortcuts[shortcutString(for: .redo)] = {
+            let windowManager = WindowManager.shared
+            if windowManager.redoLastAction() {
+                print("⏩ REDO: Successfully redid last action")
+            } else {
+                print("❌ REDO: No actions to redo")
+            }
+        }
+        return shortcuts
     }
     
     // SPECTACLE PRODUCTIVITY: Get display switching shortcuts
     func getDisplaySwitchingShortcuts() -> [String: () -> Void] {
-        return [
-            "ctrl+option+cmd+right": {
-                let windowManager = WindowManager.shared
-                guard let focusedWindow = windowManager.getFocusedWindow() else {
-                    print("❌ No active window to move")
-                    return
-                }
-                if windowManager.moveToNextDisplay(focusedWindow) {
-                    print("🖥️ Moved window to next display")
-                } else {
-                    print("❌ Failed to move window to next display")
-                }
-            },
-            "ctrl+option+cmd+left": {
-                let windowManager = WindowManager.shared
-                guard let focusedWindow = windowManager.getFocusedWindow() else {
-                    print("❌ No active window to move")
-                    return
-                }
-                if windowManager.moveToPreviousDisplay(focusedWindow) {
-                    print("🖥️ Moved window to previous display")
-                } else {
-                    print("❌ Failed to move window to previous display")
-                }
+        var shortcuts: [String: () -> Void] = [:]
+        shortcuts[shortcutString(for: .nextDisplay)] = {
+            let windowManager = WindowManager.shared
+            guard let focusedWindow = windowManager.getFocusedWindow() else {
+                print("❌ No active window to move")
+                return
             }
-        ]
+            if windowManager.moveToNextDisplay(focusedWindow) {
+                print("🖥️ Moved window to next display")
+            } else {
+                print("❌ Failed to move window to next display")
+            }
+        }
+        shortcuts[shortcutString(for: .previousDisplay)] = {
+            let windowManager = WindowManager.shared
+            guard let focusedWindow = windowManager.getFocusedWindow() else {
+                print("❌ No active window to move")
+                return
+            }
+            if windowManager.moveToPreviousDisplay(focusedWindow) {
+                print("🖥️ Moved window to previous display")
+            } else {
+                print("❌ Failed to move window to previous display")
+            }
+        }
+        return shortcuts
     }
     
     // SPECTACLE PRODUCTIVITY: Get incremental resizing shortcuts
     func getIncrementalResizingShortcuts() -> [String: () -> Void] {
-        return [
-            "ctrl+option+shift+right": {
-                let windowManager = WindowManager.shared
-                guard let focusedWindow = windowManager.getFocusedWindow() else {
-                    print("❌ No active window to resize")
-                    return
-                }
-                if windowManager.makeWindowLarger(focusedWindow) {
-                    print("📏 Made window larger")
-                } else {
-                    print("❌ Failed to make window larger")
-                }
-            },
-            "ctrl+option+shift+left": {
-                let windowManager = WindowManager.shared
-                guard let focusedWindow = windowManager.getFocusedWindow() else {
-                    print("❌ No active window to resize")
-                    return
-                }
-                if windowManager.makeWindowSmaller(focusedWindow) {
-                    print("📏 Made window smaller")
-                } else {
-                    print("❌ Failed to make window smaller")
-                }
+        var shortcuts: [String: () -> Void] = [:]
+        shortcuts[shortcutString(for: .makeLarger)] = {
+            let windowManager = WindowManager.shared
+            guard let focusedWindow = windowManager.getFocusedWindow() else {
+                print("❌ No active window to resize")
+                return
             }
-        ]
-    }
-    
-    private func parseShortcutString(_ shortcut: String) -> (keyCode: UInt32, modifiers: UInt32)? {
-        let components = shortcut.lowercased().split(separator: "+").map(String.init)
-        
-        var modifiers: UInt32 = 0
-        var keyString = ""
-        
-        for component in components {
-            switch component {
-            case "cmd", "command":
-                modifiers |= UInt32(cmdKey)
-            case "option", "alt":
-                modifiers |= UInt32(optionKey)
-            case "shift":
-                modifiers |= UInt32(shiftKey)
-            case "ctrl", "control":
-                modifiers |= UInt32(controlKey)
-            default:
-                keyString = component
+            if windowManager.makeWindowLarger(focusedWindow) {
+                print("📏 Made window larger")
+            } else {
+                print("❌ Failed to make window larger")
             }
         }
-        
-        guard let keyCode = stringToKeyCode(keyString) else {
-            return nil
+        shortcuts[shortcutString(for: .makeSmaller)] = {
+            let windowManager = WindowManager.shared
+            guard let focusedWindow = windowManager.getFocusedWindow() else {
+                print("❌ No active window to resize")
+                return
+            }
+            if windowManager.makeWindowSmaller(focusedWindow) {
+                print("📏 Made window smaller")
+            } else {
+                print("❌ Failed to make window smaller")
+            }
         }
-        
-        return (keyCode: keyCode, modifiers: modifiers)
-    }
-    
-    private func stringToKeyCode(_ keyString: String) -> UInt32? {
-        switch keyString.lowercased() {
-        // Arrow keys
-        case "left":
-            return 0x7B
-        case "right":
-            return 0x7C
-        case "up":
-            return 0x7E
-        case "down":
-            return 0x7D
-            
-        // Numbers
-        case "1":
-            return 0x12
-        case "2":
-            return 0x13
-        case "3":
-            return 0x14
-        case "4":
-            return 0x15
-        case "5":
-            return 0x17
-        case "6":
-            return 0x16
-        case "7":
-            return 0x1A
-        case "8":
-            return 0x1C
-        case "9":
-            return 0x19
-        case "0":
-            return 0x1D
-            
-        // Letters
-        case "a":
-            return 0x00
-        case "b":
-            return 0x0B
-        case "c":
-            return 0x08
-        case "d":
-            return 0x02
-        case "e":
-            return 0x0E
-        case "f":
-            return 0x03
-        case "g":
-            return 0x05
-        case "h":
-            return 0x04
-        case "i":
-            return 0x22
-        case "j":
-            return 0x26
-        case "k":
-            return 0x28
-        case "l":
-            return 0x25
-        case "m":
-            return 0x2E
-        case "n":
-            return 0x2D
-        case "o":
-            return 0x1F
-        case "p":
-            return 0x23
-        case "q":
-            return 0x0C
-        case "r":
-            return 0x0F
-        case "s":
-            return 0x01
-        case "t":
-            return 0x11
-        case "u":
-            return 0x20
-        case "v":
-            return 0x09
-        case "w":
-            return 0x0D
-        case "x":
-            return 0x07
-        case "y":
-            return 0x10
-        case "z":
-            return 0x06
-            
-        // Special keys
-        case "space":
-            return 0x31
-        case "return", "enter":
-            return 0x24
-        case "tab":
-            return 0x30
-        case "escape":
-            return 0x35
-        case "delete":
-            return 0x33
-        case "backspace":
-            return 0x33
-        case ";", "semicolon":
-            return 0x29
-            
-        default:
-            return nil
-        }
+        return shortcuts
     }
     
     // MARK: - Wake/Sleep Handling
     func reinitializeAfterWake() {
         print("🔄 Reinitializing ShortcutManager after system wake...")
         
-        let savedActions = shortcutStringToAction
+        let savedActions = shortcutToAction
         
-        for (shortcutString, hotKeyRef) in registeredShortcuts {
+        for (shortcut, hotKeyRef) in registeredShortcuts {
             UnregisterEventHotKey(hotKeyRef)
-            print("Unregistered shortcut for wake recovery: \(shortcutString)")
+            print("Unregistered shortcut for wake recovery: \(shortcut.displayString)")
         }
         
         registeredShortcuts.removeAll()
         shortcutToHotKeyID.removeAll()
         hotKeyIDToAction.removeAll()
-        shortcutStringToAction.removeAll()
+        shortcutToAction.removeAll()
         
         if let handler = eventHandler {
             RemoveEventHandler(handler)
@@ -392,12 +328,12 @@ class ShortcutManager {
         var successCount = 0
         var failureCount = 0
         
-        for (shortcutString, action) in savedActions {
-            if registerGlobalShortcut(shortcutString, action: action) {
+        for (shortcut, action) in savedActions {
+            if registerGlobalShortcut(shortcut.displayString, action: action) {
                 successCount += 1
             } else {
                 failureCount += 1
-                print("❌ Failed to re-register shortcut after wake: \(shortcutString)")
+                print("❌ Failed to re-register shortcut after wake: \(shortcut.displayString)")
             }
         }
         
@@ -409,6 +345,6 @@ class ShortcutManager {
     }
     
     func getRegisteredShortcutStrings() -> [String] {
-        return Array(shortcutStringToAction.keys)
+        return shortcutToAction.keys.map(\.displayString)
     }
 }
