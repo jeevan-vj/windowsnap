@@ -27,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let healthCheckInterval: TimeInterval = 30
     
     func applicationDidFinishLaunching(_ notification: Notification) {
+        ScreenRecordingPermissions.logDiagnostics(reason: "launch")
         setupMenuBarApp()
         configureShortcutDefaults()
         initializeManagers()

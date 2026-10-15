@@ -668,10 +668,8 @@ final class PreferencesWindow: NSWindowController, NSToolbarDelegate {
         switch ScreenRecordingPermissions.state {
         case .notRequested:
             ScreenRecordingPermissions.requestPermissionForRegionShare { [weak self] _ in self?.refreshRegionShareControls() }
-        case .denied:
+        case .needsRecovery, .restartRequired:
             ScreenRecordingPermissions.requestPermissionForRegionShare { [weak self] _ in self?.refreshRegionShareControls() }
-        case .restartRequired:
-            ScreenRecordingPermissions.showRestartRequiredAlert()
         case .granted:
             break
         }
@@ -789,7 +787,7 @@ final class PreferencesWindow: NSWindowController, NSToolbarDelegate {
                 self.enableVirtualCameraButton?.isEnabled = granted && hasRegion
                 switch state {
                 case .notRequested: self.screenRecordingSetupButton?.title = "Set Up…"
-                case .denied: self.screenRecordingSetupButton?.title = "Open System Settings…"
+                case .needsRecovery: self.screenRecordingSetupButton?.title = "Fix Screen Recording…"
                 case .restartRequired: self.screenRecordingSetupButton?.title = "Restart WindowSnap…"
                 case .granted: break
                 }
