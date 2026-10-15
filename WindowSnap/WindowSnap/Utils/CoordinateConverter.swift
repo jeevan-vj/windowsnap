@@ -52,8 +52,6 @@ class CoordinateConverter {
     
     /// Convert from NSScreen coordinates (bottom-left origin) to Accessibility API coordinates (top-left origin)
     static func convertRectToAccessibilityCoordinates(_ rect: CGRect, on screen: NSScreen) -> CGRect {
-        let screenFrame = screen.frame
-        
         // Convert the origin point
         let convertedOrigin = convertToAccessibilityCoordinates(rect.origin, on: screen)
         
@@ -95,20 +93,14 @@ class CoordinateConverter {
     
     /// Debug method to print coordinate system information
     static func debugCoordinateSystems(window: CGRect, screen: NSScreen) {
-        print("=== COORDINATE SYSTEM DEBUG ===")
-        print("Screen frame: \(screen.frame)")
-        print("Screen visible frame: \(screen.visibleFrame)")
-        print("Window frame (current): \(window)")
+        AppLog.windowManagement.debug("Coordinate conversion: screen=\(String(describing: screen.frame), privacy: .public), visible=\(String(describing: screen.visibleFrame), privacy: .public), window=\(String(describing: window), privacy: .public)")
         
         let windowCenter = CGPoint(x: window.midX, y: window.midY)
-        print("Window center (NSScreen coords): \(windowCenter)")
         
         let axCoords = convertToAccessibilityCoordinates(window.origin, on: screen)
-        print("Window origin (AX coords): \(axCoords)")
         
         let axRect = convertRectToAccessibilityCoordinates(window, on: screen)
-        print("Window rect (AX coords): \(axRect)")
-        print("=== END COORDINATE DEBUG ===")
+        AppLog.windowManagement.debug("Converted center=\(String(describing: windowCenter), privacy: .public), AX origin=\(String(describing: axCoords), privacy: .public), AX rect=\(String(describing: axRect), privacy: .public)")
     }
     
     /// Check if a point is valid for the given screen

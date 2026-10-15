@@ -18,10 +18,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var textExpansionEngine: TextExpansionEngine?
     private var accessibilityOnboardingWindow: AccessibilityOnboardingWindowController?
     private var healthCheckTimer: Timer?
+    private var lastAccessibilityReminderDate: Date?
     private var pendingWakeRecovery: DispatchWorkItem?
     private var isRecoveringFromWake = false
     private var regionShareController: RegionShareController?
     private var accessibilityAvailable = false
+    private let accessibilityReminderInterval: TimeInterval = 60
+    private let healthCheckInterval: TimeInterval = 30
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupMenuBarApp()
@@ -51,6 +54,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         regionShareController?.stopVirtualCameraShare()
         VirtualDisplayController.shared.disconnect()
         removeSleepWakeNotifications()
+        NotificationCenter.default.removeObserver(self)
         stopHealthCheck()
     }
     
@@ -103,7 +107,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusBarController?.onShowAccessibilitySetup = { [weak self] in
             self?.accessibilityOnboardingWindow?.present()
         }
-        return controller.presentIfNeeded()
+        statusBarController?.onAccessibilityRequired = { [weak self] in
+            self?.showAccessibilityReminderIfAllowed()
+        }
+        let didPresent = controller.presentIfNeeded()
+        if didPresent {
+            lastAccessibilityReminderDate = Date()
+        }
+        return didPresent
     }
     
     private func setupTextExpander() {
@@ -129,7 +140,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.handleWindowSnap(to: position)
             }
             if !success {
-                print("Failed to register shortcut: \(shortcut)")
+                AppLog.shortcuts.error("Failed to register shortcut: \(shortcut, privacy: .public)")
             }
         }
         
@@ -139,7 +150,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for (shortcut, action) in undoRedoShortcuts {
             let success = shortcutManager.registerGlobalShortcut(shortcut, action: action)
             if !success {
-                print("Failed to register undo/redo shortcut: \(shortcut)")
+                AppLog.shortcuts.error("Failed to register undo/redo shortcut: \(shortcut, privacy: .public)")
             }
         }
         
@@ -149,7 +160,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for (shortcut, action) in displayShortcuts {
             let success = shortcutManager.registerGlobalShortcut(shortcut, action: action)
             if !success {
-                print("Failed to register display switching shortcut: \(shortcut)")
+                AppLog.shortcuts.error("Failed to register display switching shortcut: \(shortcut, privacy: .public)")
             }
         }
         
@@ -159,7 +170,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for (shortcut, action) in resizingShortcuts {
             let success = shortcutManager.registerGlobalShortcut(shortcut, action: action)
             if !success {
-                print("Failed to register incremental resizing shortcut: \(shortcut)")
+                AppLog.shortcuts.error("Failed to register incremental resizing shortcut: \(shortcut, privacy: .public)")
             }
         }
         
@@ -173,14 +184,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ClipboardHistoryPresenter.shared.toggle()
         }
         if !success {
-            print("Failed to register clipboard history shortcut: cmd+shift+v")
+            AppLog.shortcuts.error("Failed to register clipboard history shortcut")
         }
 
         let snippetPickerSuccess = shortcutManager.registerGlobalShortcut("cmd+shift+;") { [weak self] in
             self?.showSnippetPicker()
         }
         if !snippetPickerSuccess {
-            print("Failed to register snippet picker shortcut: cmd+shift+;")
+            AppLog.shortcuts.error("Failed to register snippet picker shortcut")
         }
         
         // Start clipboard monitoring
@@ -197,23 +208,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         CustomPositionManager.shared.configure(shortcutManager: shortcutManager)
         workspaceManager?.configure(shortcutManager: shortcutManager)
         
-        print("🎯 PRODUCTIVITY SHORTCUTS REGISTERED:")
-        print("   ⏪ Undo: ⌘⌥Z")
-        print("   ⏩ Redo: ⌘⌥⇧Z")
-        print("   🖥️ Next Display: ⌃⌥⌘→")  
-        print("   🖥️ Previous Display: ⌃⌥⌘←")
-        print("   📏 Make Larger: ⌃⌥⇧→")
-        print("   📏 Make Smaller: ⌃⌥⇧←")
-        print("   🎯 Window Throw: ⌃⌥⌘Space")
-        print("   📋 Clipboard History: ⌘⇧V")
-        print("   📝 Snippet Picker: ⌘⇧;")
-        print("   📺 Region Share: ⌃⌘R")
-        print("   📝 Text Expander: Type trigger + Tab")
+        AppLog.shortcuts.info("Default productivity shortcuts registered")
     }
     
     private func handleWindowSnap(to position: GridPosition) {
+        guard AccessibilityPermissions.hasPermissions() else {
+            accessibilityAvailable = false
+            showAccessibilityReminderIfAllowed()
+            return
+        }
+
         guard let windowManager = windowManager,
               let focusedWindow = windowManager.getFocusedWindow() else {
+            if !AccessibilityPermissions.hasPermissions() {
+                accessibilityAvailable = false
+                showAccessibilityReminderIfAllowed()
+            }
             return
         }
         
@@ -261,8 +271,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             name: NSWorkspace.screensDidWakeNotification,
             object: nil
         )
+
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(workspaceEnvironmentDidChange),
+            name: NSWorkspace.activeSpaceDidChangeNotification,
+            object: nil
+        )
         
-        print("🛌 Sleep/Wake notifications registered")
+        AppLog.app.debug("Workspace notifications registered")
     }
     
     private func removeSleepWakeNotifications() {
@@ -270,19 +287,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     @objc private func systemWillSleep() {
-        print("💤 System going to sleep - preparing WindowSnap...")
+        AppLog.app.info("System going to sleep")
         pendingWakeRecovery?.cancel()
         pendingWakeRecovery = nil
     }
     
     @objc private func systemDidWake() {
-        print("☀️ System woke up - scheduling WindowSnap recovery...")
+        AppLog.app.info("System woke; scheduling recovery")
+        performHealthCheck()
         scheduleWakeRecovery(delay: 1.0)
     }
     
     @objc private func screensDidWake() {
-        print("🖥️ Screens woke up - scheduling WindowSnap recovery...")
+        AppLog.app.info("Screens woke; scheduling recovery")
+        performHealthCheck()
         scheduleWakeRecovery(delay: 1.5)
+    }
+
+    @objc private func workspaceEnvironmentDidChange() {
+        performHealthCheck()
     }
     
     private func scheduleWakeRecovery(delay: TimeInterval) {
@@ -297,28 +320,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     
     private func reinitializeAfterWake() {
         guard !isRecoveringFromWake else {
-            print("⏳ Wake recovery already in progress, skipping...")
+            AppLog.app.debug("Wake recovery already in progress")
             return
         }
         
         isRecoveringFromWake = true
         defer { isRecoveringFromWake = false }
         
-        print("🔄 Reinitializing WindowSnap after wake...")
+        AppLog.app.info("Reinitializing after wake")
         
         accessibilityAvailable = AccessibilityPermissions.hasPermissions()
         if !accessibilityAvailable {
-            print("⚠️ Accessibility permissions unavailable after wake; use Accessibility Setup from the menu to retry")
+            AppLog.accessibility.warning("Accessibility permission unavailable after wake")
         }
         accessibilityOnboardingWindow?.refreshPermissionStatus()
         
         if accessibilityAvailable, let windowManager = windowManager, !windowManager.testAccessibility() {
-            print("🔧 WindowManager accessibility lost after wake - resetting...")
+            AppLog.accessibility.warning("Window manager accessibility unavailable after wake; resetting")
             windowManager.resetAfterWake()
         }
         
         if let shortcutManager = shortcutManager {
-            print("🔧 Reinitializing shortcuts after wake...")
+            AppLog.shortcuts.info("Reinitializing shortcuts after wake")
             shortcutManager.reinitializeAfterWake()
         }
         
@@ -333,16 +356,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         VirtualDisplayController.shared.recoverAfterWake()
         windowManager = WindowManager.shared
         
-        print("✅ WindowSnap reinitialized successfully after wake")
+        AppLog.app.info("Wake recovery completed")
     }
     
     // MARK: - Health Check
     private func startHealthCheck() {
-        // Check app health every 30 seconds
-        healthCheckTimer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: true) { [weak self] _ in
+        let timer = Timer.scheduledTimer(withTimeInterval: healthCheckInterval, repeats: true) { [weak self] _ in
             self?.performHealthCheck()
         }
-        print("💊 Health check timer started")
+        timer.tolerance = healthCheckInterval * 0.15
+        healthCheckTimer = timer
+        AppLog.app.info("Health check timer started")
     }
     
     private func stopHealthCheck() {
@@ -357,7 +381,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
               let windowManager = windowManager else { return }
         
         if !shortcutManager.isHealthy() {
-            print("⚠️ Health check failed - ShortcutManager unhealthy - reinitializing...")
+            AppLog.shortcuts.warning("Health check failed; scheduling shortcut recovery")
             scheduleWakeRecovery(delay: 0.5)
             return
         }
@@ -370,7 +394,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         accessibilityAvailable = true
 
         if !windowManager.testAccessibility() {
-            print("⚠️ Health check failed - WindowManager accessibility lost - reinitializing...")
+            AppLog.accessibility.warning("Health check found accessibility unavailable; scheduling recovery")
             scheduleWakeRecovery(delay: 0.5)
             return
         }
@@ -381,7 +405,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func initializeLaunchAtLogin() {
         // Read-only synchronization: launching WindowSnap never registers a login item.
         let status = LaunchAtLoginManager.shared.refreshStatus()
-        print("🔄 Synced launch at login preference with system state: \(status)")
+        AppLog.app.info("Synchronized launch-at-login state: \(String(describing: status), privacy: .public)")
     }
     
     // MARK: - Notification Observers
@@ -398,6 +422,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             name: .builtInShortcutsDidChange,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(screenParametersDidChange),
+            name: NSApplication.didChangeScreenParametersNotification,
+            object: nil
+        )
+    }
+
+    @objc private func screenParametersDidChange() {
+        performHealthCheck()
+    }
+
+    private func showAccessibilityReminderIfAllowed() {
+        guard accessibilityOnboardingWindow?.window?.isVisible != true else { return }
+
+        let now = Date()
+        if let lastAccessibilityReminderDate,
+           now.timeIntervalSince(lastAccessibilityReminderDate) < accessibilityReminderInterval {
+            return
+        }
+
+        lastAccessibilityReminderDate = now
+        accessibilityOnboardingWindow?.present()
     }
 
     @objc private func builtInShortcutsChanged() {

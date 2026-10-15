@@ -123,7 +123,7 @@ final class RegionSelectionOverlayWindow: NSWindow {
         let clampedRect = rect.intersection(viewBounds)
         
         guard clampedRect.width >= 50 && clampedRect.height >= 50 else {
-            print("⚠️ Selection too small, minimum 50x50")
+            AppLog.regionShare.notice("Selection was smaller than the 50-by-50 minimum")
             return
         }
         

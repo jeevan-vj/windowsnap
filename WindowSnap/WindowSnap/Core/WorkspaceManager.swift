@@ -265,11 +265,11 @@ class WorkspaceManager {
             arrangements = decoded.map { $0.migrated(to: currentScreenGeometries()) }
             if needsMigration {
                 _ = saveArrangements()
-                print("📐 Migrated legacy workspace coordinates to format \(WorkspaceArrangement.currentFormatVersion)")
+                AppLog.workspace.info("Migrated legacy coordinates to format \(WorkspaceArrangement.currentFormatVersion)")
             }
-            print("📁 Loaded \(arrangements.count) workspace arrangements")
+            AppLog.workspace.info("Loaded \(self.arrangements.count) arrangements")
         } catch {
-            print("❌ Failed to load workspace arrangements: \(error)")
+            AppLog.workspace.error("Failed to load arrangements: \(error.localizedDescription, privacy: .public)")
             arrangements = []
         }
     }
@@ -280,10 +280,10 @@ class WorkspaceManager {
         do {
             let data = try JSONEncoder().encode(arrangements)
             userDefaults.set(data, forKey: storageKey)
-            print("💾 Saved \(arrangements.count) workspace arrangements")
+            AppLog.workspace.info("Saved \(self.arrangements.count) arrangements")
             return true
         } catch {
-            print("❌ Failed to save workspace arrangements: \(error)")
+            AppLog.workspace.error("Failed to save arrangements: \(error.localizedDescription, privacy: .public)")
             return false
         }
     }
@@ -315,10 +315,10 @@ class WorkspaceManager {
         name: String,
         shortcut: String? = nil
     ) -> Result<WorkspaceArrangement, ManagedConfigurationError> {
-        print("📸 Capturing current workspace: '\(name)'")
+        AppLog.workspace.info("Capturing workspace: \(name, privacy: .private)")
 
         guard let windowManager = getCurrentWindowManager() else {
-            print("❌ WindowManager not available")
+            AppLog.workspace.error("Window manager unavailable")
             return .failure(.nothingToCapture)
         }
 
@@ -334,7 +334,7 @@ class WorkspaceManager {
         shortcut: String? = nil,
         completion: @escaping (Result<WorkspaceArrangement, ManagedConfigurationError>) -> Void
     ) {
-        print("📸 Capturing current workspace: '\(name)'")
+        AppLog.workspace.info("Capturing workspace: \(name, privacy: .private)")
         WindowManager.shared.getAllWindowsAsync { [weak self] windows in
             guard let self else {
                 completion(.failure(.persistenceFailed))
@@ -357,7 +357,7 @@ class WorkspaceManager {
             let bundleId = getBundleIdentifier(for: window) ?? "unknown.\(window.applicationName)"
             guard let screen = windowManager.screenContainingAXRect(window.frame),
                   let screenIndex = NSScreen.screens.firstIndex(of: screen) else {
-                print("⚠️ Skipping window with no matching display: \(window.windowTitle)")
+                AppLog.workspace.notice("Skipping window with no matching display: \(window.windowTitle, privacy: .private)")
                 continue
             }
             let appKitFrame = windowManager.appKitFrame(fromAX: window.frame)
@@ -392,7 +392,7 @@ class WorkspaceManager {
         let appLayoutsArray = Array(appLayouts.values)
         
         guard !appLayoutsArray.isEmpty else {
-            print("❌ No windows found to capture")
+            AppLog.workspace.notice("No windows found to capture")
             return .failure(.nothingToCapture)
         }
         
@@ -409,7 +409,7 @@ class WorkspaceManager {
             return .failure(error)
         }
         
-        print("✅ Captured workspace with \(appLayoutsArray.count) apps and \(allWindows.count) windows")
+        AppLog.workspace.info("Captured workspace with \(appLayoutsArray.count) apps and \(allWindows.count) windows")
         return .success(arrangement)
     }
     
@@ -417,7 +417,7 @@ class WorkspaceManager {
     
     /// Restore a workspace arrangement
     func restoreWorkspace(_ arrangement: WorkspaceArrangement) {
-        print("🎯 Restoring workspace: '\(arrangement.name)'")
+        AppLog.workspace.info("Restoring workspace: \(arrangement.name, privacy: .private)")
         WindowManager.shared.getAllWindowsAsync { [weak self] currentWindows in
             self?.restoreWorkspace(arrangement, using: currentWindows)
         }
@@ -443,7 +443,7 @@ class WorkspaceManager {
                     }
                 } else {
                     skippedWindows += appLayout.windowLayouts.count
-                    print("⚠️ Could not launch app: \(appLayout.applicationName)")
+                    AppLog.workspace.notice("Could not launch app: \(appLayout.applicationName, privacy: .private)")
                 }
                 continue
             }
@@ -453,10 +453,7 @@ class WorkspaceManager {
             skippedWindows += result.skipped
         }
 
-        print("✅ Workspace restoration initiated:")
-        print("   - Restored \(restoredWindows) windows")
-        print("   - Skipped \(skippedWindows) unavailable/off-Space windows")
-        print("   - Launched \(launchedApps) apps")
+        AppLog.workspace.info("Restoration initiated: \(restoredWindows) restored, \(skippedWindows) skipped, \(launchedApps) apps launched")
 
         if var updatedArrangement = getArrangement(id: arrangement.id) {
             updatedArrangement.markAsUsed()
@@ -470,7 +467,7 @@ class WorkspaceManager {
         currentWindows: [WindowInfo]
     ) -> (restored: Int, skipped: Int) {
         guard let windowManager = getCurrentWindowManager() else {
-            print("❌ WindowManager not available")
+            AppLog.workspace.error("Window manager unavailable")
             return (0, appLayout.windowLayouts.count)
         }
 
@@ -488,7 +485,7 @@ class WorkspaceManager {
             ), currentWindow.axElement != nil,
                windowManager.currentAXFrame(of: currentWindow) != nil else {
                 skippedCount += 1
-                print("⚠️ Skipped unavailable/off-Space window: \(appLayout.applicationName) '\(windowLayout.windowTitle)'")
+                AppLog.workspace.notice("Skipped unavailable/off-Space window in \(appLayout.applicationName, privacy: .private): \(windowLayout.windowTitle, privacy: .private)")
                 continue
             }
 
@@ -501,17 +498,17 @@ class WorkspaceManager {
                 restoredCount += 1
             } else {
                 skippedCount += 1
-                print("⚠️ Skipped AX-rejected window: \(appLayout.applicationName) '\(windowLayout.windowTitle)'")
+                AppLog.workspace.notice("Skipped AX-rejected window in \(appLayout.applicationName, privacy: .private): \(windowLayout.windowTitle, privacy: .private)")
             }
 
-            print("   ✅ Restored: \(currentWindow.windowTitle) to \(targetScreen.localizedName)")
+            AppLog.workspace.info("Restored \(currentWindow.windowTitle, privacy: .private) to \(targetScreen.localizedName, privacy: .private)")
         }
 
         return (restoredCount, skippedCount)
     }
 
     private func logRestoreResult(_ result: (restored: Int, skipped: Int), appName: String) {
-        print("↪️ Delayed restore for \(appName): \(result.restored) restored, \(result.skipped) skipped")
+        AppLog.workspace.info("Delayed restore for \(appName, privacy: .private): \(result.restored) restored, \(result.skipped) skipped")
     }
 
     /// Picks the window that should receive a saved layout.
@@ -534,14 +531,14 @@ class WorkspaceManager {
     func addArrangement(_ arrangement: WorkspaceArrangement) -> Result<Void, ManagedConfigurationError> {
         // Check for duplicate names
         if arrangements.contains(where: { $0.name == arrangement.name }) {
-            print("⚠️ Workspace arrangement with name '\(arrangement.name)' already exists")
+            AppLog.workspace.notice("Arrangement name already exists: \(arrangement.name, privacy: .private)")
             return .failure(.duplicateName)
         }
         
         // Check for duplicate shortcuts
         if let shortcut = arrangement.shortcut,
            arrangements.contains(where: { $0.shortcut == shortcut }) {
-            print("⚠️ Workspace arrangement with shortcut '\(shortcut)' already exists")
+            AppLog.workspace.notice("Arrangement shortcut already exists: \(shortcut, privacy: .public)")
             return .failure(.duplicateShortcut)
         }
 
@@ -562,7 +559,7 @@ class WorkspaceManager {
             return .failure(.persistenceFailed)
         }
         
-        print("✅ Added workspace arrangement: '\(arrangement.name)'")
+        AppLog.workspace.info("Added arrangement: \(arrangement.name, privacy: .private)")
         
         // Register shortcut if provided
         inactiveShortcutIDs.remove(arrangement.id)
@@ -572,7 +569,7 @@ class WorkspaceManager {
     /// Remove a workspace arrangement
     func removeArrangement(id: UUID) {
         guard let index = arrangements.firstIndex(where: { $0.id == id }) else {
-            print("❌ Workspace arrangement with ID \(id) not found")
+            AppLog.workspace.error("Arrangement not found: \(id.uuidString, privacy: .public)")
             return
         }
         
@@ -586,14 +583,14 @@ class WorkspaceManager {
         arrangements.remove(at: index)
         saveArrangements()
         
-        print("🗑️ Removed workspace arrangement: '\(arrangement.name)'")
+        AppLog.workspace.info("Removed arrangement: \(arrangement.name, privacy: .private)")
     }
     
     /// Update an existing workspace arrangement
     @discardableResult
     func updateArrangement(_ updatedArrangement: WorkspaceArrangement) -> Result<Void, ManagedConfigurationError> {
         guard let index = arrangements.firstIndex(where: { $0.id == updatedArrangement.id }) else {
-            print("❌ Workspace arrangement with ID \(updatedArrangement.id) not found")
+            AppLog.workspace.error("Arrangement not found: \(updatedArrangement.id.uuidString, privacy: .public)")
             return .failure(.persistenceFailed)
         }
         
@@ -635,7 +632,7 @@ class WorkspaceManager {
 
         inactiveShortcutIDs.remove(updatedArrangement.id)
         
-        print("📝 Updated workspace arrangement: '\(updatedArrangement.name)'")
+        AppLog.workspace.info("Updated arrangement: \(updatedArrangement.name, privacy: .private)")
         return .success(())
     }
     
@@ -681,14 +678,14 @@ class WorkspaceManager {
     /// Launch an app by bundle identifier
     private func launchApp(bundleIdentifier: String) -> Bool {
         guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) else {
-            print("❌ Could not find app with bundle identifier: \(bundleIdentifier)")
+            AppLog.workspace.error("Could not find app with bundle identifier: \(bundleIdentifier, privacy: .private)")
             return false
         }
         NSWorkspace.shared.openApplication(at: url, configuration: .init()) { _, error in
             if let error {
-                print("❌ Failed to launch app \(bundleIdentifier): \(error)")
+                AppLog.workspace.error("Failed to launch app \(bundleIdentifier, privacy: .private): \(error.localizedDescription, privacy: .public)")
             } else {
-                print("🚀 Launched app: \(bundleIdentifier)")
+                AppLog.workspace.info("Launched app: \(bundleIdentifier, privacy: .private)")
             }
         }
         return true
@@ -733,7 +730,7 @@ class WorkspaceManager {
             for window in representativeWindows {
                 WindowActionHistory.shared.saveState(before: action, window: window)
             }
-            print("💾 Saved workspace state before: \(action)")
+            AppLog.workspace.debug("Saved workspace state before \(action, privacy: .public)")
         }
     }
     

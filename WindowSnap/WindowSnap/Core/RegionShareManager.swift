@@ -32,9 +32,9 @@ class RegionShareManager {
         
         do {
             currentRegion = try JSONDecoder().decode(ShareRegion.self, from: data)
-            print("📁 Loaded saved share region for display \(currentRegion?.displayID ?? 0)")
+            AppLog.regionShare.info("Loaded saved region for display \(self.currentRegion?.displayID ?? 0)")
         } catch {
-            print("❌ Failed to load share region: \(error)")
+            AppLog.regionShare.error("Failed to load region: \(error.localizedDescription, privacy: .public)")
             currentRegion = nil
         }
     }
@@ -44,7 +44,7 @@ class RegionShareManager {
         
         let activeDisplays = getAllDisplays()
         if !activeDisplays.contains(region.displayID) {
-            print("⚠️ Saved region display \(region.displayID) no longer available, clearing region")
+            AppLog.regionShare.notice("Saved region display \(region.displayID) is unavailable; clearing region")
             clearRegion()
         }
     }
@@ -62,9 +62,9 @@ class RegionShareManager {
         do {
             let data = try JSONEncoder().encode(region)
             userDefaults.set(data, forKey: storageKey)
-            print("💾 Saved share region for display \(region.displayID)")
+            AppLog.regionShare.info("Saved region for display \(region.displayID)")
         } catch {
-            print("❌ Failed to save share region: \(error)")
+            AppLog.regionShare.error("Failed to save region: \(error.localizedDescription, privacy: .public)")
         }
     }
     
@@ -72,14 +72,14 @@ class RegionShareManager {
         currentRegion = region
         saveRegion()
         onRegionChanged?(region)
-        print("✅ Region set: normalized \(region.normalizedRect)")
+        AppLog.regionShare.info("Region set: \(String(describing: region.normalizedRect), privacy: .public)")
     }
     
     func clearRegion() {
         currentRegion = nil
         saveRegion()
         onRegionChanged?(nil)
-        print("🗑️ Region cleared")
+        AppLog.regionShare.info("Region cleared")
     }
     
     func updateMirrorWindowFrame(_ frame: CGRect) {
@@ -91,7 +91,7 @@ class RegionShareManager {
     func setState(_ newState: RegionShareState) {
         state = newState
         onStateChanged?(newState)
-        print("🔄 Region share state: \(newState)")
+        AppLog.regionShare.debug("State changed: \(String(describing: newState), privacy: .public)")
     }
     
     func getDisplayBounds(for displayID: CGDirectDisplayID) -> CGRect? {

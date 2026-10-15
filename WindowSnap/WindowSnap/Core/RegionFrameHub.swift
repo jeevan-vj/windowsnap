@@ -245,7 +245,7 @@ final class RegionFrameHub: RegionFrameSink {
             try metadataData.write(to: metadataURL, options: .atomic)
             publishedBuffer = pixelBuffer
         } catch {
-            print("⚠️ Failed to publish region frame metadata: \(error)")
+            AppLog.regionShare.error("Failed to publish frame metadata: \(error.localizedDescription, privacy: .public)")
         }
     }
 

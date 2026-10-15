@@ -51,7 +51,7 @@ class WindowActionHistory {
             let nextCount = last.cycleCount + 1
             let nextPosition = getCyclePosition(for: position, count: nextCount)
 
-            print("🔄 CYCLING: \(position.displayName) → \(nextPosition.displayName) (cycle \(nextCount + 1))")
+            AppLog.windowManagement.debug("Cycling \(position.displayName, privacy: .public) to \(nextPosition.displayName, privacy: .public), step \(nextCount + 1)")
 
             lastAction = LastActionInfo(
                 requestedPosition: position,
@@ -63,7 +63,7 @@ class WindowActionHistory {
 
             return nextPosition
         } else {
-            print("🆕 NEW CYCLE: Starting with \(position.displayName)")
+            AppLog.windowManagement.debug("Starting cycle with \(position.displayName, privacy: .public)")
 
             lastAction = LastActionInfo(
                 requestedPosition: position,
@@ -130,7 +130,7 @@ class WindowActionHistory {
             undoStack.removeFirst()
         }
         
-        print("💾 SAVED STATE: \(action) for '\(window.windowTitle)' at \(window.frame)")
+        AppLog.windowManagement.debug("Saved \(action, privacy: .public) state for \(window.windowTitle, privacy: .private) at \(String(describing: window.frame), privacy: .public)")
     }
     
     func canUndo() -> Bool {
@@ -143,7 +143,7 @@ class WindowActionHistory {
     
     func undo() -> WindowState? {
         guard !undoStack.isEmpty else {
-            print("❌ UNDO: No actions to undo")
+            AppLog.windowManagement.debug("No actions to undo")
             return nil
         }
         
@@ -156,13 +156,13 @@ class WindowActionHistory {
             action: "Redo: \(lastState.actionName)"
         ))
         
-        print("⏪ UNDO: Restoring '\(lastState.windowInfo.windowTitle)' to \(lastState.frame)")
+        AppLog.windowManagement.info("Undo restoring \(lastState.windowInfo.windowTitle, privacy: .private) to \(String(describing: lastState.frame), privacy: .public)")
         return lastState
     }
     
     func redo() -> WindowState? {
         guard !redoStack.isEmpty else {
-            print("❌ REDO: No actions to redo")
+            AppLog.windowManagement.debug("No actions to redo")
             return nil
         }
         
@@ -175,7 +175,7 @@ class WindowActionHistory {
             action: nextState.actionName
         ))
         
-        print("⏩ REDO: Restoring '\(nextState.windowInfo.windowTitle)' to \(nextState.frame)")
+        AppLog.windowManagement.info("Redo restoring \(nextState.windowInfo.windowTitle, privacy: .private) to \(String(describing: nextState.frame), privacy: .public)")
         return nextState
     }
     

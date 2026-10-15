@@ -129,12 +129,12 @@ class ShortcutManager {
 
     func registerGlobalShortcutDetailed(_ shortcutString: String, action: @escaping () -> Void) -> ShortcutRegistrationResult {
         guard let shortcut = try? KeyboardShortcut.parse(shortcutString) else {
-            print("Failed to parse shortcut: \(shortcutString)")
+            AppLog.shortcuts.error("Failed to parse shortcut: \(shortcutString, privacy: .public)")
             return .invalid
         }
 
         if registeredShortcuts[shortcut] != nil {
-            print("Shortcut already registered: \(shortcutString)")
+            AppLog.shortcuts.notice("Shortcut already registered: \(shortcutString, privacy: .public)")
             registrationResults[shortcut] = .alreadyRegistered
             return .alreadyRegistered
         }
@@ -148,7 +148,7 @@ class ShortcutManager {
         let result = RegisterEventHotKey(shortcut.keyCode, shortcut.modifierFlags, hotKeyID, GetApplicationEventTarget(), 0, &hotKeyRef)
         
         guard result == noErr, let hotKey = hotKeyRef else {
-            print("Failed to register hotkey: \(shortcutString)")
+            AppLog.shortcuts.error("Failed to register hotkey: \(shortcutString, privacy: .public)")
             let registrationResult: ShortcutRegistrationResult = result == eventHotKeyExistsErr
                 ? .takenByAnotherApp
                 : .systemRejected(result)
@@ -162,7 +162,7 @@ class ShortcutManager {
         shortcutToAction[shortcut] = action
         registrationResults[shortcut] = .registered
         
-        print("Successfully registered shortcut: \(shortcutString)")
+        AppLog.shortcuts.debug("Registered shortcut: \(shortcutString, privacy: .public)")
         return .registered
     }
 
@@ -187,13 +187,13 @@ class ShortcutManager {
         shortcutToAction.removeValue(forKey: shortcut)
         registrationResults.removeValue(forKey: shortcut)
         
-        print("Unregistered shortcut: \(shortcutString)")
+        AppLog.shortcuts.debug("Unregistered shortcut: \(shortcutString, privacy: .public)")
     }
     
     func unregisterAllShortcuts() {
         for (shortcut, hotKeyRef) in registeredShortcuts {
             UnregisterEventHotKey(hotKeyRef)
-            print("Unregistered shortcut: \(shortcut.displayString)")
+            AppLog.shortcuts.debug("Unregistered shortcut: \(shortcut.displayString, privacy: .public)")
         }
         registeredShortcuts.removeAll()
         shortcutToHotKeyID.removeAll()
@@ -227,17 +227,17 @@ class ShortcutManager {
         shortcuts[shortcutString(for: .undo)] = {
             let windowManager = WindowManager.shared
             if windowManager.undoLastAction() {
-                print("⏪ UNDO: Successfully undid last action")
+                AppLog.shortcuts.debug("Undo shortcut completed")
             } else {
-                print("❌ UNDO: No actions to undo")
+                AppLog.shortcuts.debug("Undo shortcut had no available action")
             }
         }
         shortcuts[shortcutString(for: .redo)] = {
             let windowManager = WindowManager.shared
             if windowManager.redoLastAction() {
-                print("⏩ REDO: Successfully redid last action")
+                AppLog.shortcuts.debug("Redo shortcut completed")
             } else {
-                print("❌ REDO: No actions to redo")
+                AppLog.shortcuts.debug("Redo shortcut had no available action")
             }
         }
         return shortcuts
@@ -249,25 +249,25 @@ class ShortcutManager {
         shortcuts[shortcutString(for: .nextDisplay)] = {
             let windowManager = WindowManager.shared
             guard let focusedWindow = windowManager.getFocusedWindow() else {
-                print("❌ No active window to move")
+                AppLog.shortcuts.notice("No active window to move")
                 return
             }
             if windowManager.moveToNextDisplay(focusedWindow) {
-                print("🖥️ Moved window to next display")
+                AppLog.shortcuts.debug("Moved window to next display")
             } else {
-                print("❌ Failed to move window to next display")
+                AppLog.shortcuts.error("Failed to move window to next display")
             }
         }
         shortcuts[shortcutString(for: .previousDisplay)] = {
             let windowManager = WindowManager.shared
             guard let focusedWindow = windowManager.getFocusedWindow() else {
-                print("❌ No active window to move")
+                AppLog.shortcuts.notice("No active window to move")
                 return
             }
             if windowManager.moveToPreviousDisplay(focusedWindow) {
-                print("🖥️ Moved window to previous display")
+                AppLog.shortcuts.debug("Moved window to previous display")
             } else {
-                print("❌ Failed to move window to previous display")
+                AppLog.shortcuts.error("Failed to move window to previous display")
             }
         }
         return shortcuts
@@ -279,25 +279,25 @@ class ShortcutManager {
         shortcuts[shortcutString(for: .makeLarger)] = {
             let windowManager = WindowManager.shared
             guard let focusedWindow = windowManager.getFocusedWindow() else {
-                print("❌ No active window to resize")
+                AppLog.shortcuts.notice("No active window to resize")
                 return
             }
             if windowManager.makeWindowLarger(focusedWindow) {
-                print("📏 Made window larger")
+                AppLog.shortcuts.debug("Made window larger")
             } else {
-                print("❌ Failed to make window larger")
+                AppLog.shortcuts.error("Failed to make window larger")
             }
         }
         shortcuts[shortcutString(for: .makeSmaller)] = {
             let windowManager = WindowManager.shared
             guard let focusedWindow = windowManager.getFocusedWindow() else {
-                print("❌ No active window to resize")
+                AppLog.shortcuts.notice("No active window to resize")
                 return
             }
             if windowManager.makeWindowSmaller(focusedWindow) {
-                print("📏 Made window smaller")
+                AppLog.shortcuts.debug("Made window smaller")
             } else {
-                print("❌ Failed to make window smaller")
+                AppLog.shortcuts.error("Failed to make window smaller")
             }
         }
         return shortcuts
@@ -305,13 +305,13 @@ class ShortcutManager {
     
     // MARK: - Wake/Sleep Handling
     func reinitializeAfterWake() {
-        print("🔄 Reinitializing ShortcutManager after system wake...")
+        AppLog.shortcuts.info("Reinitializing after wake")
         
         let savedActions = shortcutToAction
         
         for (shortcut, hotKeyRef) in registeredShortcuts {
             UnregisterEventHotKey(hotKeyRef)
-            print("Unregistered shortcut for wake recovery: \(shortcut.displayString)")
+            AppLog.shortcuts.debug("Unregistered for wake recovery: \(shortcut.displayString, privacy: .public)")
         }
         
         registeredShortcuts.removeAll()
@@ -333,11 +333,11 @@ class ShortcutManager {
                 successCount += 1
             } else {
                 failureCount += 1
-                print("❌ Failed to re-register shortcut after wake: \(shortcut.displayString)")
+                AppLog.shortcuts.error("Failed to re-register after wake: \(shortcut.displayString, privacy: .public)")
             }
         }
         
-        print("✅ Shortcut reinitialization complete: \(successCount) succeeded, \(failureCount) failed")
+        AppLog.shortcuts.info("Reinitialization complete: \(successCount) succeeded, \(failureCount) failed")
     }
     
     func isHealthy() -> Bool {

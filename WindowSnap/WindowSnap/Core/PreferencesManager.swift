@@ -13,9 +13,6 @@ class PreferencesManager: AccessibilityOnboardingStoring {
     private func setupDefaultPreferences() {
         let defaults: [String: Any] = [
             "LaunchAtLogin": false,
-            "EnableAnimations": true,
-            "AnimationDuration": 0.3,
-            "DefaultMargin": 10.0,
             "HasCompletedAccessibilityOnboarding": false,
             "HasRequestedScreenRecordingPermission": false,
             "IsFirstRun": true,
@@ -33,23 +30,6 @@ class PreferencesManager: AccessibilityOnboardingStoring {
     var launchAtLogin: Bool {
         get { userDefaults.bool(forKey: "LaunchAtLogin") }
         set { userDefaults.set(newValue, forKey: "LaunchAtLogin") }
-    }
-    
-    // MARK: - Animation Settings
-    var enableAnimations: Bool {
-        get { userDefaults.bool(forKey: "EnableAnimations") }
-        set { userDefaults.set(newValue, forKey: "EnableAnimations") }
-    }
-    
-    var animationDuration: Double {
-        get { userDefaults.double(forKey: "AnimationDuration") }
-        set { userDefaults.set(newValue, forKey: "AnimationDuration") }
-    }
-    
-    // MARK: - Window Settings
-    var defaultMargin: CGFloat {
-        get { CGFloat(userDefaults.double(forKey: "DefaultMargin")) }
-        set { userDefaults.set(Double(newValue), forKey: "DefaultMargin") }
     }
     
     // MARK: - Shortcut Settings

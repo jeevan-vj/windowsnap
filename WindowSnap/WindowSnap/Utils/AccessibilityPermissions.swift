@@ -8,10 +8,7 @@ final class AccessibilityPermissions: AccessibilityPermissionProviding {
     private init() {}
     
     static func hasPermissions() -> Bool {
-        let trusted = AXIsProcessTrusted()
-        print("🔍 Accessibility permission check: \(trusted)")
-        print("   Bundle ID: \(Bundle.main.bundleIdentifier ?? "unknown")")
-        return trusted
+        AXIsProcessTrusted()
     }
     
     static func requestPermissions() {

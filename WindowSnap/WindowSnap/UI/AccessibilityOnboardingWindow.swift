@@ -50,7 +50,6 @@ final class AccessibilityOnboardingWindowController: NSWindowController, NSWindo
     func presentIfNeeded() -> Bool {
         model.refreshPermissionStatus()
         guard model.shouldPresentOnLaunch else { return false }
-        model.markPresented()
         present()
         return true
     }
@@ -72,6 +71,11 @@ final class AccessibilityOnboardingWindowController: NSWindowController, NSWindo
 
     func windowWillClose(_ notification: Notification) {
         notifyDismissed()
+    }
+
+    func windowDidBecomeKey(_ notification: Notification) {
+        guard window?.isVisible == true else { return }
+        model.markPresented()
     }
 
     private func configureWindow() {

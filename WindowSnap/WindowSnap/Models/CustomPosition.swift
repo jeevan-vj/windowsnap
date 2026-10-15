@@ -183,9 +183,9 @@ class CustomPositionManager {
         
         do {
             positions = try JSONDecoder().decode([CustomPosition].self, from: data)
-            print("📁 Loaded \(positions.count) custom positions")
+            AppLog.windowManagement.info("Loaded \(self.positions.count) custom positions")
         } catch {
-            print("❌ Failed to load custom positions: \(error)")
+            AppLog.windowManagement.error("Failed to load custom positions: \(error.localizedDescription, privacy: .public)")
             positions = []
         }
     }
@@ -196,10 +196,10 @@ class CustomPositionManager {
         do {
             let data = try JSONEncoder().encode(positions)
             userDefaults.set(data, forKey: storageKey)
-            print("💾 Saved \(positions.count) custom positions")
+            AppLog.windowManagement.info("Saved \(self.positions.count) custom positions")
             return true
         } catch {
-            print("❌ Failed to save custom positions: \(error)")
+            AppLog.windowManagement.error("Failed to save custom positions: \(error.localizedDescription, privacy: .public)")
             return false
         }
     }
@@ -224,14 +224,14 @@ class CustomPositionManager {
     func addPosition(_ position: CustomPosition) -> Result<Void, ManagedConfigurationError> {
         // Check for duplicate names
         if positions.contains(where: { $0.name == position.name }) {
-            print("⚠️ Custom position with name '\(position.name)' already exists")
+            AppLog.windowManagement.notice("Custom position name already exists: \(position.name, privacy: .private)")
             return .failure(.duplicateName)
         }
         
         // Check for duplicate shortcuts
         if let shortcut = position.shortcut,
            positions.contains(where: { $0.shortcut == shortcut }) {
-            print("⚠️ Custom position with shortcut '\(shortcut)' already exists")
+            AppLog.windowManagement.notice("Custom position shortcut already exists: \(shortcut, privacy: .public)")
             return .failure(.duplicateShortcut)
         }
 
@@ -252,7 +252,7 @@ class CustomPositionManager {
             return .failure(.persistenceFailed)
         }
         
-        print("✅ Added custom position: '\(position.name)' (\(position.displayDescription))")
+        AppLog.windowManagement.info("Added custom position \(position.name, privacy: .private): \(position.displayDescription, privacy: .public)")
         
         // Register shortcut if provided
         inactiveShortcutIDs.remove(position.id)
@@ -262,7 +262,7 @@ class CustomPositionManager {
     /// Remove a custom position by ID
     func removePosition(id: UUID) {
         guard let index = positions.firstIndex(where: { $0.id == id }) else {
-            print("❌ Custom position with ID \(id) not found")
+            AppLog.windowManagement.error("Custom position not found: \(id.uuidString, privacy: .public)")
             return
         }
         
@@ -276,14 +276,14 @@ class CustomPositionManager {
         positions.remove(at: index)
         savePositions()
         
-        print("🗑️ Removed custom position: '\(position.name)'")
+        AppLog.windowManagement.info("Removed custom position: \(position.name, privacy: .private)")
     }
     
     /// Update an existing custom position
     @discardableResult
     func updatePosition(_ updatedPosition: CustomPosition) -> Result<Void, ManagedConfigurationError> {
         guard let index = positions.firstIndex(where: { $0.id == updatedPosition.id }) else {
-            print("❌ Custom position with ID \(updatedPosition.id) not found")
+            AppLog.windowManagement.error("Custom position not found: \(updatedPosition.id.uuidString, privacy: .public)")
             return .failure(.persistenceFailed)
         }
         
@@ -325,7 +325,7 @@ class CustomPositionManager {
 
         inactiveShortcutIDs.remove(updatedPosition.id)
         
-        print("📝 Updated custom position: '\(updatedPosition.name)'")
+        AppLog.windowManagement.info("Updated custom position: \(updatedPosition.name, privacy: .private)")
         return .success(())
     }
     
@@ -349,7 +349,7 @@ class CustomPositionManager {
     /// Execute a custom position on the focused window
     func executePosition(_ position: CustomPosition) {
         guard let focusedWindow = WindowManager.shared.getFocusedWindow() else {
-            print("❌ No focused window for custom position execution")
+            AppLog.windowManagement.notice("No focused window for custom position")
             return
         }
         
@@ -360,15 +360,14 @@ class CustomPositionManager {
     func executePosition(_ position: CustomPosition, on window: WindowInfo) {
         // Find the screen containing the window
         guard let screen = getScreenContainingWindow(window) else {
-            print("❌ Could not determine screen for window")
+            AppLog.windowManagement.error("Could not determine screen for custom position")
             return
         }
         
         // Calculate the target frame
         let targetFrame = position.calculateFrame(for: screen)
         
-        print("🎯 Executing custom position '\(position.name)' on window '\(window.windowTitle)'")
-        print("   Target frame: \(targetFrame)")
+        AppLog.windowManagement.info("Applying custom position \(position.name, privacy: .private) to \(window.windowTitle, privacy: .private), frame \(String(describing: targetFrame), privacy: .public)")
         
         // Save state for undo
         WindowActionHistory.shared.saveState(before: "Custom: \(position.name)", window: window)
@@ -410,12 +409,12 @@ class CustomPositionManager {
     /// Create a custom position from a previously captured window (AX frame).
     func createFromWindow(_ window: WindowInfo, name: String, shortcut: String? = nil) -> CustomPosition? {
         guard let screen = WindowManager.shared.screenContainingAXRect(window.frame) else {
-            print("❌ Could not determine screen for custom position creation")
+            AppLog.windowManagement.error("Could not determine screen for custom position creation")
             return nil
         }
 
         guard let position = CustomPosition(name: name, from: window, on: screen, shortcut: shortcut) else {
-            print("❌ Failed to create custom position from window")
+            AppLog.windowManagement.error("Failed to create custom position from window")
             return nil
         }
 
@@ -425,7 +424,7 @@ class CustomPositionManager {
     /// Create a custom position from the current focused window
     func createFromCurrentWindow(name: String, shortcut: String? = nil) -> CustomPosition? {
         guard let focusedWindow = WindowManager.shared.getFocusedWindow() else {
-            print("❌ No focused window for custom position creation")
+            AppLog.windowManagement.notice("No focused window for custom position creation")
             return nil
         }
         return createFromWindow(focusedWindow, name: name, shortcut: shortcut)

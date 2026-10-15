@@ -79,7 +79,7 @@ final class RegionShareController: NSObject {
             if RegionShareManager.shared.isDisplayValid(existingRegion.displayID) {
                 startMirrorWithRegion(existingRegion, mode: mode)
             } else {
-                print("⚠️ Saved region's display is no longer available, clearing and starting new selection")
+                AppLog.regionShare.notice("Saved region display is unavailable; starting a new selection")
                 RegionShareManager.shared.clearRegion()
                 startRegionSelection()
             }
@@ -96,7 +96,7 @@ final class RegionShareController: NSObject {
                 if hasPermission {
                     self?.showSelectionOverlay()
                 } else {
-                    print("⚠️ Screen recording permission not granted - user needs to enable in System Settings and restart")
+                    AppLog.permissions.notice("Screen recording permission is not granted")
                     RegionShareManager.shared.setState(.idle)
                 }
             }
@@ -158,7 +158,7 @@ final class RegionShareController: NSObject {
                 if hasPermission {
                     self?.createAndShowMirrorWindow(for: region, mode: mode)
                 } else {
-                    print("⚠️ Screen recording permission not granted - user needs to enable in System Settings and restart")
+                    AppLog.permissions.notice("Screen recording permission is not granted")
                     RegionShareManager.shared.setState(.idle)
                 }
             }
@@ -238,7 +238,7 @@ final class RegionShareController: NSObject {
                     guard controller.virtualCameraGeneration == generation else { return }
                     RegionFrameHub.shared.markInactive()
                     RegionShareManager.shared.setState(.idle)
-                    print("❌ Failed to start virtual camera capture: \(error)")
+                    AppLog.regionShare.error("Failed to start virtual camera capture: \(error.localizedDescription, privacy: .public)")
                 }
             }
         }
@@ -283,9 +283,9 @@ final class RegionShareController: NSObject {
         }
 
         if success {
-            print("🎯 Region Share shortcut registered: ⌃⌘R")
+            AppLog.shortcuts.info("Region Share shortcut registered")
         } else {
-            print("❌ Failed to register Region Share shortcut")
+            AppLog.shortcuts.error("Failed to register Region Share shortcut")
         }
     }
 
@@ -301,7 +301,7 @@ extension RegionShareController: RegionSelectionDelegate {
         closeSelectionOverlay()
 
         guard let displayBounds = RegionShareManager.shared.getDisplayBounds(for: displayID) else {
-            print("❌ Could not get display bounds for selection")
+            AppLog.regionShare.error("Could not get display bounds for selection")
             abortSelectionWithoutNewRegion()
             return
         }
@@ -330,7 +330,7 @@ extension RegionShareController: RegionSelectionDelegate {
         didHandleSelection = true
         closeSelectionOverlay()
         abortSelectionWithoutNewRegion()
-        print("🚫 Region selection cancelled")
+        AppLog.regionShare.info("Region selection cancelled")
     }
 
     private func abortSelectionWithoutNewRegion() {

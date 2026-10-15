@@ -33,16 +33,16 @@ final class WindowThrowController {
     func showThrowOverlay() {
         // Get the focused window
         guard let focusedWindow = WindowManager.shared.getFocusedWindow() else {
-            print("❌ No focused window for throw interface")
+            AppLog.windowManagement.notice("No focused window for throw interface")
             return
         }
         
         guard let screen = WindowManager.shared.screenContainingAXRect(focusedWindow.frame) else {
-            print("❌ Could not determine screen for window")
+            AppLog.windowManagement.error("Could not determine screen for throw interface")
             return
         }
 
-        print("🎯 Showing throw interface for window: '\(focusedWindow.windowTitle)'")
+        AppLog.windowManagement.info("Showing throw interface for \(focusedWindow.windowTitle, privacy: .private)")
 
         currentPositions = calculator.calculateThrowPositions(for: screen)
         currentWindow = focusedWindow
@@ -56,14 +56,14 @@ final class WindowThrowController {
         setupKeyboardMonitoring()
         isActive = true
         
-        print("✅ Throw interface active with \(currentPositions.count) positions")
+        AppLog.windowManagement.debug("Throw interface active with \(self.currentPositions.count) positions")
     }
     
     /// Hide the throw overlay
     func hideThrowOverlay() {
         guard isActive else { return }
         
-        print("🎯 Hiding throw interface")
+        AppLog.windowManagement.debug("Hiding throw interface")
         
         overlayWindow?.close()
         overlayWindow = nil
@@ -79,11 +79,11 @@ final class WindowThrowController {
         guard isActive,
               let window = currentWindow,
               let position = overlayWindow?.getPosition(for: index) else {
-            print("❌ Cannot select position \(index) - not active or invalid")
+            AppLog.windowManagement.notice("Cannot select throw position \(index): inactive or invalid")
             return
         }
         
-        print("🎯 Selected position \(index): \(position.displayName)")
+        AppLog.windowManagement.info("Selected throw position \(index): \(position.displayName, privacy: .public)")
         
         // Hide overlay first
         hideThrowOverlay()
@@ -180,9 +180,9 @@ extension WindowThrowController {
         }
         
         if success {
-            print("✅ Registered throw shortcut: \(defaultShortcut)")
+            AppLog.shortcuts.info("Registered throw shortcut: \(defaultShortcut, privacy: .public)")
         } else {
-            print("❌ Failed to register throw shortcut: \(defaultShortcut)")
+            AppLog.shortcuts.error("Failed to register throw shortcut: \(defaultShortcut, privacy: .public)")
         }
     }
     

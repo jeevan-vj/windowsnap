@@ -125,7 +125,7 @@ final class RegionMirrorWindow: NSWindow {
 
     func startCapture() {
         guard let displayBounds = RegionShareManager.shared.getDisplayBounds(for: region.displayID) else {
-            print("❌ Could not get display bounds")
+            AppLog.regionShare.error("Could not get display bounds")
             RegionShareManager.shared.setState(.idle)
             return
         }
@@ -175,7 +175,7 @@ final class RegionMirrorWindow: NSWindow {
                     }
                     guard self.captureGeneration == generation else { return }
                     RegionShareManager.shared.setState(.idle)
-                    print("❌ Failed to start capture: \(error)")
+                    AppLog.regionShare.error("Failed to start capture: \(error.localizedDescription, privacy: .public)")
                     self.showCaptureError(error)
                 }
             }

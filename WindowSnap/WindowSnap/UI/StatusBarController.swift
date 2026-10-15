@@ -3,6 +3,7 @@ import Foundation
 
 final class StatusBarController: NSObject, NSMenuDelegate {
     var onShowAccessibilitySetup: (() -> Void)?
+    var onAccessibilityRequired: (() -> Void)?
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private var preferencesWindow: PreferencesWindow?
     private var textExpanderWindow: TextExpanderWindow?
@@ -243,7 +244,10 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
         let windowManager = WindowManager.shared
 
-        guard AccessibilityPermissions.hasPermissions() else { return }
+        guard AccessibilityPermissions.hasPermissions() else {
+            onAccessibilityRequired?()
+            return
+        }
 
         guard let focusedWindow = windowManager.getFocusedWindow() else {
             NSSound.beep()
