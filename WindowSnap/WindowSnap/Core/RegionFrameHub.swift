@@ -5,6 +5,7 @@ import Foundation
 import IOSurface
 
 struct RegionFrameMetadata: Codable, Equatable {
+    let hostSessionID: UUID
     let width: Int
     let height: Int
     let frameRate: Int
@@ -47,7 +48,9 @@ final class RegionFrameHub: RegionFrameSink {
     private var nextSequence: UInt64 = 0
     private var lastPublishedPresentationTime = CMTime.invalid
     private var pools: [String: CVPixelBufferPool] = [:]
-    private var publishedBuffer: CVPixelBuffer?
+    private let hostSessionID = UUID()
+    private var publishedBuffers: [CVPixelBuffer] = []
+    private let publishedBufferLimit = 4
 
     init(
         directory: URL? = nil,
@@ -228,6 +231,7 @@ final class RegionFrameHub: RegionFrameSink {
         guard let unmanagedSurface = CVPixelBufferGetIOSurface(pixelBuffer) else { return }
         let surfaceID = IOSurfaceGetID(unmanagedSurface.takeUnretainedValue())
         let metadata = RegionFrameMetadata(
+            hostSessionID: hostSessionID,
             width: CVPixelBufferGetWidth(pixelBuffer),
             height: CVPixelBufferGetHeight(pixelBuffer),
             frameRate: frameRate,
@@ -243,7 +247,10 @@ final class RegionFrameHub: RegionFrameSink {
             try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
             let metadataData = try JSONEncoder().encode(metadata)
             try metadataData.write(to: metadataURL, options: .atomic)
-            publishedBuffer = pixelBuffer
+            publishedBuffers.append(pixelBuffer)
+            if publishedBuffers.count > publishedBufferLimit {
+                publishedBuffers.removeFirst(publishedBuffers.count - publishedBufferLimit)
+            }
         } catch {
             AppLog.regionShare.error("Failed to publish frame metadata: \(error.localizedDescription, privacy: .public)")
         }

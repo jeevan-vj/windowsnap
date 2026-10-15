@@ -175,7 +175,12 @@ if [[ "${BUILD_VIRTUAL_CAMERA_EXTENSION:-0}" == "1" ]]; then
 fi
 if [[ -n "${CODESIGN_ID:-}" ]]; then
   echo "   Signing with identity: $CODESIGN_ID"
-  if "$ROOT_DIR/scripts/sign-nested-components.sh" "$APP_DIR" "$CODESIGN_ID" "$ENTITLEMENTS_FILE"; then
+  EXTENSION_ENTITLEMENTS_FILE=""
+  if [[ "${BUILD_VIRTUAL_CAMERA_EXTENSION:-0}" == "1" ]]; then
+    EXTENSION_ENTITLEMENTS_FILE="$ROOT_DIR/.build/virtual-camera-extension/WindowSnapVirtualCameraExtension.entitlements"
+  fi
+  if "$ROOT_DIR/scripts/sign-nested-components.sh" \
+    "$APP_DIR" "$CODESIGN_ID" "$ENTITLEMENTS_FILE" "$EXTENSION_ENTITLEMENTS_FILE"; then
     echo -e "${GREEN}✓${NC} Code signing successful"
 
     # Verify signature

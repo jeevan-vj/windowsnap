@@ -192,6 +192,7 @@ struct WorkspaceArrangement: Codable, Identifiable, Equatable {
 
     func migrated(to screens: [WorkspaceScreenGeometry]) -> WorkspaceArrangement {
         guard formatVersion < Self.currentFormatVersion else { return self }
+        var hasUnmatchedWindow = false
         let migratedApps = appLayouts.map { app in
             let windows = app.windowLayouts.map { window -> WindowLayout in
                 guard let migrated = WorkspaceCoordinateMath.migrateLegacyFrame(
@@ -200,7 +201,10 @@ struct WorkspaceArrangement: Codable, Identifiable, Equatable {
                     legacyDisplayID: window.displayID,
                     legacyIndex: window.screenIndex,
                     screens: screens
-                ) else { return window }
+                ) else {
+                    hasUnmatchedWindow = true
+                    return window
+                }
                 return WindowLayout(
                     windowTitle: window.windowTitle,
                     frame: migrated.frame,
@@ -218,6 +222,7 @@ struct WorkspaceArrangement: Codable, Identifiable, Equatable {
                 isRunning: app.isRunning
             )
         }
+        guard !hasUnmatchedWindow else { return self }
         return WorkspaceArrangement(
             id: id,
             name: name,

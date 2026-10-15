@@ -6,13 +6,19 @@ die() { echo "ERROR: $*" >&2; exit 1; }
 APP_PATH="${1:-}"
 CODESIGN_ID="${2:-}"
 ENTITLEMENTS_FILE="${3:-}"
+VIRTUAL_CAMERA_EXTENSION_ENTITLEMENTS="${4:-}"
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-VIRTUAL_CAMERA_EXTENSION_ENTITLEMENTS="$ROOT_DIR/WindowSnapVirtualCameraExtension/WindowSnapVirtualCameraExtension.entitlements"
+GENERATED_VIRTUAL_CAMERA_EXTENSION_ENTITLEMENTS="$ROOT_DIR/.build/virtual-camera-extension/WindowSnapVirtualCameraExtension.entitlements"
+SOURCE_VIRTUAL_CAMERA_EXTENSION_ENTITLEMENTS="$ROOT_DIR/WindowSnapVirtualCameraExtension/WindowSnapVirtualCameraExtension.entitlements"
 
 [[ -d "$APP_PATH" ]] || die "App bundle not found: $APP_PATH"
 [[ -n "$CODESIGN_ID" ]] || die "A Developer ID Application identity or fingerprint is required"
 
 CODESIGN_ID="$("$ROOT_DIR/scripts/resolve-developer-id.sh" "$CODESIGN_ID")"
+
+if [[ -z "$VIRTUAL_CAMERA_EXTENSION_ENTITLEMENTS" && -f "$GENERATED_VIRTUAL_CAMERA_EXTENSION_ENTITLEMENTS" ]]; then
+  VIRTUAL_CAMERA_EXTENSION_ENTITLEMENTS="$GENERATED_VIRTUAL_CAMERA_EXTENSION_ENTITLEMENTS"
+fi
 
 sign_file() {
   local path="$1"
@@ -26,8 +32,18 @@ sign_bundle() {
   local path="$1"
   echo "Signing nested bundle: ${path#$APP_PATH/}"
   local args=(--force --sign "$CODESIGN_ID" --options runtime --timestamp)
-  if [[ "$path" == *.systemextension && -f "$VIRTUAL_CAMERA_EXTENSION_ENTITLEMENTS" ]]; then
-    args+=(--entitlements "$VIRTUAL_CAMERA_EXTENSION_ENTITLEMENTS")
+  if [[ "$path" == *.systemextension ]]; then
+    if [[ -n "$VIRTUAL_CAMERA_EXTENSION_ENTITLEMENTS" ]]; then
+      [[ -f "$VIRTUAL_CAMERA_EXTENSION_ENTITLEMENTS" ]] \
+        || die "Extension entitlements file not found: $VIRTUAL_CAMERA_EXTENSION_ENTITLEMENTS"
+      args+=(--entitlements "$VIRTUAL_CAMERA_EXTENSION_ENTITLEMENTS")
+    elif [[ "${WINDOWSNAP_ALLOW_DEVELOPMENT_ENTITLEMENTS:-0}" == "1" \
+      && -f "$SOURCE_VIRTUAL_CAMERA_EXTENSION_ENTITLEMENTS" ]]; then
+      echo "Using development extension entitlements: $SOURCE_VIRTUAL_CAMERA_EXTENSION_ENTITLEMENTS"
+      args+=(--entitlements "$SOURCE_VIRTUAL_CAMERA_EXTENSION_ENTITLEMENTS")
+    else
+      die "Generated extension entitlements are required for signed virtual camera builds"
+    fi
   fi
   args+=("$path")
   /usr/bin/codesign "${args[@]}"

@@ -103,6 +103,9 @@ assert_contains "$ROOT_DIR/WindowSnapVirtualCameraHost.entitlements" 'system-ext
 assert_contains "$ROOT_DIR/WindowSnapVirtualCameraHost.entitlements" 'application-groups' "virtual camera host keeps its shared app group"
 assert_contains "$SCRIPTS_DIR/build-universal-bundle.sh" 'WindowSnapVirtualCameraHost\.entitlements' "virtual camera bundles select host-specific entitlements"
 assert_contains "$SCRIPTS_DIR/sign-and-notarize.sh" 'WindowSnapVirtualCameraHost\.entitlements' "notarization preserves host-specific entitlements when requested"
+assert_contains "$SCRIPTS_DIR/build-universal-bundle.sh" 'WindowSnapVirtualCameraExtension\.entitlements' "bundle signing passes generated extension entitlements"
+assert_contains "$SCRIPTS_DIR/sign-and-notarize.sh" 'WindowSnapVirtualCameraExtension\.entitlements' "notarization preserves generated extension entitlements"
+assert_contains "$SCRIPTS_DIR/sign-nested-components.sh" 'WINDOWSNAP_ALLOW_DEVELOPMENT_ENTITLEMENTS' "source extension entitlements require an explicit development opt-in"
 
 assert_contains "$SCRIPTS_DIR/build-adhoc-release.sh" 'local-only' "ad-hoc artifacts are isolated as local-only"
 assert_not_contains "$SCRIPTS_DIR/build-adhoc-release.sh" 'GitHub Release|ready for GitHub|gh release' "ad-hoc artifacts are not presented as publishable"

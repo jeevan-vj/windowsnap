@@ -88,6 +88,59 @@ final class WorkspaceCoordinateMathTests: XCTestCase {
         assertEqual(byIndex?.frame, CGRect(x: 0, y: 0, width: 1, height: 1))
     }
 
+    func testLegacyMigrationUsesFrameCenterBeforeStaleScreenIndex() {
+        let screens = migrationScreens()
+
+        let migrated = WorkspaceCoordinateMath.migrateLegacyFrame(
+            CGRect(x: -700, y: 100, width: 400, height: 300),
+            displayUUID: nil,
+            legacyDisplayID: nil,
+            legacyIndex: 0,
+            screens: screens
+        )
+
+        XCTAssertEqual(migrated?.screen.displayUUID, "side")
+        assertEqual(migrated?.frame, CGRect(x: 0.125, y: 1.0 / 6.0, width: 0.5, height: 0.5))
+    }
+
+    func testLegacyMigrationUsesLargestIntersectionWhenCenterIsOffscreen() {
+        let screens = migrationScreens()
+
+        let migrated = WorkspaceCoordinateMath.migrateLegacyFrame(
+            CGRect(x: -900, y: 100, width: 200, height: 300),
+            displayUUID: nil,
+            legacyDisplayID: nil,
+            legacyIndex: 0,
+            screens: screens
+        )
+
+        XCTAssertEqual(migrated?.screen.displayUUID, "side")
+    }
+
+    func testLegacyMigrationUsesIndexOnlyWhenGeometryDoesNotMatch() {
+        let migrated = WorkspaceCoordinateMath.migrateLegacyFrame(
+            CGRect(x: 4_000, y: 4_000, width: 200, height: 100),
+            displayUUID: nil,
+            legacyDisplayID: nil,
+            legacyIndex: 1,
+            screens: migrationScreens()
+        )
+
+        XCTAssertEqual(migrated?.screen.displayUUID, "side")
+    }
+
+    func testArrangementRemainsVersionOneWhenLegacyScreenCannotBeMatched() throws {
+        let decoded = try makeLegacyArrangement(
+            frame: CGRect(x: 4_000, y: 4_000, width: 200, height: 100),
+            screenIndex: 9
+        )
+
+        let migrated = decoded.migrated(to: migrationScreens())
+
+        XCTAssertEqual(migrated, decoded)
+        XCTAssertEqual(migrated.formatVersion, 1)
+    }
+
     func testLegacyArrangementDecodesAsVersionOneAndMigrates() throws {
         let legacy = WorkspaceArrangement(
             name: "Legacy",
@@ -126,6 +179,45 @@ final class WorkspaceCoordinateMathTests: XCTestCase {
         assertEqual(
             migrated.appLayouts[0].windowLayouts[0].frame,
             CGRect(x: 0.1, y: 0.25, width: 0.5, height: 0.5)
+        )
+    }
+
+    private func migrationScreens() -> [WorkspaceScreenGeometry] {
+        [
+            WorkspaceScreenGeometry(
+                displayUUID: "main",
+                displayID: 10,
+                index: 0,
+                visibleFrame: CGRect(x: 0, y: 0, width: 1_000, height: 800)
+            ),
+            WorkspaceScreenGeometry(
+                displayUUID: "side",
+                displayID: 20,
+                index: 1,
+                visibleFrame: CGRect(x: -800, y: 0, width: 800, height: 600)
+            )
+        ]
+    }
+
+    private func makeLegacyArrangement(frame: CGRect, screenIndex: Int) throws -> WorkspaceArrangement {
+        let arrangement = WorkspaceArrangement(
+            name: "Legacy",
+            appLayouts: [
+                AppLayout(
+                    bundleIdentifier: "example.app",
+                    applicationName: "Example",
+                    windowLayouts: [
+                        WindowLayout(windowTitle: "Document", frame: frame, screenIndex: screenIndex)
+                    ]
+                )
+            ]
+        )
+        let encoded = try JSONEncoder().encode(arrangement)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        object.removeValue(forKey: "formatVersion")
+        return try JSONDecoder().decode(
+            WorkspaceArrangement.self,
+            from: JSONSerialization.data(withJSONObject: object)
         )
     }
 

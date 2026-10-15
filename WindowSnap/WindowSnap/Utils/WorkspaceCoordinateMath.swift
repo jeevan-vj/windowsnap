@@ -73,12 +73,46 @@ enum WorkspaceCoordinateMath {
         legacyIndex: Int,
         screens: [WorkspaceScreenGeometry]
     ) -> (frame: CGRect, screen: WorkspaceScreenGeometry)? {
-        guard let screen = screen(
-            matchingUUID: displayUUID,
-            legacyDisplayID: legacyDisplayID,
-            legacyIndex: legacyIndex,
-            in: screens
-        ) else { return nil }
+        let screen: WorkspaceScreenGeometry?
+        if displayUUID != nil || legacyDisplayID != nil {
+            screen = self.screen(
+                matchingUUID: displayUUID,
+                legacyDisplayID: legacyDisplayID,
+                legacyIndex: legacyIndex,
+                in: screens
+            )
+        } else {
+            screen = legacyScreen(
+                containing: absoluteFrame,
+                legacyIndex: legacyIndex,
+                screens: screens
+            )
+        }
+        guard let screen else { return nil }
         return (normalizedFrame(absoluteFrame, in: screen.visibleFrame), screen)
+    }
+
+    private static func legacyScreen(
+        containing absoluteFrame: CGRect,
+        legacyIndex: Int,
+        screens: [WorkspaceScreenGeometry]
+    ) -> WorkspaceScreenGeometry? {
+        let usableScreens = screens.filter {
+            $0.visibleFrame.width > 0 && $0.visibleFrame.height > 0
+        }
+        let center = CGPoint(x: absoluteFrame.midX, y: absoluteFrame.midY)
+        if let centerMatch = usableScreens.first(where: { $0.visibleFrame.contains(center) }) {
+            return centerMatch
+        }
+
+        let intersections = usableScreens.map { screen in
+            let intersection = screen.visibleFrame.intersection(absoluteFrame)
+            return (screen, intersection.isNull ? 0 : intersection.width * intersection.height)
+        }
+        if let largest = intersections.max(by: { $0.1 < $1.1 }), largest.1 > 0 {
+            return largest.0
+        }
+
+        return usableScreens.first(where: { $0.index == legacyIndex })
     }
 }

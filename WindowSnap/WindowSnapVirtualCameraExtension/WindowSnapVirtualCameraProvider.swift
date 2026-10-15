@@ -236,6 +236,7 @@ private final class SharedRegionFrameReader {
     private let metadataURL: URL
     private let context = CIContext(options: [.cacheIntermediates: false])
     private var pools: [String: CVPixelBufferPool] = [:]
+    private var cachedHostSessionID: UUID?
     private var cachedSequence: UInt64 = 0
     private var cachedOutputs: [String: CVPixelBuffer] = [:]
     private var placeholders: [String: CVPixelBuffer] = [:]
@@ -254,9 +255,20 @@ private final class SharedRegionFrameReader {
               metadata.pixelFormat == kCVPixelFormatType_32BGRA,
               metadata.width > 0,
               metadata.height > 0,
-              metadata.sequence >= cachedSequence,
-              Date().timeIntervalSince(metadata.updatedAt) < 2.0,
-              let surface = IOSurfaceLookup(metadata.surfaceID) else {
+              Date().timeIntervalSince(metadata.updatedAt) < 2.0 else {
+            return makePlaceholder(width: outputWidth, height: outputHeight)
+        }
+
+        if metadata.hostSessionID != cachedHostSessionID {
+            cachedHostSessionID = metadata.hostSessionID
+            cachedSequence = 0
+            cachedOutputs.removeAll(keepingCapacity: true)
+        }
+
+        guard let surface = IOSurfaceLookup(metadata.surfaceID),
+              IOSurfaceGetWidth(surface) == metadata.width,
+              IOSurfaceGetHeight(surface) == metadata.height,
+              metadata.sequence >= cachedSequence else {
             return makePlaceholder(width: outputWidth, height: outputHeight)
         }
 
@@ -277,7 +289,9 @@ private final class SharedRegionFrameReader {
         let sourceBuffer = unmanagedSourceBuffer.takeRetainedValue()
         guard
               CVPixelBufferGetWidth(sourceBuffer) == metadata.width,
-              CVPixelBufferGetHeight(sourceBuffer) == metadata.height else {
+              CVPixelBufferGetHeight(sourceBuffer) == metadata.height,
+              CVPixelBufferGetPixelFormatType(sourceBuffer) == metadata.pixelFormat,
+              metadata.sequence >= cachedSequence else {
             return makePlaceholder(width: outputWidth, height: outputHeight)
         }
 
@@ -385,6 +399,7 @@ private final class SharedRegionFrameReader {
 }
 
 private struct SharedRegionFrameMetadata: Codable {
+    let hostSessionID: UUID
     let width: Int
     let height: Int
     let frameRate: Int
