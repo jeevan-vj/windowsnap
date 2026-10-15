@@ -158,14 +158,14 @@ class WorkspaceArrangementsWindow: NSWindow {
     
     @objc private func captureCurrentWorkspace() {
         let dialog = WorkspaceDialog(mode: .create)
-        dialog.onSave = { [weak self] name, shortcut in
-            guard let self else { return .failure(.persistenceFailed) }
-            switch self.workspaceManager.captureCurrentWorkspaceResult(name: name, shortcut: shortcut) {
-            case .success:
-                self.loadArrangements()
-                return .success(())
-            case .failure(let error):
-                return .failure(error)
+        dialog.onSaveAsync = { [weak self] name, shortcut, completion in
+            guard let self else {
+                completion(.failure(.persistenceFailed))
+                return
+            }
+            self.workspaceManager.captureCurrentWorkspaceResult(name: name, shortcut: shortcut) { result in
+                if case .success = result { self.loadArrangements() }
+                completion(result.map { _ in () })
             }
         }
         dialog.showModal(for: self)
@@ -349,6 +349,7 @@ class WorkspaceDialog: NSWindow {
     private var shortcutField: NSTextField!
     
     var onSave: ((String, String?) -> Result<Void, ManagedConfigurationError>)?
+    var onSaveAsync: ((String, String?, @escaping (Result<Void, ManagedConfigurationError>) -> Void) -> Void)?
     
     init(mode: Mode, arrangement: WorkspaceArrangement? = nil) {
         self.mode = mode
@@ -455,20 +456,34 @@ class WorkspaceDialog: NSWindow {
         }
         
         let finalShortcut = shortcut.isEmpty ? nil : shortcut
-        if let onSave {
+        if let onSaveAsync {
+            onSaveAsync(name, finalShortcut) { [weak self] result in
+                guard let self else { return }
+                switch result {
+                case .success:
+                    self.close()
+                case .failure(let error):
+                    self.showSaveError(error)
+                }
+            }
+        } else if let onSave {
             switch onSave(name, finalShortcut) {
             case .success:
                 close()
             case .failure(let error):
-                let alert = NSAlert()
-                alert.messageText = "Couldn’t Save Workspace"
-                alert.informativeText = error.localizedDescription
-                alert.alertStyle = .warning
-                alert.beginSheetModal(for: self)
+                showSaveError(error)
             }
         } else {
             close()
         }
+    }
+
+    private func showSaveError(_ error: ManagedConfigurationError) {
+        let alert = NSAlert()
+        alert.messageText = "Couldn’t Save Workspace"
+        alert.informativeText = error.localizedDescription
+        alert.alertStyle = .warning
+        alert.beginSheetModal(for: self)
     }
     
     func showModal(for parentWindow: NSWindow) {
