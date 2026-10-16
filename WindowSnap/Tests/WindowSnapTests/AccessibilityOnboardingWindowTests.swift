@@ -8,7 +8,7 @@ final class AccessibilityOnboardingWindowTests: XCTestCase {
         _ = NSApplication.shared
     }
 
-    func testOnboardingWindowFloatsOnTheActiveSpace() throws {
+    func testOnboardingWindowFloatsOnEverySpace() throws {
         let controller = AccessibilityOnboardingWindowController(model: makeModel())
         let window = try XCTUnwrap(controller.window)
 
@@ -16,8 +16,9 @@ final class AccessibilityOnboardingWindowTests: XCTestCase {
         XCTAssertEqual(window.level, AccessibilityOnboardingWindowController.presentationLevel)
         XCTAssertEqual(
             window.collectionBehavior,
-            [.moveToActiveSpace, .fullScreenAuxiliary]
+            [.canJoinAllSpaces, .fullScreenAuxiliary]
         )
+        XCTAssertFalse(window.collectionBehavior.contains(.moveToActiveSpace))
         XCTAssertEqual(
             window.collectionBehavior,
             AccessibilityOnboardingWindowController.presentationCollectionBehavior
@@ -42,6 +43,33 @@ final class AccessibilityOnboardingWindowTests: XCTestCase {
             events,
             ["activate", "makeKeyAndOrderFront", "orderFrontRegardless"]
         )
+    }
+
+    func testReassertOrdersFrontWithoutActivating() {
+        let window = OrderRecordingWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 120, height: 80),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: true
+        )
+
+        AccessibilityOnboardingWindowController.reassert(window, wantsVisible: true, dismissed: false)
+
+        XCTAssertEqual(window.events, ["orderFrontRegardless"])
+    }
+
+    func testReassertDoesNothingAfterDismissOrBeforePresentation() {
+        let window = OrderRecordingWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 120, height: 80),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: true
+        )
+
+        AccessibilityOnboardingWindowController.reassert(window, wantsVisible: true, dismissed: true)
+        AccessibilityOnboardingWindowController.reassert(window, wantsVisible: false, dismissed: false)
+
+        XCTAssertEqual(window.events, [])
     }
 
     private func makeModel() -> AccessibilityOnboardingModel {

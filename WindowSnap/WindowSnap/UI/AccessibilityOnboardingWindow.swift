@@ -17,18 +17,27 @@ final class AccessibilityOnboardingWindowController: NSWindowController, NSWindo
     private let settingsButton = NSButton(title: "Open System Settings", target: nil, action: nil)
     private let finishButton = NSButton(title: "Finish Setup", target: nil, action: nil)
     private let readinessLabel = NSTextField(wrappingLabelWithString: "")
-    private var activationObserver: NSObjectProtocol?
+    private var presentationObservers: [(NotificationCenter, NSObjectProtocol)] = []
+    private var reassertWorkItem: DispatchWorkItem?
+    private var wantsVisible = false
     private var didNotifyDismiss = false
     private var hasRequestedPermission = false
 
     /// Floating, so onboarding sits above normal windows of the frontmost app.
     static let presentationLevel: NSWindow.Level = .floating
 
-    /// Shows on the active Space, including over a fullscreen app.
+    /// On every Space, including over a fullscreen app.
+    ///
+    /// `moveToActiveSpace` relocates the window only when this accessory app
+    /// is activated. Returning from System Settings activates the previous
+    /// app, so the window can leave the visible Space for that transition.
     static let presentationCollectionBehavior: NSWindow.CollectionBehavior = [
-        .moveToActiveSpace,
+        .canJoinAllSpaces,
         .fullScreenAuxiliary
     ]
+
+    /// Space-change notifications arrive before AppKit finishes the animation.
+    static let transitionReassertDelay: TimeInterval = 0.35
 
     init(model: AccessibilityOnboardingModel) {
         self.model = model
@@ -50,8 +59,9 @@ final class AccessibilityOnboardingWindowController: NSWindowController, NSWindo
     }
 
     deinit {
-        if let activationObserver {
-            NotificationCenter.default.removeObserver(activationObserver)
+        cancelReassert()
+        for (center, observer) in presentationObservers {
+            center.removeObserver(observer)
         }
     }
 
@@ -65,6 +75,7 @@ final class AccessibilityOnboardingWindowController: NSWindowController, NSWindo
 
     func present() {
         didNotifyDismiss = false
+        wantsVisible = true
         model.refreshPermissionStatus()
         render()
         guard let window else { return }
@@ -90,13 +101,29 @@ final class AccessibilityOnboardingWindowController: NSWindowController, NSWindo
         window.orderFrontRegardless()
     }
 
+    /// Raises `window` again without activating WindowSnap.
+    ///
+    /// Activation would pull focus out of System Settings. `orderFrontRegardless`
+    /// keeps this NSWindow up while Settings, or the app the user returns to,
+    /// is frontmost.
+    static func reassert(_ window: NSWindow, wantsVisible: Bool, dismissed: Bool) {
+        guard wantsVisible, !dismissed else { return }
+        window.orderFrontRegardless()
+    }
+
     func refreshPermissionStatus() {
         model.refreshPermissionStatus()
         render()
     }
 
     func windowWillClose(_ notification: Notification) {
+        stopPresenting()
         notifyDismissed()
+    }
+
+    func windowDidChangeOcclusionState(_ notification: Notification) {
+        guard wantsVisible, let window, !window.occlusionState.contains(.visible) else { return }
+        reassertFrontAfterTransition()
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
@@ -210,13 +237,52 @@ final class AccessibilityOnboardingWindowController: NSWindowController, NSWindo
     }
 
     private func observeApplicationActivation() {
-        activationObserver = NotificationCenter.default.addObserver(
-            forName: NSApplication.didBecomeActiveNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.refreshPermissionStatus()
+        observe(NotificationCenter.default, name: NSApplication.didBecomeActiveNotification)
+        observe(NotificationCenter.default, name: NSApplication.didResignActiveNotification)
+        observe(NSWorkspace.shared.notificationCenter, name: NSWorkspace.activeSpaceDidChangeNotification)
+        observe(NSWorkspace.shared.notificationCenter, name: NSWorkspace.didActivateApplicationNotification)
+    }
+
+    private func observe(_ center: NotificationCenter, name: Notification.Name) {
+        let observer = center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+            self?.handlePresentationChange(name)
         }
+        presentationObservers.append((center, observer))
+    }
+
+    private func handlePresentationChange(_ name: Notification.Name) {
+        if name == NSApplication.didBecomeActiveNotification || wantsVisible {
+            refreshPermissionStatus()
+        }
+        reassertFrontAfterTransition()
+    }
+
+    private func reassertFrontAfterTransition() {
+        guard let window else { return }
+        Self.reassert(window, wantsVisible: wantsVisible, dismissed: didNotifyDismiss)
+        guard wantsVisible, !didNotifyDismiss else { return }
+
+        reassertWorkItem?.cancel()
+        let followUp = DispatchWorkItem { [weak self] in
+            guard let self, let window = self.window else { return }
+            Self.reassert(window, wantsVisible: self.wantsVisible, dismissed: self.didNotifyDismiss)
+        }
+        reassertWorkItem = followUp
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let window = self.window else { return }
+            Self.reassert(window, wantsVisible: self.wantsVisible, dismissed: self.didNotifyDismiss)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.transitionReassertDelay, execute: followUp)
+    }
+
+    private func stopPresenting() {
+        wantsVisible = false
+        cancelReassert()
+    }
+
+    private func cancelReassert() {
+        reassertWorkItem?.cancel()
+        reassertWorkItem = nil
     }
 
     private func render() {
@@ -262,11 +328,13 @@ final class AccessibilityOnboardingWindowController: NSWindowController, NSWindo
     }
 
     @objc private func dismissWithoutFinishing() {
+        stopPresenting()
         window?.orderOut(nil)
         notifyDismissed()
     }
 
     private func notifyDismissed() {
+        stopPresenting()
         guard !didNotifyDismiss else { return }
         didNotifyDismiss = true
         onDismiss?()
