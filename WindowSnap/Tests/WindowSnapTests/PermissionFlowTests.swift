@@ -11,31 +11,106 @@ final class PermissionFlowTests: XCTestCase {
         super.tearDown()
     }
 
-    func testScreenRecordingRequestsExactlyOnceAndThenRoutesToDeniedState() {
+    func testPreflightFalseNeverTriggersScreenCaptureKitProbe() {
+        for hasRequested in [false, true] {
+            let provider = StubScreenRecordingProvider(hasAccess: false, requestResult: false)
+            provider.asyncCheckResult = true
+            let coordinator = ScreenRecordingPermissionCoordinator(
+                provider: provider,
+                store: InMemoryScreenRecordingStore(hasRequested: hasRequested)
+            )
+
+            var states: [ScreenRecordingPermissionState] = []
+            coordinator.refreshState { states.append($0) }
+            _ = coordinator.immediateState
+            coordinator.requestAccess()
+            coordinator.refreshState { states.append($0) }
+
+            XCTAssertEqual(states.count, 2, "refreshState must complete synchronously from preflight")
+            XCTAssertEqual(provider.checkCount, 0)
+        }
+    }
+
+    func testRefreshNeverPrompts() {
+        let provider = StubScreenRecordingProvider(hasAccess: false, requestResult: false)
+        let coordinator = ScreenRecordingPermissionCoordinator(
+            provider: provider,
+            store: InMemoryScreenRecordingStore(hasRequested: false)
+        )
+        for _ in 0..<5 { coordinator.refreshState { _ in } }
+        XCTAssertEqual(coordinator.immediateState, .notRequested)
+        XCTAssertEqual(provider.requestCount, 0)
+    }
+
+    func testScreenRecordingPromptsAtMostOncePerLaunch() {
         let provider = StubScreenRecordingProvider(hasAccess: false, requestResult: false)
         let store = InMemoryScreenRecordingStore(hasRequested: false)
         let coordinator = ScreenRecordingPermissionCoordinator(provider: provider, store: store)
 
-        XCTAssertEqual(coordinator.immediateState, .notRequested)
-        XCTAssertEqual(coordinator.requestAccess(), .denied)
+        coordinator.requestAccess()
+        coordinator.requestAccess()
+        coordinator.retryAccess()
+        coordinator.retryAccess()
+
         XCTAssertEqual(provider.requestCount, 1)
         XCTAssertTrue(store.hasRequestedScreenRecordingPermission)
+    }
 
-        XCTAssertEqual(coordinator.requestAccess(), .denied)
+    func testRecoveryRetryAlsoLimitedToOnePromptPerLaunch() {
+        let provider = StubScreenRecordingProvider(hasAccess: false, requestResult: false)
+        let coordinator = ScreenRecordingPermissionCoordinator(
+            provider: provider,
+            store: InMemoryScreenRecordingStore(hasRequested: true)
+        )
+
+        XCTAssertEqual(coordinator.retryAccess(), .restartRequired)
+        XCTAssertEqual(coordinator.retryAccess(), .restartRequired)
         XCTAssertEqual(provider.requestCount, 1)
     }
 
-    func testScreenRecordingExplicitRecoveryRetriesAStaleRegistration() {
+    func testPendingGrantThisLaunchLeadsToRestartRequired() {
         let provider = StubScreenRecordingProvider(hasAccess: false, requestResult: false)
-        let store = InMemoryScreenRecordingStore(hasRequested: true)
-        let coordinator = ScreenRecordingPermissionCoordinator(provider: provider, store: store)
+        let coordinator = ScreenRecordingPermissionCoordinator(
+            provider: provider,
+            store: InMemoryScreenRecordingStore(hasRequested: false)
+        )
 
-        XCTAssertEqual(coordinator.retryAccess(), .denied)
+        XCTAssertEqual(coordinator.immediateState, .notRequested)
+        XCTAssertEqual(coordinator.requestAccess(), .restartRequired)
+        XCTAssertTrue(coordinator.hasRequestedThisLaunch)
+
+        var refreshed: ScreenRecordingPermissionState?
+        coordinator.refreshState { refreshed = $0 }
+        XCTAssertEqual(refreshed, .restartRequired)
+        XCTAssertEqual(provider.checkCount, 0)
+    }
+
+    func testStaleGrantFromEarlierLaunchLeadsToRecoveryWithoutPrompting() {
+        let provider = StubScreenRecordingProvider(hasAccess: false, requestResult: false)
+        let coordinator = ScreenRecordingPermissionCoordinator(
+            provider: provider,
+            store: InMemoryScreenRecordingStore(hasRequested: true)
+        )
+
+        var refreshed: ScreenRecordingPermissionState?
+        coordinator.refreshState { refreshed = $0 }
+        XCTAssertEqual(refreshed, .needsRecovery)
+        XCTAssertEqual(coordinator.immediateState, .needsRecovery)
+        XCTAssertEqual(provider.requestCount, 0)
+        XCTAssertEqual(provider.checkCount, 0)
+    }
+
+    func testGrantedWinsOverEveryOtherState() {
+        let provider = StubScreenRecordingProvider(hasAccess: false, requestResult: false)
+        let coordinator = ScreenRecordingPermissionCoordinator(
+            provider: provider,
+            store: InMemoryScreenRecordingStore(hasRequested: true)
+        )
+        coordinator.requestAccess()
+        provider.hasAccessValue = true
+        XCTAssertEqual(coordinator.immediateState, .granted)
+        XCTAssertEqual(coordinator.requestAccess(), .granted)
         XCTAssertEqual(provider.requestCount, 1)
-
-        provider.requestResult = true
-        XCTAssertEqual(coordinator.retryAccess(), .granted)
-        XCTAssertEqual(provider.requestCount, 2)
     }
 
     func testScreenRecordingNeverRequestsWhenAlreadyGranted() {
@@ -49,41 +124,38 @@ final class PermissionFlowTests: XCTestCase {
         XCTAssertEqual(provider.requestCount, 0)
     }
 
-    func testScreenRecordingRefreshDoesNotConsultScreenCaptureKitBeforeExplicitRequest() {
-        let provider = StubScreenRecordingProvider(hasAccess: false, requestResult: false)
-        provider.asyncCheckResult = true
+    func testRecoveryAlertIsDebounced() {
+        var now = Date(timeIntervalSince1970: 1_000)
         let coordinator = ScreenRecordingPermissionCoordinator(
-            provider: provider,
-            store: InMemoryScreenRecordingStore(hasRequested: false)
+            provider: StubScreenRecordingProvider(hasAccess: false, requestResult: false),
+            store: InMemoryScreenRecordingStore(hasRequested: true),
+            now: { now }
         )
-        let expectation = expectation(description: "state refreshed")
 
-        coordinator.refreshState { state in
-            XCTAssertEqual(state, .notRequested)
-            expectation.fulfill()
-        }
-
-        wait(for: [expectation], timeout: 1)
-        XCTAssertEqual(provider.checkCount, 0)
-        XCTAssertEqual(provider.requestCount, 0)
+        XCTAssertTrue(coordinator.shouldPresentRecoveryAlert())
+        now += 5
+        XCTAssertFalse(coordinator.shouldPresentRecoveryAlert())
+        now += ScreenRecordingPermissionCoordinator.recoveryAlertDebounce
+        XCTAssertTrue(coordinator.shouldPresentRecoveryAlert())
     }
 
-    func testScreenRecordingDetectsRestartRequiredWithoutRequestingAgain() {
-        let provider = StubScreenRecordingProvider(hasAccess: false, requestResult: false)
-        provider.asyncCheckResult = true
-        let coordinator = ScreenRecordingPermissionCoordinator(
-            provider: provider,
-            store: InMemoryScreenRecordingStore(hasRequested: true)
+    func testSigningIdentityWarnsForAdHocAndOutsideApplications() {
+        let good = AppSigningIdentity(
+            bundlePath: "/Applications/WindowSnap.app",
+            bundleIdentifier: "com.jeevanwijerathna.windowsnap",
+            teamIdentifier: "88282K637B",
+            isAdHoc: false,
+            isSigned: true
         )
-        let expectation = expectation(description: "state refreshed")
+        XCTAssertEqual(good.signingSummary, "team 88282K637B")
+        XCTAssertTrue(good.warnings.isEmpty)
 
-        coordinator.refreshState { state in
-            XCTAssertEqual(state, .restartRequired)
-            expectation.fulfill()
-        }
-
-        wait(for: [expectation], timeout: 1)
-        XCTAssertEqual(provider.requestCount, 0)
+        var adHoc = good
+        adHoc.isAdHoc = true
+        adHoc.teamIdentifier = nil
+        adHoc.bundlePath = "/Users/dev/windowsnap/dist/WindowSnap.app"
+        XCTAssertEqual(adHoc.signingSummary, "ad-hoc")
+        XCTAssertEqual(adHoc.warnings.count, 2)
     }
 
     func testTextExpanderReportsEachMissingPermissionAndStaysOff() {

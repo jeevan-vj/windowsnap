@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 
+@MainActor
 final class RegionMirrorWindow: NSWindow {
 
     private var captureEngine: RegionCaptureEngine?
@@ -124,7 +125,7 @@ final class RegionMirrorWindow: NSWindow {
 
     func startCapture() {
         guard let displayBounds = RegionShareManager.shared.getDisplayBounds(for: region.displayID) else {
-            print("❌ Could not get display bounds")
+            AppLog.regionShare.error("Could not get display bounds")
             RegionShareManager.shared.setState(.idle)
             return
         }
@@ -174,7 +175,7 @@ final class RegionMirrorWindow: NSWindow {
                     }
                     guard self.captureGeneration == generation else { return }
                     RegionShareManager.shared.setState(.idle)
-                    print("❌ Failed to start capture: \(error)")
+                    AppLog.regionShare.error("Failed to start capture: \(error.localizedDescription, privacy: .public)")
                     self.showCaptureError(error)
                 }
             }
@@ -261,7 +262,7 @@ extension RegionMirrorWindow: NSWindowDelegate {
     }
 }
 
-extension RegionMirrorWindow: RegionCaptureDelegate {
+extension RegionMirrorWindow: @preconcurrency RegionCaptureDelegate {
     func captureEngine(_ engine: RegionCaptureEngine, didOutputFrame image: CGImage) {
         guard engine === captureEngine, !isStopping, isVisible, imageView != nil else { return }
         removePlaceholder()

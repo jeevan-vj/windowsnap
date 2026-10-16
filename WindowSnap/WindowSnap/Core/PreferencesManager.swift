@@ -13,9 +13,6 @@ class PreferencesManager: AccessibilityOnboardingStoring {
     private func setupDefaultPreferences() {
         let defaults: [String: Any] = [
             "LaunchAtLogin": false,
-            "EnableAnimations": true,
-            "AnimationDuration": 0.3,
-            "DefaultMargin": 10.0,
             "HasCompletedAccessibilityOnboarding": false,
             "HasRequestedScreenRecordingPermission": false,
             "IsFirstRun": true,
@@ -35,30 +32,75 @@ class PreferencesManager: AccessibilityOnboardingStoring {
         set { userDefaults.set(newValue, forKey: "LaunchAtLogin") }
     }
     
-    // MARK: - Animation Settings
-    var enableAnimations: Bool {
-        get { userDefaults.bool(forKey: "EnableAnimations") }
-        set { userDefaults.set(newValue, forKey: "EnableAnimations") }
-    }
-    
-    var animationDuration: Double {
-        get { userDefaults.double(forKey: "AnimationDuration") }
-        set { userDefaults.set(newValue, forKey: "AnimationDuration") }
-    }
-    
-    // MARK: - Window Settings
-    var defaultMargin: CGFloat {
-        get { CGFloat(userDefaults.double(forKey: "DefaultMargin")) }
-        set { userDefaults.set(Double(newValue), forKey: "DefaultMargin") }
-    }
-    
     // MARK: - Shortcut Settings
+    private static let builtInShortcutsKey = "CustomShortcuts"
+    private static let shortcutChoiceShownKey = "HasChosenShortcutDefaults"
+    private static let explicitlyKeptLegacyKey = "ExplicitlyKeptLegacyShortcuts"
+
+    var builtInShortcuts: [String: String] {
+        get {
+            let stored = userDefaults.object(forKey: Self.builtInShortcutsKey) as? [String: String]
+            return ShortcutDefaultsMigration.migrate(
+                stored,
+                explicitlyKeptLegacy: userDefaults.bool(forKey: Self.explicitlyKeptLegacyKey)
+            )
+        }
+        set { userDefaults.set(newValue, forKey: Self.builtInShortcutsKey) }
+    }
+
+    var hasChosenShortcutDefaults: Bool {
+        userDefaults.bool(forKey: Self.shortcutChoiceShownKey)
+    }
+
+    var hasCustomizedBuiltInShortcuts: Bool {
+        let shortcuts = builtInShortcuts
+        return shortcuts != ShortcutDefaultsMigration.legacy
+            && shortcuts != ShortcutDefaultsMigration.rectangleStyle
+    }
+
+    func prepareBuiltInShortcuts() {
+        let stored = userDefaults.object(forKey: Self.builtInShortcutsKey) as? [String: String]
+        let migrated = ShortcutDefaultsMigration.migrate(
+            stored,
+            explicitlyKeptLegacy: userDefaults.bool(forKey: Self.explicitlyKeptLegacyKey)
+        )
+        if stored != migrated { userDefaults.set(migrated, forKey: Self.builtInShortcutsKey) }
+    }
+
+    func chooseShortcutDefaults(keepLegacy: Bool) {
+        userDefaults.set(
+            keepLegacy ? ShortcutDefaultsMigration.legacy : ShortcutDefaultsMigration.rectangleStyle,
+            forKey: Self.builtInShortcutsKey
+        )
+        userDefaults.set(keepLegacy, forKey: Self.explicitlyKeptLegacyKey)
+        userDefaults.set(true, forKey: Self.shortcutChoiceShownKey)
+    }
+
+    func markShortcutDefaultsChoiceHandled() {
+        userDefaults.set(true, forKey: Self.shortcutChoiceShownKey)
+    }
+
+    func setShortcut(_ shortcut: String, for action: BuiltInShortcutAction) {
+        var shortcuts = builtInShortcuts
+        shortcuts[action.rawValue] = shortcut
+        builtInShortcuts = shortcuts
+    }
+
+    func restoreDefaultShortcut(for action: BuiltInShortcutAction) {
+        var shortcuts = builtInShortcuts
+        if let value = ShortcutDefaultsMigration.rectangleStyle[action.rawValue]
+            ?? ShortcutManager.nonGridDefaults[action] {
+            shortcuts[action.rawValue] = value
+        }
+        builtInShortcuts = shortcuts
+    }
+
     func getCustomShortcuts() -> [String: String] {
-        return userDefaults.object(forKey: "CustomShortcuts") as? [String: String] ?? [:]
+        builtInShortcuts
     }
     
     func setCustomShortcuts(_ shortcuts: [String: String]) {
-        userDefaults.set(shortcuts, forKey: "CustomShortcuts")
+        builtInShortcuts = shortcuts
     }
     
     // MARK: - First Run and Onboarding

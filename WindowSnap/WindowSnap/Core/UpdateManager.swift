@@ -24,9 +24,9 @@ final class UpdateManager {
         // Check for updates periodically (default is every 24 hours)
         updaterController?.updater.checkForUpdatesInBackground()
         
-        print("UpdateManager initialized - Sparkle auto-update enabled")
+        AppLog.updates.info("Sparkle automatic updates enabled")
         #else
-        print("UpdateManager initialized - Sparkle module unavailable; auto-update disabled")
+        AppLog.updates.info("Sparkle unavailable; automatic updates disabled")
         #endif
     }
     
@@ -34,7 +34,7 @@ final class UpdateManager {
         #if canImport(Sparkle)
         updaterController?.checkForUpdates(nil)
         #else
-        print("Check for updates skipped - Sparkle module unavailable")
+        AppLog.updates.info("Update check skipped because Sparkle is unavailable")
         #endif
     }
     
@@ -42,10 +42,9 @@ final class UpdateManager {
         #if canImport(Sparkle)
         updaterController?.updater.checkForUpdatesInBackground()
         #else
-        print("Background update check skipped - Sparkle module unavailable")
+        AppLog.updates.debug("Background update check skipped because Sparkle is unavailable")
         #endif
     }
 }
-
 
 

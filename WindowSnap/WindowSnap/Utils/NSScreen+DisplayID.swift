@@ -9,4 +9,13 @@ extension NSScreen {
         }
         return number.uint32Value
     }
+
+    /// Stable hardware UUID used to reconnect workspace layouts after display reordering.
+    var displayUUID: String? {
+        guard let displayID,
+              let uuid = CGDisplayCreateUUIDFromDisplayID(displayID)?.takeRetainedValue() else {
+            return nil
+        }
+        return CFUUIDCreateString(nil, uuid) as String
+    }
 }

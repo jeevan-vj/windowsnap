@@ -21,8 +21,12 @@ fi
 
 echo "Building an ad-hoc signed LOCAL-ONLY artifact."
 echo "It is not notarized and is not suitable for distribution."
-unset CODESIGN_ID NOTARY_PROFILE
-"$ROOT_DIR/scripts/build-universal-bundle.sh"
+unset CODESIGN_ID NOTARY_PROFILE SIGNING_IDENTITY
+if [[ "${REGION_SHARE_QA:-0}" == "1" ]]; then
+  echo "ERROR: ad-hoc builds cannot be used for Region Share QA; use build-universal-bundle.sh" >&2
+  exit 1
+fi
+ALLOW_ADHOC=1 "$ROOT_DIR/scripts/build-universal-bundle.sh"
 
 rm -rf "$LOCAL_DIR"
 mkdir -p "$LOCAL_DIR"

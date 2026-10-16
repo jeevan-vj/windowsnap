@@ -1,5 +1,8 @@
 // swift-tools-version: 5.9
 import PackageDescription
+import Foundation
+
+let isAppStoreBuild = ProcessInfo.processInfo.environment["WINDOWSNAP_APP_STORE"] == "1"
 
 let package = Package(
     name: "WindowSnap",
@@ -21,7 +24,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "WindowSnap",
-            dependencies: ["CVirtualDisplay"],
+            dependencies: isAppStoreBuild ? [] : ["CVirtualDisplay"],
             path: "WindowSnap",
             exclude: ["App/Info.plist", "App/Assets.xcassets"],
             sources: [
@@ -30,7 +33,8 @@ let package = Package(
                 "UI/",
                 "Models/",
                 "Utils/"
-            ]
+            ],
+            swiftSettings: isAppStoreBuild ? [.define("APP_STORE")] : []
         ),
         .testTarget(
             name: "WindowSnapTests",

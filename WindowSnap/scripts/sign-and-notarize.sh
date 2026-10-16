@@ -15,10 +15,14 @@ ZIP_PATH="$ROOT_DIR/dist/$APP_NAME.zip"
 CODESIGN_ID="$("$ROOT_DIR/scripts/resolve-developer-id.sh" "$CODESIGN_ID")"
 ENTITLEMENTS_FILE="$ROOT_DIR/WindowSnap.entitlements"
 if [[ "${BUILD_VIRTUAL_CAMERA_EXTENSION:-0}" == "1" ]]; then
-  ENTITLEMENTS_FILE="$ROOT_DIR/WindowSnapVirtualCameraHost.entitlements"
+  ENTITLEMENTS_FILE="$ROOT_DIR/.build/virtual-camera-extension/WindowSnapVirtualCameraHost.entitlements"
+  EXTENSION_ENTITLEMENTS_FILE="$ROOT_DIR/.build/virtual-camera-extension/WindowSnapVirtualCameraExtension.entitlements"
+else
+  EXTENSION_ENTITLEMENTS_FILE=""
 fi
 
-"$ROOT_DIR/scripts/sign-nested-components.sh" "$APP_PATH" "$CODESIGN_ID" "$ENTITLEMENTS_FILE"
+"$ROOT_DIR/scripts/sign-nested-components.sh" \
+  "$APP_PATH" "$CODESIGN_ID" "$ENTITLEMENTS_FILE" "$EXTENSION_ENTITLEMENTS_FILE"
 
 rm -f "$ZIP_PATH"
 /usr/bin/ditto -c -k --keepParent "$APP_PATH" "$ZIP_PATH"

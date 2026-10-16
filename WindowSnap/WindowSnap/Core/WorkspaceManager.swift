@@ -4,17 +4,58 @@ import AppKit
 /// Represents the saved position and state of a specific window
 struct WindowLayout: Codable, Equatable {
     let windowTitle: String
+    /// Version 2 stores this frame normalized to the display's visible frame.
     let frame: CGRect
     let screenIndex: Int
+    let displayUUID: String?
+    let displayID: UInt32?
     let isMinimized: Bool
     let isMaximized: Bool
     
-    init(windowTitle: String, frame: CGRect, screenIndex: Int, isMinimized: Bool = false, isMaximized: Bool = false) {
+    init(
+        windowTitle: String,
+        frame: CGRect,
+        screenIndex: Int,
+        displayUUID: String? = nil,
+        displayID: UInt32? = nil,
+        isMinimized: Bool = false,
+        isMaximized: Bool = false
+    ) {
         self.windowTitle = windowTitle
         self.frame = frame
         self.screenIndex = screenIndex
+        self.displayUUID = displayUUID
+        self.displayID = displayID
         self.isMinimized = isMinimized
         self.isMaximized = isMaximized
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case windowTitle, frame, screenIndex, displayUUID, displayID, screenID
+        case isMinimized, isMaximized
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        windowTitle = try container.decode(String.self, forKey: .windowTitle)
+        frame = try container.decode(CGRect.self, forKey: .frame)
+        screenIndex = try container.decodeIfPresent(Int.self, forKey: .screenIndex) ?? 0
+        displayUUID = try container.decodeIfPresent(String.self, forKey: .displayUUID)
+        displayID = try container.decodeIfPresent(UInt32.self, forKey: .displayID)
+            ?? container.decodeIfPresent(UInt32.self, forKey: .screenID)
+        isMinimized = try container.decodeIfPresent(Bool.self, forKey: .isMinimized) ?? false
+        isMaximized = try container.decodeIfPresent(Bool.self, forKey: .isMaximized) ?? false
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(windowTitle, forKey: .windowTitle)
+        try container.encode(frame, forKey: .frame)
+        try container.encode(screenIndex, forKey: .screenIndex)
+        try container.encodeIfPresent(displayUUID, forKey: .displayUUID)
+        try container.encodeIfPresent(displayID, forKey: .displayID)
+        try container.encode(isMinimized, forKey: .isMinimized)
+        try container.encode(isMaximized, forKey: .isMaximized)
     }
     
     /// Get display description for UI
@@ -45,6 +86,8 @@ struct AppLayout: Codable, Equatable {
 
 /// Represents a saved workspace arrangement with all app positions
 struct WorkspaceArrangement: Codable, Identifiable, Equatable {
+    static let currentFormatVersion = 2
+
     let id: UUID
     let name: String
     let appLayouts: [AppLayout]
@@ -52,6 +95,7 @@ struct WorkspaceArrangement: Codable, Identifiable, Equatable {
     let lastUsed: Date?
     let shortcut: String?
     let description: String
+    let formatVersion: Int
     
     init(name: String, appLayouts: [AppLayout], shortcut: String? = nil) {
         self.id = UUID()
@@ -61,11 +105,13 @@ struct WorkspaceArrangement: Codable, Identifiable, Equatable {
         self.lastUsed = nil
         self.shortcut = shortcut
         self.description = "\(appLayouts.count) apps"
+        self.formatVersion = Self.currentFormatVersion
     }
     
     /// Create a new workspace with updated properties
     private init(id: UUID, name: String, appLayouts: [AppLayout], 
-                 createdDate: Date, lastUsed: Date?, shortcut: String?, description: String) {
+                 createdDate: Date, lastUsed: Date?, shortcut: String?, description: String,
+                 formatVersion: Int = Self.currentFormatVersion) {
         self.id = id
         self.name = name
         self.appLayouts = appLayouts
@@ -73,6 +119,7 @@ struct WorkspaceArrangement: Codable, Identifiable, Equatable {
         self.lastUsed = lastUsed
         self.shortcut = shortcut
         self.description = description
+        self.formatVersion = formatVersion
     }
     
     /// Update last used timestamp
@@ -84,7 +131,8 @@ struct WorkspaceArrangement: Codable, Identifiable, Equatable {
             createdDate: self.createdDate,
             lastUsed: Date(),
             shortcut: self.shortcut,
-            description: self.description
+            description: self.description,
+            formatVersion: self.formatVersion
         )
     }
     
@@ -105,6 +153,80 @@ struct WorkspaceArrangement: Codable, Identifiable, Equatable {
             id: id,
             name: name,
             appLayouts: appLayouts,
+            createdDate: createdDate,
+            lastUsed: lastUsed,
+            shortcut: shortcut,
+            description: description,
+            formatVersion: formatVersion
+        )
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, appLayouts, createdDate, lastUsed, shortcut, description, formatVersion
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        appLayouts = try container.decode([AppLayout].self, forKey: .appLayouts)
+        createdDate = try container.decode(Date.self, forKey: .createdDate)
+        lastUsed = try container.decodeIfPresent(Date.self, forKey: .lastUsed)
+        shortcut = try container.decodeIfPresent(String.self, forKey: .shortcut)
+        description = try container.decodeIfPresent(String.self, forKey: .description)
+            ?? "\(appLayouts.count) apps"
+        formatVersion = try container.decodeIfPresent(Int.self, forKey: .formatVersion) ?? 1
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(appLayouts, forKey: .appLayouts)
+        try container.encode(createdDate, forKey: .createdDate)
+        try container.encodeIfPresent(lastUsed, forKey: .lastUsed)
+        try container.encodeIfPresent(shortcut, forKey: .shortcut)
+        try container.encode(description, forKey: .description)
+        try container.encode(formatVersion, forKey: .formatVersion)
+    }
+
+    func migrated(to screens: [WorkspaceScreenGeometry]) -> WorkspaceArrangement {
+        guard formatVersion < Self.currentFormatVersion else { return self }
+        var hasUnmatchedWindow = false
+        let migratedApps = appLayouts.map { app in
+            let windows = app.windowLayouts.map { window -> WindowLayout in
+                guard let migrated = WorkspaceCoordinateMath.migrateLegacyFrame(
+                    window.frame,
+                    displayUUID: window.displayUUID,
+                    legacyDisplayID: window.displayID,
+                    legacyIndex: window.screenIndex,
+                    screens: screens
+                ) else {
+                    hasUnmatchedWindow = true
+                    return window
+                }
+                return WindowLayout(
+                    windowTitle: window.windowTitle,
+                    frame: migrated.frame,
+                    screenIndex: migrated.screen.index,
+                    displayUUID: migrated.screen.displayUUID,
+                    displayID: migrated.screen.displayID,
+                    isMinimized: window.isMinimized,
+                    isMaximized: window.isMaximized
+                )
+            }
+            return AppLayout(
+                bundleIdentifier: app.bundleIdentifier,
+                applicationName: app.applicationName,
+                windowLayouts: windows,
+                isRunning: app.isRunning
+            )
+        }
+        guard !hasUnmatchedWindow else { return self }
+        return WorkspaceArrangement(
+            id: id,
+            name: name,
+            appLayouts: migratedApps,
             createdDate: createdDate,
             lastUsed: lastUsed,
             shortcut: shortcut,
@@ -143,10 +265,16 @@ class WorkspaceManager {
         }
         
         do {
-            arrangements = try JSONDecoder().decode([WorkspaceArrangement].self, from: data)
-            print("📁 Loaded \(arrangements.count) workspace arrangements")
+            let decoded = try JSONDecoder().decode([WorkspaceArrangement].self, from: data)
+            let needsMigration = decoded.contains { $0.formatVersion < WorkspaceArrangement.currentFormatVersion }
+            arrangements = decoded.map { $0.migrated(to: currentScreenGeometries()) }
+            if needsMigration {
+                _ = saveArrangements()
+                AppLog.workspace.info("Migrated legacy coordinates to format \(WorkspaceArrangement.currentFormatVersion)")
+            }
+            AppLog.workspace.info("Loaded \(self.arrangements.count) arrangements")
         } catch {
-            print("❌ Failed to load workspace arrangements: \(error)")
+            AppLog.workspace.error("Failed to load arrangements: \(error.localizedDescription, privacy: .public)")
             arrangements = []
         }
     }
@@ -157,10 +285,10 @@ class WorkspaceManager {
         do {
             let data = try JSONEncoder().encode(arrangements)
             userDefaults.set(data, forKey: storageKey)
-            print("💾 Saved \(arrangements.count) workspace arrangements")
+            AppLog.workspace.info("Saved \(self.arrangements.count) arrangements")
             return true
         } catch {
-            print("❌ Failed to save workspace arrangements: \(error)")
+            AppLog.workspace.error("Failed to save arrangements: \(error.localizedDescription, privacy: .public)")
             return false
         }
     }
@@ -192,25 +320,58 @@ class WorkspaceManager {
         name: String,
         shortcut: String? = nil
     ) -> Result<WorkspaceArrangement, ManagedConfigurationError> {
-        print("📸 Capturing current workspace: '\(name)'")
-        
+        AppLog.workspace.info("Capturing workspace: \(name, privacy: .private)")
+
         guard let windowManager = getCurrentWindowManager() else {
-            print("❌ WindowManager not available")
+            AppLog.workspace.error("Window manager unavailable")
             return .failure(.nothingToCapture)
         }
-        
-        let allWindows = windowManager.getAllWindows()
+
+        return captureCurrentWorkspaceResult(
+            name: name,
+            shortcut: shortcut,
+            allWindows: windowManager.getAllWindows()
+        )
+    }
+
+    func captureCurrentWorkspaceResult(
+        name: String,
+        shortcut: String? = nil,
+        completion: @escaping (Result<WorkspaceArrangement, ManagedConfigurationError>) -> Void
+    ) {
+        AppLog.workspace.info("Capturing workspace: \(name, privacy: .private)")
+        WindowManager.shared.getAllWindowsAsync { [weak self] windows in
+            guard let self else {
+                completion(.failure(.persistenceFailed))
+                return
+            }
+            completion(self.captureCurrentWorkspaceResult(name: name, shortcut: shortcut, allWindows: windows))
+        }
+    }
+
+    private func captureCurrentWorkspaceResult(
+        name: String,
+        shortcut: String?,
+        allWindows: [WindowInfo]
+    ) -> Result<WorkspaceArrangement, ManagedConfigurationError> {
+        let windowManager = WindowManager.shared
         var appLayouts: [String: AppLayout] = [:]
         
         // Group windows by application
         for window in allWindows {
             let bundleId = getBundleIdentifier(for: window) ?? "unknown.\(window.applicationName)"
-            let screenIndex = windowManager.screenIndexContainingAXRect(window.frame)
+            guard let screen = windowManager.screenContainingAXRect(window.frame),
+                  let screenIndex = NSScreen.screens.firstIndex(of: screen) else {
+                AppLog.workspace.notice("Skipping window with no matching display: \(window.windowTitle, privacy: .private)")
+                continue
+            }
             let appKitFrame = windowManager.appKitFrame(fromAX: window.frame)
             let windowLayout = WindowLayout(
                 windowTitle: window.windowTitle,
-                frame: appKitFrame,
-                screenIndex: screenIndex
+                frame: WorkspaceCoordinateMath.normalizedFrame(appKitFrame, in: screen.visibleFrame),
+                screenIndex: screenIndex,
+                displayUUID: screen.displayUUID,
+                displayID: screen.displayID
             )
             
             // Add to app layout
@@ -236,7 +397,7 @@ class WorkspaceManager {
         let appLayoutsArray = Array(appLayouts.values)
         
         guard !appLayoutsArray.isEmpty else {
-            print("❌ No windows found to capture")
+            AppLog.workspace.notice("No windows found to capture")
             return .failure(.nothingToCapture)
         }
         
@@ -253,7 +414,7 @@ class WorkspaceManager {
             return .failure(error)
         }
         
-        print("✅ Captured workspace with \(appLayoutsArray.count) apps and \(allWindows.count) windows")
+        AppLog.workspace.info("Captured workspace with \(appLayoutsArray.count) apps and \(allWindows.count) windows")
         return .success(arrangement)
     }
     
@@ -261,81 +422,98 @@ class WorkspaceManager {
     
     /// Restore a workspace arrangement
     func restoreWorkspace(_ arrangement: WorkspaceArrangement) {
-        print("🎯 Restoring workspace: '\(arrangement.name)'")
-        
-        // Save state for undo (if WindowActionHistory is available)
-        saveWorkspaceStateForUndo(action: "Restore: \(arrangement.name)")
-        
+        AppLog.workspace.info("Restoring workspace: \(arrangement.name, privacy: .private)")
+        WindowManager.shared.getAllWindowsAsync { [weak self] currentWindows in
+            self?.restoreWorkspace(arrangement, using: currentWindows)
+        }
+    }
+
+    private func restoreWorkspace(_ arrangement: WorkspaceArrangement, using currentWindows: [WindowInfo]) {
+        saveWorkspaceStateForUndo(action: "Restore: \(arrangement.name)", windows: currentWindows)
+
         var restoredWindows = 0
+        var skippedWindows = 0
         var launchedApps = 0
-        
+
         for appLayout in arrangement.appLayouts {
-            // Check if app is running
-            let runningApp = getRunningApp(bundleIdentifier: appLayout.bundleIdentifier)
-            
-            if runningApp == nil {
-                // Try to launch the app
+            if getRunningApp(bundleIdentifier: appLayout.bundleIdentifier) == nil {
                 if launchApp(bundleIdentifier: appLayout.bundleIdentifier) {
                     launchedApps += 1
-                    
-                    // Wait a bit for the app to launch
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                        _ = self.restoreAppWindows(appLayout)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+                        WindowManager.shared.getAllWindowsAsync { launchedWindows in
+                            guard let self else { return }
+                            let result = self.restoreAppWindows(appLayout, currentWindows: launchedWindows)
+                            self.logRestoreResult(result, appName: appLayout.applicationName)
+                        }
                     }
                 } else {
-                    print("⚠️ Could not launch app: \(appLayout.applicationName)")
+                    skippedWindows += appLayout.windowLayouts.count
+                    AppLog.workspace.notice("Could not launch app: \(appLayout.applicationName, privacy: .private)")
                 }
-            } else {
-                // App is running, restore windows immediately
-                restoredWindows += restoreAppWindows(appLayout)
+                continue
             }
+
+            let result = restoreAppWindows(appLayout, currentWindows: currentWindows)
+            restoredWindows += result.restored
+            skippedWindows += result.skipped
         }
-        
-        print("✅ Workspace restoration initiated:")
-        print("   - Restored \(restoredWindows) windows")
-        print("   - Launched \(launchedApps) apps")
-        
-        // Mark as used
+
+        AppLog.workspace.info("Restoration initiated: \(restoredWindows) restored, \(skippedWindows) skipped, \(launchedApps) apps launched")
+
         if var updatedArrangement = getArrangement(id: arrangement.id) {
             updatedArrangement.markAsUsed()
             updateArrangement(updatedArrangement)
         }
     }
-    
+
     /// Restore windows for a specific app
-    private func restoreAppWindows(_ appLayout: AppLayout) -> Int {
+    private func restoreAppWindows(
+        _ appLayout: AppLayout,
+        currentWindows: [WindowInfo]
+    ) -> (restored: Int, skipped: Int) {
         guard let windowManager = getCurrentWindowManager() else {
-            print("❌ WindowManager not available")
-            return 0
+            AppLog.workspace.error("Window manager unavailable")
+            return (0, appLayout.windowLayouts.count)
         }
-        
-        let currentWindows = windowManager.getAllWindows()
-        var available = currentWindows.filter { $0.applicationName == appLayout.applicationName }
+
+        var available = currentWindows.filter {
+            $0.applicationName == appLayout.applicationName && $0.isOnScreen && !$0.isMinimized
+        }
 
         var restoredCount = 0
+        var skippedCount = 0
 
         for windowLayout in appLayout.windowLayouts {
             guard let currentWindow = Self.takeMatchingWindow(
                 title: windowLayout.windowTitle,
                 from: &available
-            ), currentWindow.axElement != nil else {
-                print("⚠️ No matching AX window for \(appLayout.applicationName) '\(windowLayout.windowTitle)'")
+            ), currentWindow.axElement != nil,
+               windowManager.currentAXFrame(of: currentWindow) != nil else {
+                skippedCount += 1
+                AppLog.workspace.notice("Skipped unavailable/off-Space window in \(appLayout.applicationName, privacy: .private): \(windowLayout.windowTitle, privacy: .private)")
                 continue
             }
 
-            guard let targetScreen = getScreen(at: windowLayout.screenIndex) else {
-                print("⚠️ Screen \(windowLayout.screenIndex) not available")
-                continue
+            let targetScreen = getScreen(for: windowLayout)
+            let targetFrame = WorkspaceCoordinateMath.denormalizedFrame(
+                windowLayout.frame,
+                in: targetScreen.visibleFrame
+            )
+            if windowManager.moveAndResizeWindow(currentWindow, to: targetFrame) {
+                restoredCount += 1
+            } else {
+                skippedCount += 1
+                AppLog.workspace.notice("Skipped AX-rejected window in \(appLayout.applicationName, privacy: .private): \(windowLayout.windowTitle, privacy: .private)")
             }
 
-            let targetFrame = adjustFrameForCurrentScreen(windowLayout.frame, targetScreen: targetScreen)
-            windowManager.moveAndResizeWindow(currentWindow, to: targetFrame)
-            restoredCount += 1
-
-            print("   ✅ Restored: \(currentWindow.windowTitle) to screen \(windowLayout.screenIndex)")
+            AppLog.workspace.info("Restored \(currentWindow.windowTitle, privacy: .private) to \(targetScreen.localizedName, privacy: .private)")
         }
 
-        return restoredCount
+        return (restoredCount, skippedCount)
+    }
+
+    private func logRestoreResult(_ result: (restored: Int, skipped: Int), appName: String) {
+        AppLog.workspace.info("Delayed restore for \(appName, privacy: .private): \(result.restored) restored, \(result.skipped) skipped")
     }
 
     /// Picks the window that should receive a saved layout.
@@ -358,14 +536,14 @@ class WorkspaceManager {
     func addArrangement(_ arrangement: WorkspaceArrangement) -> Result<Void, ManagedConfigurationError> {
         // Check for duplicate names
         if arrangements.contains(where: { $0.name == arrangement.name }) {
-            print("⚠️ Workspace arrangement with name '\(arrangement.name)' already exists")
+            AppLog.workspace.notice("Arrangement name already exists: \(arrangement.name, privacy: .private)")
             return .failure(.duplicateName)
         }
         
         // Check for duplicate shortcuts
         if let shortcut = arrangement.shortcut,
            arrangements.contains(where: { $0.shortcut == shortcut }) {
-            print("⚠️ Workspace arrangement with shortcut '\(shortcut)' already exists")
+            AppLog.workspace.notice("Arrangement shortcut already exists: \(shortcut, privacy: .public)")
             return .failure(.duplicateShortcut)
         }
 
@@ -386,7 +564,7 @@ class WorkspaceManager {
             return .failure(.persistenceFailed)
         }
         
-        print("✅ Added workspace arrangement: '\(arrangement.name)'")
+        AppLog.workspace.info("Added arrangement: \(arrangement.name, privacy: .private)")
         
         // Register shortcut if provided
         inactiveShortcutIDs.remove(arrangement.id)
@@ -396,7 +574,7 @@ class WorkspaceManager {
     /// Remove a workspace arrangement
     func removeArrangement(id: UUID) {
         guard let index = arrangements.firstIndex(where: { $0.id == id }) else {
-            print("❌ Workspace arrangement with ID \(id) not found")
+            AppLog.workspace.error("Arrangement not found: \(id.uuidString, privacy: .public)")
             return
         }
         
@@ -410,14 +588,14 @@ class WorkspaceManager {
         arrangements.remove(at: index)
         saveArrangements()
         
-        print("🗑️ Removed workspace arrangement: '\(arrangement.name)'")
+        AppLog.workspace.info("Removed arrangement: \(arrangement.name, privacy: .private)")
     }
     
     /// Update an existing workspace arrangement
     @discardableResult
     func updateArrangement(_ updatedArrangement: WorkspaceArrangement) -> Result<Void, ManagedConfigurationError> {
         guard let index = arrangements.firstIndex(where: { $0.id == updatedArrangement.id }) else {
-            print("❌ Workspace arrangement with ID \(updatedArrangement.id) not found")
+            AppLog.workspace.error("Arrangement not found: \(updatedArrangement.id.uuidString, privacy: .public)")
             return .failure(.persistenceFailed)
         }
         
@@ -459,7 +637,7 @@ class WorkspaceManager {
 
         inactiveShortcutIDs.remove(updatedArrangement.id)
         
-        print("📝 Updated workspace arrangement: '\(updatedArrangement.name)'")
+        AppLog.workspace.info("Updated arrangement: \(updatedArrangement.name, privacy: .private)")
         return .success(())
     }
     
@@ -483,7 +661,7 @@ class WorkspaceManager {
     /// Get current WindowManager instance safely
     private func getCurrentWindowManager() -> WindowManager? {
         // Use reflection to check if WindowManager is available
-        let className = NSClassFromString("WindowSnap.WindowManager") ?? NSClassFromString("WindowManager")
+        let className: AnyClass? = NSClassFromString("WindowSnap.WindowManager") ?? NSClassFromString("WindowManager")
         if className != nil {
             // If available, use WindowManager.shared
             return WindowManager.shared
@@ -504,78 +682,60 @@ class WorkspaceManager {
     
     /// Launch an app by bundle identifier
     private func launchApp(bundleIdentifier: String) -> Bool {
-        do {
-            guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) else {
-                print("❌ Could not find app with bundle identifier: \(bundleIdentifier)")
-                return false
-            }
-            try NSWorkspace.shared.launchApplication(at: url, options: [], configuration: [:])
-            print("🚀 Launched app: \(bundleIdentifier)")
-            return true
-        } catch {
-            print("❌ Failed to launch app \(bundleIdentifier): \(error)")
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) else {
+            AppLog.workspace.error("Could not find app with bundle identifier: \(bundleIdentifier, privacy: .private)")
             return false
         }
+        NSWorkspace.shared.openApplication(at: url, configuration: .init()) { _, error in
+            if let error {
+                AppLog.workspace.error("Failed to launch app \(bundleIdentifier, privacy: .private): \(error.localizedDescription, privacy: .public)")
+            } else {
+                AppLog.workspace.info("Launched app: \(bundleIdentifier, privacy: .private)")
+            }
+        }
+        return true
     }
     
-    /// Get screen at specific index
-    private func getScreen(at index: Int) -> NSScreen? {
-        guard index >= 0 && index < NSScreen.screens.count else {
-            return NSScreen.main
+    private func currentScreenGeometries() -> [WorkspaceScreenGeometry] {
+        NSScreen.screens.enumerated().map { index, screen in
+            WorkspaceScreenGeometry(
+                displayUUID: screen.displayUUID,
+                displayID: screen.displayID,
+                index: index,
+                visibleFrame: screen.visibleFrame
+            )
         }
-        return NSScreen.screens[index]
     }
-    
-    /// Adjust frame for current screen configuration
-    private func adjustFrameForCurrentScreen(_ frame: CGRect, targetScreen: NSScreen) -> CGRect {
-        let screenFrame = targetScreen.visibleFrame
-        
-        // If the frame is larger than the screen, scale it down proportionally
-        var adjustedFrame = frame
-        
-        if frame.width > screenFrame.width {
-            let scale = screenFrame.width / frame.width
-            adjustedFrame.size.width = screenFrame.width
-            adjustedFrame.size.height *= scale
+
+    /// UUID is stable across display ordering; legacy ID/index are compatibility fallbacks.
+    private func getScreen(for layout: WindowLayout) -> NSScreen {
+        let screens = NSScreen.screens
+        if let uuid = layout.displayUUID,
+           let screen = screens.first(where: { $0.displayUUID == uuid }) {
+            return screen
         }
-        
-        if adjustedFrame.height > screenFrame.height {
-            let scale = screenFrame.height / adjustedFrame.height
-            adjustedFrame.size.height = screenFrame.height
-            adjustedFrame.size.width *= scale
+        if let displayID = layout.displayID,
+           let screen = screens.first(where: { $0.displayID == displayID }) {
+            return screen
         }
-        
-        // Ensure the frame is within screen bounds
-        if adjustedFrame.minX < screenFrame.minX {
-            adjustedFrame.origin.x = screenFrame.minX
+        if screens.indices.contains(layout.screenIndex) {
+            return screens[layout.screenIndex]
         }
-        if adjustedFrame.minY < screenFrame.minY {
-            adjustedFrame.origin.y = screenFrame.minY
-        }
-        if adjustedFrame.maxX > screenFrame.maxX {
-            adjustedFrame.origin.x = screenFrame.maxX - adjustedFrame.width
-        }
-        if adjustedFrame.maxY > screenFrame.maxY {
-            adjustedFrame.origin.y = screenFrame.maxY - adjustedFrame.height
-        }
-        
-        return adjustedFrame
+        return NSScreen.main ?? screens[0]
     }
     
     /// Save workspace state for undo (if available)
-    private func saveWorkspaceStateForUndo(action: String) {
+    private func saveWorkspaceStateForUndo(action: String, windows: [WindowInfo]) {
         // Check if WindowActionHistory is available
-        let className = NSClassFromString("WindowSnap.WindowActionHistory") ?? NSClassFromString("WindowActionHistory")
+        let className: AnyClass? = NSClassFromString("WindowSnap.WindowActionHistory") ?? NSClassFromString("WindowActionHistory")
         if className != nil {
             // If available, save state
-            guard let windowManager = getCurrentWindowManager() else { return }
-            let allWindows = windowManager.getAllWindows()
-            let representativeWindows = Array(allWindows.prefix(5))
+            let representativeWindows = Array(windows.prefix(5))
             
             for window in representativeWindows {
                 WindowActionHistory.shared.saveState(before: action, window: window)
             }
-            print("💾 Saved workspace state before: \(action)")
+            AppLog.workspace.debug("Saved workspace state before \(action, privacy: .public)")
         }
     }
     

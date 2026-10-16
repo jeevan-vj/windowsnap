@@ -2,7 +2,7 @@ import XCTest
 @testable import WindowSnap
 
 final class AccessibilityOnboardingModelTests: XCTestCase {
-    func testCleanInstallWithoutPermissionPresentsOnboardingOnce() {
+    func testCleanInstallWithoutPermissionPresentsOnboarding() {
         let store = InMemoryOnboardingStore(state: .notPresented)
         let permissions = StubAccessibilityPermissionProvider(status: .notGranted)
         let model = AccessibilityOnboardingModel(permissionProvider: permissions, store: store)
@@ -10,19 +10,19 @@ final class AccessibilityOnboardingModelTests: XCTestCase {
         XCTAssertTrue(model.shouldPresentOnLaunch)
         model.markPresented()
         XCTAssertEqual(store.accessibilityOnboardingState, .presented)
-        XCTAssertFalse(model.shouldPresentOnLaunch)
+        XCTAssertTrue(model.shouldPresentOnLaunch)
         XCTAssertEqual(permissions.requestCount, 0)
     }
 
-    func testClosingOrDeferringPresentedOnboardingNeverReopensIt() {
+    func testMissingPermissionPresentsAgainOnNextLaunch() {
         let model = AccessibilityOnboardingModel(
             permissionProvider: StubAccessibilityPermissionProvider(status: .notGranted),
             store: InMemoryOnboardingStore(state: .presented)
         )
 
-        XCTAssertFalse(model.shouldPresentOnLaunch)
+        XCTAssertTrue(model.shouldPresentOnLaunch)
         model.refreshPermissionStatus()
-        XCTAssertFalse(model.shouldPresentOnLaunch)
+        XCTAssertTrue(model.shouldPresentOnLaunch)
     }
 
     func testCheckingLaunchStateNeverRequestsSystemPermission() {

@@ -1,7 +1,67 @@
 import AppKit
+import Carbon
 
 private final class SettingsDocumentView: NSView {
     override var isFlipped: Bool { true }
+}
+
+/// Click-to-record control inspired by Reelbird's settings shortcut recorder.
+private final class ShortcutRecorderButton: NSButton {
+    var onRecordingChanged: ((Bool) -> Void)?
+    var onShortcut: ((KeyboardShortcut?) -> Void)?
+    private var isRecording = false
+
+    override var acceptsFirstResponder: Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        guard !isRecording else { return }
+        isRecording = true
+        title = "Type shortcut…"
+        window?.makeFirstResponder(self)
+        onRecordingChanged?(true)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        guard isRecording else {
+            super.keyDown(with: event)
+            return
+        }
+        if event.keyCode == 0x35 {
+            finish(with: nil, shouldChange: false)
+            return
+        }
+        if event.keyCode == 0x33 {
+            finish(with: nil, shouldChange: true)
+            return
+        }
+
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        var carbonFlags: UInt32 = 0
+        if flags.contains(.command) { carbonFlags |= UInt32(cmdKey) }
+        if flags.contains(.option) { carbonFlags |= UInt32(optionKey) }
+        if flags.contains(.shift) { carbonFlags |= UInt32(shiftKey) }
+        if flags.contains(.control) { carbonFlags |= UInt32(controlKey) }
+        guard let shortcut = try? KeyboardShortcut(keyCode: UInt32(event.keyCode), modifierFlags: carbonFlags) else {
+            NSSound.beep()
+            return
+        }
+        finish(with: shortcut, shouldChange: true)
+    }
+
+    override func resignFirstResponder() -> Bool {
+        if isRecording {
+            isRecording = false
+            onRecordingChanged?(false)
+        }
+        return super.resignFirstResponder()
+    }
+
+    private func finish(with shortcut: KeyboardShortcut?, shouldChange: Bool) {
+        isRecording = false
+        window?.makeFirstResponder(nil)
+        if shouldChange { onShortcut?(shortcut) }
+        onRecordingChanged?(false)
+    }
 }
 import Foundation
 
@@ -65,6 +125,8 @@ final class PreferencesWindow: NSWindowController, NSToolbarDelegate {
     private weak var connectVirtualScreenButton: NSButton?
     private weak var disconnectVirtualScreenButton: NSButton?
     private var virtualDisplayStateObserver: NSObjectProtocol?
+    private var shortcutButtons: [BuiltInShortcutAction: ShortcutRecorderButton] = [:]
+    private var shortcutWarnings: [BuiltInShortcutAction: NSTextField] = [:]
 
     convenience init() {
         let window = NSWindow(
@@ -267,25 +329,77 @@ final class PreferencesWindow: NSWindowController, NSToolbarDelegate {
 
     private func makeShortcutsView() -> NSView {
         let (view, stack) = makeScrollableSection(
-            title: "Shortcut Reference",
-            detail: "These fixed global shortcuts remain available while WindowSnap is running. Custom positions and workspaces can have their own shortcuts."
+            title: "Keyboard Shortcuts",
+            detail: "Click a shortcut and press new keys. Escape cancels; Delete restores the Rectangle-style default."
         )
-        let shortcuts = ShortcutManager().getDefaultShortcuts()
-            .sorted { $0.value.rawValue < $1.value.rawValue }
-        for (shortcut, position) in shortcuts {
+        for action in BuiltInShortcutAction.allCases {
+            let group = NSStackView()
+            group.orientation = .vertical
+            group.alignment = .leading
+            group.spacing = 3
             let row = horizontalStack()
-            let action = NSTextField(labelWithString: position.displayName)
-            action.setContentHuggingPriority(.defaultLow, for: .horizontal)
-            let key = NSTextField(labelWithString: shortcutGlyphs(shortcut))
-            key.font = .monospacedSystemFont(ofSize: 12, weight: .medium)
-            key.alignment = .right
-            key.setContentHuggingPriority(.required, for: .horizontal)
-            row.addArrangedSubview(action)
-            row.addArrangedSubview(key)
+            let actionLabel = NSTextField(labelWithString: action.title)
+            actionLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            let recorder = ShortcutRecorderButton(title: "", target: nil, action: nil)
+            recorder.font = .monospacedSystemFont(ofSize: 12, weight: .medium)
+            recorder.setContentHuggingPriority(.required, for: .horizontal)
+            recorder.setAccessibilityLabel("Shortcut for \(action.title)")
+            recorder.onRecordingChanged = { [weak self] recording in
+                if recording { ShortcutManager.active?.unregisterAllShortcuts() }
+                else {
+                    NotificationCenter.default.post(name: .builtInShortcutsDidChange, object: nil)
+                    DispatchQueue.main.async { self?.refreshShortcutControls() }
+                }
+            }
+            recorder.onShortcut = { [weak self] shortcut in
+                if let shortcut {
+                    PreferencesManager.shared.setShortcut(shortcut.displayString, for: action)
+                } else {
+                    PreferencesManager.shared.restoreDefaultShortcut(for: action)
+                }
+                self?.refreshShortcutControls()
+            }
+            row.addArrangedSubview(actionLabel)
+            row.addArrangedSubview(recorder)
             row.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -64).isActive = true
-            stack.addArrangedSubview(row)
+
+            let warning = secondaryLabel()
+            warning.textColor = .systemOrange
+            group.addArrangedSubview(row)
+            group.addArrangedSubview(warning)
+            group.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -64).isActive = true
+            stack.addArrangedSubview(group)
+            shortcutButtons[action] = recorder
+            shortcutWarnings[action] = warning
         }
+        refreshShortcutControls()
         return view
+    }
+
+    private func refreshShortcutControls() {
+        let strings = Dictionary(uniqueKeysWithValues: BuiltInShortcutAction.allCases.map {
+            ($0, ShortcutManager.active?.shortcutString(for: $0)
+                ?? PreferencesManager.shared.builtInShortcuts[$0.rawValue]
+                ?? ShortcutDefaultsMigration.rectangleStyle[$0.rawValue]
+                ?? ShortcutManager.nonGridDefaults[$0]!)
+        })
+        let parsed = Dictionary(uniqueKeysWithValues: strings.compactMap { action, value in
+            (try? KeyboardShortcut.parse(value)).map { (action.rawValue, $0) }
+        })
+        let conflicts = KeyboardShortcut.conflicts(in: parsed)
+
+        for action in BuiltInShortcutAction.allCases {
+            guard let value = strings[action] else { continue }
+            shortcutButtons[action]?.title = (try? KeyboardShortcut.parse(value))?.glyphString ?? value
+            let shortcut = try? KeyboardShortcut.parse(value)
+            if let shortcut, conflicts[shortcut] != nil {
+                shortcutWarnings[action]?.stringValue = "Conflicts with another WindowSnap action"
+            } else {
+                shortcutWarnings[action]?.stringValue = ShortcutManager.active?
+                    .registrationResult(for: value)?.failureMessage ?? ""
+            }
+            shortcutWarnings[action]?.isHidden = shortcutWarnings[action]?.stringValue.isEmpty != false
+        }
     }
 
     private func makeClipboardView() -> NSView {
@@ -475,24 +589,6 @@ final class PreferencesWindow: NSWindowController, NSToolbarDelegate {
         return label
     }
 
-    private func shortcutGlyphs(_ shortcut: String) -> String {
-        let glyphs = shortcut.lowercased().split(separator: "+").map { token -> String in
-            switch token {
-            case "cmd": return "⌘"
-            case "shift": return "⇧"
-            case "option": return "⌥"
-            case "ctrl": return "⌃"
-            case "left": return "←"
-            case "right": return "→"
-            case "up": return "↑"
-            case "down": return "↓"
-            case "space": return "Space"
-            default: return token.uppercased()
-            }
-        }
-        return glyphs.joined()
-    }
-
     private func separator() -> NSBox {
         let box = NSBox()
         box.boxType = .separator
@@ -572,10 +668,8 @@ final class PreferencesWindow: NSWindowController, NSToolbarDelegate {
         switch ScreenRecordingPermissions.state {
         case .notRequested:
             ScreenRecordingPermissions.requestPermissionForRegionShare { [weak self] _ in self?.refreshRegionShareControls() }
-        case .denied:
+        case .needsRecovery, .restartRequired:
             ScreenRecordingPermissions.requestPermissionForRegionShare { [weak self] _ in self?.refreshRegionShareControls() }
-        case .restartRequired:
-            ScreenRecordingPermissions.showRestartRequiredAlert()
         case .granted:
             break
         }
@@ -625,6 +719,7 @@ final class PreferencesWindow: NSWindowController, NSToolbarDelegate {
     }
 
     private func refreshAllStates() {
+        refreshShortcutControls()
         refreshLaunchAtLoginControl()
         refreshAccessibilityControl()
         refreshTextExpanderControls()
@@ -692,7 +787,7 @@ final class PreferencesWindow: NSWindowController, NSToolbarDelegate {
                 self.enableVirtualCameraButton?.isEnabled = granted && hasRegion
                 switch state {
                 case .notRequested: self.screenRecordingSetupButton?.title = "Set Up…"
-                case .denied: self.screenRecordingSetupButton?.title = "Open System Settings…"
+                case .needsRecovery: self.screenRecordingSetupButton?.title = "Fix Screen Recording…"
                 case .restartRequired: self.screenRecordingSetupButton?.title = "Restart WindowSnap…"
                 case .granted: break
                 }

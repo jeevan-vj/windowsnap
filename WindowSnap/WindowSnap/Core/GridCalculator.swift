@@ -7,8 +7,7 @@ class GridCalculator {
         let workingArea = screen // screen parameter should already be visibleFrame
         
         // Debug information
-        print("GridCalculator: Calculating \(position.displayName)")
-        print("  Working area: \(workingArea)")
+        AppLog.windowManagement.debug("Calculating \(position.displayName, privacy: .public) in \(String(describing: workingArea), privacy: .public)")
         
         switch position {
         // Halves

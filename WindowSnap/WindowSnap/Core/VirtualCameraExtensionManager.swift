@@ -37,7 +37,11 @@ protocol VirtualCameraExtensionActivating: AnyObject {
 
 final class VirtualCameraExtensionManager: NSObject {
     static let shared = VirtualCameraExtensionManager()
-    static let extensionBundleIdentifier = "com.jeevanwijerathna.windowsnap.VirtualCameraExtension"
+    static let defaultExtensionBundleIdentifier = "com.jeevanwijerathna.windowsnap.VirtualCameraExtension"
+    static var extensionBundleIdentifier: String {
+        Bundle.main.object(forInfoDictionaryKey: "WindowSnapVirtualCameraBundleIdentifier") as? String
+            ?? defaultExtensionBundleIdentifier
+    }
 
     private let activator: VirtualCameraExtensionActivating
     private let extensionAvailability: () -> Bool
@@ -64,6 +68,7 @@ final class VirtualCameraExtensionManager: NSObject {
             status = .unavailable
             return
         }
+        guard status != .activating, status != .enabled else { return }
         status = .activating
         activator.activateExtension(
             identifier: Self.extensionBundleIdentifier,

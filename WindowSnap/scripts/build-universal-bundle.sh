@@ -8,6 +8,36 @@ APP_NAME="WindowSnap"
 BUNDLE_ID="com.jeevanwijerathna.windowsnap"
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
+# Stable signing identity for local/dev builds. macOS ties Screen Recording and
+# Accessibility grants to the code signature, so ad-hoc or alternating
+# identities make the permission prompt come back on every rebuild.
+#   SIGNING_IDENTITY  explicit identity (name or SHA-1); default: Developer ID
+#                     for team 88282K637B, else Apple Development
+#   ALLOW_ADHOC=1     intentionally build ad-hoc (not usable for Region Share QA)
+#   REGION_SHARE_QA=1 fail instead of falling back to ad-hoc
+if [[ -z "${CODESIGN_ID:-}" && "${ALLOW_ADHOC:-0}" != "1" ]]; then
+  if resolved_identity="$("$ROOT_DIR/scripts/resolve-local-signing-identity.sh")"; then
+    IFS='|' read -r CODESIGN_ID resolved_team resolved_label <<<"$resolved_identity"
+    if [[ "$CODESIGN_ID" == "-" ]]; then
+      CODESIGN_ID=""
+    else
+      if [[ -z "${TEAM_ID:-}" && -n "$resolved_team" ]]; then TEAM_ID="$resolved_team"; export TEAM_ID; fi
+      export CODESIGN_ID
+      export WINDOWSNAP_LOCAL_SIGNING=1
+      echo "🔐 Local signing identity: $resolved_label (team ${resolved_team:-unknown})"
+    fi
+  fi
+fi
+if [[ -z "${CODESIGN_ID:-}" ]]; then
+  if [[ "${REGION_SHARE_QA:-0}" == "1" ]]; then
+    echo "❌ REGION_SHARE_QA=1 but no signing identity is available. Ad-hoc builds cannot keep a Screen Recording grant." >&2
+    echo "   Set SIGNING_IDENTITY or install a Developer ID / Apple Development certificate." >&2
+    exit 1
+  fi
+  echo "⚠️  Building AD-HOC signed. Do not use this build for Region Share / Screen Recording QA:" >&2
+  echo "   macOS will not match an existing grant after the next rebuild. See docs/REGION_SHARE_PACKAGING.md." >&2
+fi
+
 # Read version from VERSION file (semantic versioning)
 VERSION_FILE="$ROOT_DIR/VERSION"
 if [[ ! -f "$VERSION_FILE" ]]; then
@@ -153,6 +183,16 @@ if [[ "${BUILD_VIRTUAL_CAMERA_EXTENSION:-0}" == "1" ]]; then
   EXTENSION_BUNDLE="$("$ROOT_DIR/scripts/build-virtual-camera-extension.sh")"
   mkdir -p "$SYSTEM_EXTENSIONS_DIR"
   cp -R "$EXTENSION_BUNDLE" "$SYSTEM_EXTENSIONS_DIR/"
+  EXTENSION_ID="${WINDOWSNAP_VIRTUAL_CAMERA_ID:-com.jeevanwijerathna.windowsnap.VirtualCameraExtension}"
+  /usr/libexec/PlistBuddy -c "Add :WindowSnapVirtualCameraBundleIdentifier string $EXTENSION_ID" "$CONTENTS_DIR/Info.plist" 2>/dev/null \
+    || /usr/libexec/PlistBuddy -c "Set :WindowSnapVirtualCameraBundleIdentifier $EXTENSION_ID" "$CONTENTS_DIR/Info.plist"
+  if [[ -n "${TEAM_ID:-}" ]]; then
+    CAMERA_APP_GROUP_ID="$TEAM_ID.$EXTENSION_ID"
+  else
+    CAMERA_APP_GROUP_ID="${WINDOWSNAP_DEVELOPMENT_APP_GROUP_ID:-group.$BUNDLE_ID}"
+  fi
+  /usr/libexec/PlistBuddy -c "Add :WindowSnapCameraAppGroupIdentifier string $CAMERA_APP_GROUP_ID" "$CONTENTS_DIR/Info.plist" 2>/dev/null \
+    || /usr/libexec/PlistBuddy -c "Set :WindowSnapCameraAppGroupIdentifier $CAMERA_APP_GROUP_ID" "$CONTENTS_DIR/Info.plist"
   echo -e "${GREEN}✓${NC} Virtual camera extension embedded"
   echo ""
 fi
@@ -161,11 +201,16 @@ fi
 echo -e "${YELLOW}[7/7]${NC} Code signing..."
 ENTITLEMENTS_FILE="$ROOT_DIR/WindowSnap.entitlements"
 if [[ "${BUILD_VIRTUAL_CAMERA_EXTENSION:-0}" == "1" ]]; then
-  ENTITLEMENTS_FILE="$ROOT_DIR/WindowSnapVirtualCameraHost.entitlements"
+  ENTITLEMENTS_FILE="$ROOT_DIR/.build/virtual-camera-extension/WindowSnapVirtualCameraHost.entitlements"
 fi
 if [[ -n "${CODESIGN_ID:-}" ]]; then
   echo "   Signing with identity: $CODESIGN_ID"
-  if "$ROOT_DIR/scripts/sign-nested-components.sh" "$APP_DIR" "$CODESIGN_ID" "$ENTITLEMENTS_FILE"; then
+  EXTENSION_ENTITLEMENTS_FILE=""
+  if [[ "${BUILD_VIRTUAL_CAMERA_EXTENSION:-0}" == "1" ]]; then
+    EXTENSION_ENTITLEMENTS_FILE="$ROOT_DIR/.build/virtual-camera-extension/WindowSnapVirtualCameraExtension.entitlements"
+  fi
+  if "$ROOT_DIR/scripts/sign-nested-components.sh" \
+    "$APP_DIR" "$CODESIGN_ID" "$ENTITLEMENTS_FILE" "$EXTENSION_ENTITLEMENTS_FILE"; then
     echo -e "${GREEN}✓${NC} Code signing successful"
 
     # Verify signature

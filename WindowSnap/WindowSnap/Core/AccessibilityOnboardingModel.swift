@@ -46,7 +46,7 @@ final class AccessibilityOnboardingModel {
     }
 
     var shouldPresentOnLaunch: Bool {
-        onboardingState == .notPresented && status != .granted
+        status != .granted
     }
 
     var canFinish: Bool {

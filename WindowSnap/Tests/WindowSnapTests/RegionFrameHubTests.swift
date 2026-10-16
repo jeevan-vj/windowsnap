@@ -1,5 +1,6 @@
 import CoreMedia
 import CoreVideo
+import IOSurface
 import XCTest
 @testable import WindowSnap
 
@@ -14,10 +15,13 @@ final class RegionFrameHubTests: XCTestCase {
         XCTAssertEqual(metadata.width, 1280)
         XCTAssertEqual(metadata.height, 720)
         XCTAssertEqual(metadata.frameRate, 30)
+        XCTAssertNotEqual(metadata.hostSessionID, UUID(uuidString: "00000000-0000-0000-0000-000000000000"))
         XCTAssertEqual(metadata.pixelFormat, kCVPixelFormatType_32BGRA)
         XCTAssertTrue(metadata.isPlaceholder)
         XCTAssertFalse(metadata.isActive)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: hub.currentFrameURL.path))
+        XCTAssertNotEqual(metadata.surfaceID, 0)
+        XCTAssertNotNil(IOSurfaceLookup(metadata.surfaceID))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: hub.currentFrameURL.path))
     }
 
     func testRegionCaptureDidOutputFramePersistsFrameMetadata() throws {
@@ -34,8 +38,9 @@ final class RegionFrameHubTests: XCTestCase {
         XCTAssertFalse(metadata.isPlaceholder)
         XCTAssertTrue(metadata.isActive)
 
-        let frameData = try Data(contentsOf: hub.currentFrameURL)
-        XCTAssertEqual(frameData.count, 64 * 36 * 4)
+        let surface = try XCTUnwrap(IOSurfaceLookup(metadata.surfaceID))
+        XCTAssertEqual(IOSurfaceGetWidth(surface), 64)
+        XCTAssertEqual(IOSurfaceGetHeight(surface), 36)
     }
 
     func testMarkInactiveReplacesLatestFrameWithPlaceholder() throws {
@@ -52,6 +57,57 @@ final class RegionFrameHubTests: XCTestCase {
         XCTAssertEqual(metadata.width, 1280)
         XCTAssertEqual(metadata.height, 720)
         XCTAssertTrue(metadata.isPlaceholder)
+    }
+
+    func testOlderPresentationTimeDoesNotReplaceNewestFrame() throws {
+        let directory = try makeTemporaryDirectory()
+        let hub = RegionFrameHub(directory: directory)
+        let newer = try makePixelBuffer(width: 64, height: 36, fill: 220)
+        let older = try makePixelBuffer(width: 32, height: 18, fill: 40)
+
+        hub.regionCaptureDidOutputFrame(newer, presentationTime: CMTime(seconds: 2, preferredTimescale: 600))
+        let published = try waitForMetadata(from: hub) { !$0.isPlaceholder }
+        hub.regionCaptureDidOutputFrame(older, presentationTime: CMTime(seconds: 1, preferredTimescale: 600))
+
+        let afterStaleFrame = try XCTUnwrap(hub.currentMetadata)
+        XCTAssertEqual(afterStaleFrame.sequence, published.sequence)
+        XCTAssertEqual(afterStaleFrame.width, 64)
+        XCTAssertEqual(afterStaleFrame.height, 36)
+    }
+
+    func testEachHubUsesANewHostSessionID() throws {
+        let firstHub = RegionFrameHub(directory: try makeTemporaryDirectory())
+        let secondHub = RegionFrameHub(directory: try makeTemporaryDirectory())
+
+        firstHub.prepare()
+        secondHub.prepare()
+
+        XCTAssertNotEqual(firstHub.currentMetadata?.hostSessionID, secondHub.currentMetadata?.hostSessionID)
+    }
+
+    func testFourMostRecentlyPublishedSurfacesRemainAvailable() throws {
+        let hub = RegionFrameHub(directory: try makeTemporaryDirectory())
+        var metadata: [RegionFrameMetadata] = []
+
+        for frameNumber in 1...5 {
+            let pixelBuffer = try makePixelBuffer(width: 64, height: 36, fill: UInt8(frameNumber))
+            let previousSequence = metadata.last?.sequence ?? 0
+            hub.regionCaptureDidOutputFrame(
+                pixelBuffer,
+                presentationTime: CMTime(value: CMTimeValue(frameNumber), timescale: 30)
+            )
+            metadata.append(try waitForMetadata(from: hub) {
+                !$0.isPlaceholder && $0.sequence > previousSequence
+            })
+        }
+
+        let retainedMetadata = metadata.suffix(4)
+        XCTAssertEqual(Set(retainedMetadata.map(\.surfaceID)).count, 4)
+        for frame in retainedMetadata {
+            let surface = try XCTUnwrap(IOSurfaceLookup(frame.surfaceID))
+            XCTAssertEqual(IOSurfaceGetWidth(surface), frame.width)
+            XCTAssertEqual(IOSurfaceGetHeight(surface), frame.height)
+        }
     }
 
     private func makeTemporaryDirectory() throws -> URL {

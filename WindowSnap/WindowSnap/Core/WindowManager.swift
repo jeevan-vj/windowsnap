@@ -5,10 +5,36 @@ import Carbon
 
 class WindowManager {
     static let shared = WindowManager()
-    
-    private init() {}
+
+    private static let messagingTimeout: Float = 0.25
+    private let accessibilityQueue = DispatchQueue(
+        label: "com.windowsnap.accessibility-enumeration",
+        qos: .userInitiated
+    )
+    private let systemWideElement: AXUIElement
+
+    private init() {
+        let element = AXUIElementCreateSystemWide()
+        AXUIElementSetMessagingTimeout(element, Self.messagingTimeout)
+        systemWideElement = element
+    }
     
     func getAllWindows() -> [WindowInfo] {
+        enumerateWindows()
+    }
+
+    /// AX enumeration can stall in another process, so workspace operations use this
+    /// serial worker and receive their result on the main queue.
+    func getAllWindowsAsync(completion: @escaping ([WindowInfo]) -> Void) {
+        accessibilityQueue.async { [weak self] in
+            let windows = self?.enumerateWindows() ?? []
+            DispatchQueue.main.async {
+                completion(windows)
+            }
+        }
+    }
+
+    private func enumerateWindows() -> [WindowInfo] {
         guard let windowList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
             return []
         }
@@ -29,7 +55,7 @@ class WindowManager {
 
     /// Focused window of a specific app. Used when WindowSnap is already frontmost.
     func getFocusedWindow(of application: NSRunningApplication) -> WindowInfo? {
-        let appElement = AXUIElementCreateApplication(application.processIdentifier)
+        let appElement = makeApplicationElement(processID: application.processIdentifier)
         var focusedWindow: CFTypeRef?
         let result = AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &focusedWindow)
         guard result == .success, let windowElement = focusedWindow else { return nil }
@@ -88,10 +114,7 @@ class WindowManager {
         let app = NSRunningApplication(processIdentifier: processID)
         let applicationName = app?.localizedName ?? "Unknown"
         
-        print("AX API Window Info:")
-        print("  Position: \(axPoint) (AX coordinates)")
-        print("  Size: \(axSize)")
-        print("  Frame: \(axFrame) (AX coordinates)")
+        AppLog.windowManagement.debug("AX window position=\(String(describing: axPoint), privacy: .public), size=\(String(describing: axSize), privacy: .public), frame=\(String(describing: axFrame), privacy: .public)")
         
         return WindowInfo(
             windowID: 0, // Not needed since we use AX element directly
@@ -104,10 +127,7 @@ class WindowManager {
     }
     
     func snapWindow(_ window: WindowInfo, to position: GridPosition) {
-        print("=== WINDOW SNAP (SPECTACLE APPROACH WITH CYCLING) ===")
-        print("Window: '\(window.windowTitle)'")
-        print("Current AX frame: \(window.frame)")
-        print("Requested position: \(position.displayName)")
+        AppLog.windowManagement.info("Snapping \(window.windowTitle, privacy: .private) from \(String(describing: window.frame), privacy: .public) to \(position.displayName, privacy: .public)")
         
         // 💾 SPECTACLE PRODUCTIVITY: Save current state for undo
         WindowActionHistory.shared.saveState(before: position.displayName, window: window)
@@ -116,21 +136,19 @@ class WindowManager {
         let actualPosition = WindowActionHistory.shared.getNextCyclePosition(for: position, window: window)
         
         if actualPosition != position {
-            print("📈 PRODUCTIVITY: Cycling from \(position.displayName) to \(actualPosition.displayName)")
+            AppLog.windowManagement.debug("Cycling from \(position.displayName, privacy: .public) to \(actualPosition.displayName, privacy: .public)")
         }
         
         // Find screen containing this window (using AX coordinates)
         guard let containingScreen = getScreenContainingAXRect(window.frame) else {
-            print("ERROR: Could not determine screen for AX window frame: \(window.frame)")
+            AppLog.windowManagement.error("Could not determine screen for AX frame \(String(describing: window.frame), privacy: .public)")
             return
         }
         
-        print("Detected screen: \(getScreenDisplayName(containingScreen))")
-        print("Screen visible frame (NSScreen): \(containingScreen.visibleFrame)")
+        AppLog.windowManagement.debug("Detected screen \(self.getScreenDisplayName(containingScreen), privacy: .private), visible frame \(String(describing: containingScreen.visibleFrame), privacy: .public)")
         
         // Convert screen visible frame to AX coordinates (like Spectacle does)
         let axScreenFrame = convertNSScreenToAXCoordinates(containingScreen.visibleFrame)
-        print("Screen visible frame (AX): \(axScreenFrame)")
         
         // Calculate target frame directly in AX coordinate system using actual position
         guard let targetAXFrame = calculateAXFrame(
@@ -138,41 +156,39 @@ class WindowManager {
             in: axScreenFrame,
             currentSize: window.frame.size
         ) else {
-            print("ERROR: Could not calculate AX target frame for position: \(actualPosition)")
+            AppLog.windowManagement.error("Could not calculate AX target frame for \(actualPosition.displayName, privacy: .public)")
             return
         }
         
-        print("Target AX frame: \(targetAXFrame)")
-        print("Final position: \(actualPosition.displayName)")
+        AppLog.windowManagement.debug("Target AX frame \(String(describing: targetAXFrame), privacy: .public), final position \(actualPosition.displayName, privacy: .public)")
         
         // Move window directly (already in correct AX coordinate system)
         moveWindowToAXFrame(window, frame: targetAXFrame)
         
-        print("=== END DEBUG ===")
     }
     
     // SPECTACLE PRODUCTIVITY: Undo/Redo functionality
     func undoLastAction() -> Bool {
         guard let lastState = WindowActionHistory.shared.undo() else {
-            print("❌ No actions to undo")
+            AppLog.windowManagement.debug("No actions to undo")
             return false
         }
         
         // Restore window to its previous state
         moveWindowToAXFrame(lastState.windowInfo, frame: lastState.frame)
-        print("⏪ UNDO SUCCESS: Restored window to previous state")
+        AppLog.windowManagement.info("Undo restored the previous window state")
         return true
     }
     
     func redoLastAction() -> Bool {
         guard let nextState = WindowActionHistory.shared.redo() else {
-            print("❌ No actions to redo")
+            AppLog.windowManagement.debug("No actions to redo")
             return false
         }
         
         // Apply the redone state
         moveWindowToAXFrame(nextState.windowInfo, frame: nextState.frame)
-        print("⏩ REDO SUCCESS: Applied next state")
+        AppLog.windowManagement.info("Redo applied the next window state")
         return true
     }
     
@@ -188,24 +204,24 @@ class WindowManager {
     func moveToNextDisplay(_ window: WindowInfo) -> Bool {
         let screens = NSScreen.screens
         guard screens.count > 1 else {
-            print("📟 Only one display available - cannot switch")
+            AppLog.windowManagement.notice("Cannot switch displays because only one is available")
             return false
         }
         
         guard let currentScreen = getScreenContainingAXRect(window.frame) else {
-            print("❌ Could not determine current screen for window")
+            AppLog.windowManagement.error("Could not determine current screen")
             return false
         }
         
         guard let currentIndex = screens.firstIndex(of: currentScreen) else {
-            print("❌ Could not find current screen index")
+            AppLog.windowManagement.error("Could not find current screen index")
             return false
         }
         
         let nextIndex = (currentIndex + 1) % screens.count
         let nextScreen = screens[nextIndex]
         
-        print("🖥️ DISPLAY SWITCH: Moving from display \(currentIndex + 1) to display \(nextIndex + 1)")
+        AppLog.windowManagement.info("Moving from display \(currentIndex + 1) to \(nextIndex + 1)")
         
         return moveWindowToDisplay(window, targetScreen: nextScreen, sourceScreen: currentScreen)
     }
@@ -213,24 +229,24 @@ class WindowManager {
     func moveToPreviousDisplay(_ window: WindowInfo) -> Bool {
         let screens = NSScreen.screens
         guard screens.count > 1 else {
-            print("📟 Only one display available - cannot switch")
+            AppLog.windowManagement.notice("Cannot switch displays because only one is available")
             return false
         }
         
         guard let currentScreen = getScreenContainingAXRect(window.frame) else {
-            print("❌ Could not determine current screen for window")
+            AppLog.windowManagement.error("Could not determine current screen")
             return false
         }
         
         guard let currentIndex = screens.firstIndex(of: currentScreen) else {
-            print("❌ Could not find current screen index")
+            AppLog.windowManagement.error("Could not find current screen index")
             return false
         }
         
         let prevIndex = currentIndex == 0 ? screens.count - 1 : currentIndex - 1
         let prevScreen = screens[prevIndex]
         
-        print("🖥️ DISPLAY SWITCH: Moving from display \(currentIndex + 1) to display \(prevIndex + 1)")
+        AppLog.windowManagement.info("Moving from display \(currentIndex + 1) to \(prevIndex + 1)")
         
         return moveWindowToDisplay(window, targetScreen: prevScreen, sourceScreen: currentScreen)
     }
@@ -246,7 +262,7 @@ class WindowManager {
         let relativeWidth = window.frame.width / sourceAXFrame.width
         let relativeHeight = window.frame.height / sourceAXFrame.height
         
-        print("🧮 RELATIVE POSITION: x=\(relativeX), y=\(relativeY), w=\(relativeWidth), h=\(relativeHeight)")
+        AppLog.windowManagement.debug("Relative position x=\(relativeX), y=\(relativeY), width=\(relativeWidth), height=\(relativeHeight)")
         
         // Calculate new position on target screen maintaining relative position
         let targetAXFrame = convertNSScreenToAXCoordinates(targetScreen.visibleFrame)
@@ -257,19 +273,19 @@ class WindowManager {
             height: min(relativeHeight * targetAXFrame.height, targetAXFrame.height)
         )
         
-        print("🎯 NEW FRAME: \(newFrame)")
+        AppLog.windowManagement.debug("Display-switch frame \(String(describing: newFrame), privacy: .public)")
         
         // Move window to target screen
         moveWindowToAXFrame(window, frame: newFrame)
         
-        print("✅ DISPLAY SWITCH SUCCESS: Window moved to \(getScreenDisplayName(targetScreen))")
+        AppLog.windowManagement.info("Moved window to \(self.getScreenDisplayName(targetScreen), privacy: .private)")
         return true
     }
     
     // SPECTACLE PRODUCTIVITY: Incremental resizing functionality
     func makeWindowLarger(_ window: WindowInfo) -> Bool {
         guard let containingScreen = getScreenContainingAXRect(window.frame) else {
-            print("❌ Could not determine screen for incremental resize")
+            AppLog.windowManagement.error("Could not determine screen for incremental resize")
             return false
         }
         
@@ -293,7 +309,7 @@ class WindowManager {
         
         let newFrame = CGRect(origin: newOrigin, size: newSize)
         
-        print("📏 MAKE LARGER: \(currentFrame.size) → \(newSize)")
+        AppLog.windowManagement.debug("Resize larger from \(String(describing: currentFrame.size), privacy: .public) to \(String(describing: newSize), privacy: .public)")
         moveWindowToAXFrame(window, frame: newFrame)
         return true
     }
@@ -319,7 +335,7 @@ class WindowManager {
         
         let newFrame = CGRect(origin: newOrigin, size: newSize)
         
-        print("📏 MAKE SMALLER: \(currentFrame.size) → \(newSize)")
+        AppLog.windowManagement.debug("Resize smaller from \(String(describing: currentFrame.size), privacy: .public) to \(String(describing: newSize), privacy: .public)")
         moveWindowToAXFrame(window, frame: newFrame)
         return true
     }
@@ -425,58 +441,45 @@ class WindowManager {
     // Move window to AX frame (like Spectacle does)
     private func moveWindowToAXFrame(_ window: WindowInfo, frame: CGRect) {
         guard let axElement = window.axElement else {
-            print("ERROR: No AX element for window")
+            AppLog.accessibility.error("No AX element for window")
             return
         }
-        
-        // Set position
-        var position = frame.origin
-        let positionValue = AXValueCreate(AXValueType.cgPoint, &position)
-        let posResult = AXUIElementSetAttributeValue(axElement, kAXPositionAttribute as CFString, positionValue!)
-        
-        // Set size  
-        var size = frame.size
-        let sizeValue = AXValueCreate(AXValueType.cgSize, &size)
-        let sizeResult = AXUIElementSetAttributeValue(axElement, kAXSizeAttribute as CFString, sizeValue!)
-        
-        print("AX Position result: \(posResult.rawValue)")
-        print("AX Size result: \(sizeResult.rawValue)")
-        
-        if posResult == .success && sizeResult == .success {
-            print("SUCCESS: Window moved to AX frame: \(frame)")
+
+        let succeeded = setFrame(frame, of: axElement, processID: window.processID)
+        if succeeded {
+            AppLog.windowManagement.debug("Moved window to AX frame \(String(describing: frame), privacy: .public)")
         } else {
-            print("ERROR: Failed to set window frame")
+            AppLog.accessibility.error("Failed to set AX window frame")
         }
     }
     
     func moveWindow(_ window: WindowInfo, to position: CGPoint) {
         guard let axElement = window.axElement else {
-            print("ERROR: No AXUIElement reference available for window: \(window.windowTitle)")
+            AppLog.accessibility.error("No AX element for \(window.windowTitle, privacy: .private)")
             return
         }
         
         // Find which screen the window should be on based on the target position
         guard let targetScreen = ScreenUtils.getScreenContaining(point: position) else {
-            print("ERROR: Could not determine target screen for position: \(position)")
+            AppLog.windowManagement.error("Could not determine target screen for \(String(describing: position), privacy: .public)")
             return
         }
         
-        print("Moving window to NSScreen position: \(position)")
-        print("Target screen: \(targetScreen.frame)")
+        AppLog.windowManagement.debug("Moving to AppKit position \(String(describing: position), privacy: .public) on frame \(String(describing: targetScreen.frame), privacy: .public)")
         
         // CRITICAL FIX: Convert from NSScreen coordinates to Accessibility API coordinates
         let accessibilityPosition = CoordinateConverter.convertToAccessibilityCoordinates(position, on: targetScreen)
         
-        print("Converted to Accessibility coordinates: \(accessibilityPosition)")
+        AppLog.windowManagement.debug("Converted to AX position \(String(describing: accessibilityPosition), privacy: .public)")
         
         var mutablePosition = accessibilityPosition
         let positionValue = AXValueCreate(AXValueType.cgPoint, &mutablePosition)
         let result = AXUIElementSetAttributeValue(axElement, kAXPositionAttribute as CFString, positionValue!)
         
         if result != .success {
-            print("ERROR: Failed to move window '\(window.windowTitle)' to \(accessibilityPosition), result: \(result.rawValue)")
+            AppLog.accessibility.error("Failed to move \(window.windowTitle, privacy: .private) to \(String(describing: accessibilityPosition), privacy: .public), AX result \(result.rawValue)")
         } else {
-            print("SUCCESS: Set AX position to \(accessibilityPosition)")
+            AppLog.windowManagement.debug("Set AX position to \(String(describing: accessibilityPosition), privacy: .public)")
             
             // Verify the actual position after moving
             var newPosition: CFTypeRef?
@@ -484,16 +487,13 @@ class WindowManager {
             if let pos = newPosition {
                 var actualPoint = CGPoint.zero
                 AXValueGetValue(pos as! AXValue, AXValueType.cgPoint, &actualPoint)
-                print("ACTUAL AX position after move: \(actualPoint)")
                 
                 // Convert back to NSScreen coordinates for comparison
                 let actualNSScreenPosition = CoordinateConverter.convertFromAccessibilityCoordinates(actualPoint, on: targetScreen)
-                print("ACTUAL NSScreen position: \(actualNSScreenPosition)")
+                AppLog.windowManagement.debug("Actual AX position \(String(describing: actualPoint), privacy: .public), AppKit position \(String(describing: actualNSScreenPosition), privacy: .public)")
                 
                 if abs(actualNSScreenPosition.x - position.x) > 10 || abs(actualNSScreenPosition.y - position.y) > 10 {
-                    print("WARNING: Window moved to different position than requested!")
-                    print("  Requested (NSScreen): \(position)")
-                    print("  Actual (NSScreen): \(actualNSScreenPosition)")
+                    AppLog.windowManagement.warning("Position mismatch: requested \(String(describing: position), privacy: .public), actual \(String(describing: actualNSScreenPosition), privacy: .public)")
                 }
             }
         }
@@ -501,18 +501,77 @@ class WindowManager {
     
     func resizeWindow(_ window: WindowInfo, to size: CGSize) {
         guard let axElement = window.axElement else {
-            print("Error: No AXUIElement reference available for window: \(window.windowTitle)")
+            AppLog.accessibility.error("No AX element for \(window.windowTitle, privacy: .private)")
             return
         }
         
-        var mutableSize = size
-        let sizeValue = AXValueCreate(AXValueType.cgSize, &mutableSize)
-        let result = AXUIElementSetAttributeValue(axElement, kAXSizeAttribute as CFString, sizeValue!)
+        let result: AXError = withEnhancedUserInterfaceDisabled(processID: window.processID) {
+            var mutableSize = size
+            guard let sizeValue = AXValueCreate(.cgSize, &mutableSize) else { return .failure }
+            return AXUIElementSetAttributeValue(axElement, kAXSizeAttribute as CFString, sizeValue)
+        }
         
         if result != .success {
-            print("Error: Failed to resize window '\(window.windowTitle)' to \(size)")
+            AppLog.accessibility.error("Failed to resize \(window.windowTitle, privacy: .private) to \(String(describing: size), privacy: .public)")
         } else {
-            print("Successfully resized window '\(window.windowTitle)' to \(size)")
+            AppLog.windowManagement.debug("Resized \(window.windowTitle, privacy: .private) to \(String(describing: size), privacy: .public)")
+        }
+    }
+
+    private func makeApplicationElement(processID: pid_t) -> AXUIElement {
+        let element = AXUIElementCreateApplication(processID)
+        AXUIElementSetMessagingTimeout(element, Self.messagingTimeout)
+        return element
+    }
+
+    private func withEnhancedUserInterfaceDisabled<T>(
+        processID: pid_t,
+        operation: () -> T
+    ) -> T {
+        let enhancedUserInterfaceAttribute = "AXEnhancedUserInterface" as CFString
+        let appElement = makeApplicationElement(processID: processID)
+        var rawValue: CFTypeRef?
+        let readResult = AXUIElementCopyAttributeValue(
+            appElement,
+            enhancedUserInterfaceAttribute,
+            &rawValue
+        )
+        let wasEnhanced = readResult == .success
+            && rawValue.map { CFGetTypeID($0) == CFBooleanGetTypeID() && CFBooleanGetValue(unsafeBitCast($0, to: CFBoolean.self)) } == true
+
+        if wasEnhanced {
+            AXUIElementSetAttributeValue(
+                appElement,
+                enhancedUserInterfaceAttribute,
+                kCFBooleanFalse
+            )
+        }
+        defer {
+            if wasEnhanced {
+                AXUIElementSetAttributeValue(
+                    appElement,
+                    enhancedUserInterfaceAttribute,
+                    kCFBooleanTrue
+                )
+            }
+        }
+        return operation()
+    }
+
+    /// Some applications constrain position based on their current size. Rectangle's
+    /// size-position-size sequence avoids those intermediate constraints.
+    private func setFrame(_ frame: CGRect, of element: AXUIElement, processID: pid_t) -> Bool {
+        withEnhancedUserInterfaceDisabled(processID: processID) {
+            var size = frame.size
+            var position = frame.origin
+            guard let sizeValue = AXValueCreate(.cgSize, &size),
+                  let positionValue = AXValueCreate(.cgPoint, &position) else {
+                return false
+            }
+            let firstSize = AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, sizeValue)
+            let positionResult = AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, positionValue)
+            let finalSize = AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, sizeValue)
+            return firstSize == .success && positionResult == .success && finalSize == .success
         }
     }
     
@@ -525,7 +584,7 @@ class WindowManager {
         var attached: [WindowInfo] = []
 
         for (processID, pidWindows) in grouped {
-            let appElement = AXUIElementCreateApplication(processID)
+            let appElement = makeApplicationElement(processID: processID)
             var windowsRef: CFTypeRef?
             let status = AXUIElementCopyAttributeValue(
                 appElement,
@@ -709,39 +768,32 @@ class WindowManager {
     // MARK: - Custom Position Support
     
     /// Move and resize a window to a specific frame (for custom positions)
-    func moveAndResizeWindow(_ window: WindowInfo, to targetFrame: CGRect) {
+    @discardableResult
+    func moveAndResizeWindow(_ window: WindowInfo, to targetFrame: CGRect) -> Bool {
         guard let axElement = window.axElement else {
-            print("ERROR: No AXUIElement reference available for window: \(window.windowTitle)")
-            return
+            AppLog.accessibility.error("No AX element for \(window.windowTitle, privacy: .private)")
+            return false
         }
         
-        print("🎯 Moving window '\(window.windowTitle)' to custom frame: \(targetFrame)")
+        AppLog.windowManagement.info("Moving \(window.windowTitle, privacy: .private) to custom frame \(String(describing: targetFrame), privacy: .public)")
         
         // Find which screen the target frame should be on
-        guard let targetScreen = getScreenContainingFrame(targetFrame) else {
-            print("ERROR: Could not determine target screen for frame: \(targetFrame)")
-            return
+        guard getScreenContainingFrame(targetFrame) != nil else {
+            AppLog.windowManagement.error("Could not determine target screen for frame \(String(describing: targetFrame), privacy: .public)")
+            return false
         }
         
         // Convert target frame to AX coordinates
-        let axTargetFrame = convertNSScreenFrameToAXFrame(targetFrame, on: targetScreen)
+        let axTargetFrame = convertNSScreenFrameToAXFrame(targetFrame)
         
-        print("AX target frame: \(axTargetFrame)")
+        AppLog.windowManagement.debug("AX target frame \(String(describing: axTargetFrame), privacy: .public)")
         
-        // Set position
-        var position = axTargetFrame.origin
-        let positionValue = AXValueCreate(AXValueType.cgPoint, &position)
-        let posResult = AXUIElementSetAttributeValue(axElement, kAXPositionAttribute as CFString, positionValue!)
-        
-        // Set size
-        var size = axTargetFrame.size
-        let sizeValue = AXValueCreate(AXValueType.cgSize, &size)
-        let sizeResult = AXUIElementSetAttributeValue(axElement, kAXSizeAttribute as CFString, sizeValue!)
-        
-        if posResult == .success && sizeResult == .success {
-            print("✅ Successfully moved and resized window to custom position")
+        if setFrame(axTargetFrame, of: axElement, processID: window.processID) {
+            AppLog.windowManagement.info("Applied custom window position")
+            return true
         } else {
-            print("❌ Failed to move/resize window - Position: \(posResult.rawValue), Size: \(sizeResult.rawValue)")
+            AppLog.accessibility.error("Failed to apply custom window position")
+            return false
         }
     }
     
@@ -774,28 +826,16 @@ class WindowManager {
     }
     
     /// Convert NSScreen frame coordinates to AX frame coordinates
-    private func convertNSScreenFrameToAXFrame(_ frame: CGRect, on screen: NSScreen) -> CGRect {
-        let screenVisibleFrame = screen.visibleFrame
-        let axScreenFrame = convertNSScreenToAXCoordinates(screenVisibleFrame)
-        
-        // Calculate relative position within the screen
-        let relativeX = (frame.minX - screenVisibleFrame.minX) / screenVisibleFrame.width
-        let relativeY = (frame.minY - screenVisibleFrame.minY) / screenVisibleFrame.height
-        let relativeWidth = frame.width / screenVisibleFrame.width
-        let relativeHeight = frame.height / screenVisibleFrame.height
-        
-        // Apply to AX coordinates
-        return CGRect(
-            x: axScreenFrame.minX + (axScreenFrame.width * relativeX),
-            y: axScreenFrame.minY + (axScreenFrame.height * relativeY),
-            width: axScreenFrame.width * relativeWidth,
-            height: axScreenFrame.height * relativeHeight
+    private func convertNSScreenFrameToAXFrame(_ frame: CGRect) -> CGRect {
+        WorkspaceCoordinateMath.axFrame(
+            fromAppKit: frame,
+            primaryScreenHeight: CoordinateConverter.primaryScreenHeight
         )
     }
 
     // MARK: - Wake/Sleep Handling
     func resetAfterWake() {
-        print("🔄 Resetting WindowManager after system wake...")
+        AppLog.windowManagement.info("Resetting after wake")
         // Nothing specific to reset in current implementation
         // This method is here for future enhancements
     }
@@ -811,7 +851,6 @@ class WindowManager {
         // A frontmost app can legitimately have no focused window (menu-bar apps,
         // the desktop, and transient panels). Test the system-wide AX connection
         // instead so normal UI states do not trigger a full shortcut re-registration.
-        let systemWideElement = AXUIElementCreateSystemWide()
         var focusedApplication: CFTypeRef?
         let result = AXUIElementCopyAttributeValue(
             systemWideElement,
