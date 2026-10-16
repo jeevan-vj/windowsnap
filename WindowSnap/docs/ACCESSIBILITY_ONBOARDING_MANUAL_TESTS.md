@@ -15,6 +15,19 @@ These checks exercise macOS TCC behavior that cannot be simulated reliably by un
 
 Do not reset TCC on a machine where preserving the current permission decision is important.
 
+## Frontmost presentation
+
+WindowSnap is a menu-bar app and is not the active app at launch. Onboarding still has to come up in front of whatever is focused.
+
+Run this check with a Developer ID–signed build. Ad-hoc signing changes the code identity and drops existing Accessibility and Screen Recording grants, so it is not a valid result. Capture before and after screenshots.
+
+1. Focus another app (a normal window, and again a fullscreen app) so WindowSnap is not active.
+2. Launch WindowSnap with Accessibility not granted and onboarding incomplete.
+3. Confirm "Welcome to WindowSnap" is the frontmost window on the current Space and is key (Return activates Continue).
+4. Drag it aside, switch to System Settings, and confirm it stays available when you return. It must not hide behind the app that was focused at launch.
+
+Before the fix, the same launch left the window behind the frontmost app.
+
 ## Clean-install and grant path
 
 1. Launch WindowSnap with Accessibility not granted.
