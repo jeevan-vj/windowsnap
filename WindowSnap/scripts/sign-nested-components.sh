@@ -14,7 +14,17 @@ SOURCE_VIRTUAL_CAMERA_EXTENSION_ENTITLEMENTS="$ROOT_DIR/WindowSnapVirtualCameraE
 [[ -d "$APP_PATH" ]] || die "App bundle not found: $APP_PATH"
 [[ -n "$CODESIGN_ID" ]] || die "A Developer ID Application identity or fingerprint is required"
 
-CODESIGN_ID="$("$ROOT_DIR/scripts/resolve-developer-id.sh" "$CODESIGN_ID")"
+if [[ "${WINDOWSNAP_LOCAL_SIGNING:-0}" == "1" ]] && \
+   ! "$ROOT_DIR/scripts/resolve-developer-id.sh" "$CODESIGN_ID" >/dev/null 2>&1; then
+  # Local/dev builds (set by build-universal-bundle.sh when it picked the
+  # identity itself) may also use an installed Apple Development identity.
+  # Release scripts never set WINDOWSNAP_LOCAL_SIGNING and stay Developer ID only.
+  /usr/bin/security find-identity -v -p codesigning 2>/dev/null | grep -F -- "$CODESIGN_ID" | grep -q 'Apple Development:' || \
+    die "Local signing identity is neither Developer ID Application nor an installed Apple Development identity"
+  echo "Local build: signing with Apple Development identity $CODESIGN_ID"
+else
+  CODESIGN_ID="$("$ROOT_DIR/scripts/resolve-developer-id.sh" "$CODESIGN_ID")"
+fi
 
 if [[ -z "$VIRTUAL_CAMERA_EXTENSION_ENTITLEMENTS" && -f "$GENERATED_VIRTUAL_CAMERA_EXTENSION_ENTITLEMENTS" ]]; then
   VIRTUAL_CAMERA_EXTENSION_ENTITLEMENTS="$GENERATED_VIRTUAL_CAMERA_EXTENSION_ENTITLEMENTS"

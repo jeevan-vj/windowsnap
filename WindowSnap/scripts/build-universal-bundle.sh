@@ -17,12 +17,13 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 #   REGION_SHARE_QA=1 fail instead of falling back to ad-hoc
 if [[ -z "${CODESIGN_ID:-}" && "${ALLOW_ADHOC:-0}" != "1" ]]; then
   if resolved_identity="$("$ROOT_DIR/scripts/resolve-local-signing-identity.sh")"; then
-    IFS=$'\t' read -r CODESIGN_ID resolved_team resolved_label <<<"$resolved_identity"
+    IFS='|' read -r CODESIGN_ID resolved_team resolved_label <<<"$resolved_identity"
     if [[ "$CODESIGN_ID" == "-" ]]; then
       CODESIGN_ID=""
     else
       if [[ -z "${TEAM_ID:-}" && -n "$resolved_team" ]]; then TEAM_ID="$resolved_team"; export TEAM_ID; fi
       export CODESIGN_ID
+      export WINDOWSNAP_LOCAL_SIGNING=1
       echo "🔐 Local signing identity: $resolved_label (team ${resolved_team:-unknown})"
     fi
   fi

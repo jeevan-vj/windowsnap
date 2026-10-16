@@ -72,9 +72,13 @@ Local and dev builds therefore always sign with one stable identity, chosen by
 3. the first `Apple Development` identity
 
 `build-universal-bundle.sh` (and `build_bundle.sh` / `quick-install.sh`) and
-`quick-run.sh` use it whenever `CODESIGN_ID` is not set, and derive `TEAM_ID`
-from the identity name. When several identities share a name, the SHA-1 is
-used so `codesign` is not ambiguous.
+`quick-run.sh` use it whenever `CODESIGN_ID` is not set (an explicit
+`CODESIGN_ID` is always respected). `TEAM_ID` is derived from the
+certificate's OU. The suffix in an Apple Development name is a personal ID, not
+the team. When several identities share a name, the SHA-1 is used so
+`codesign` is not ambiguous. Locally picked Apple Development identities are
+accepted by `sign-nested-components.sh` only via `WINDOWSNAP_LOCAL_SIGNING=1`.
+Release scripts remain Developer ID only.
 
 ```sh
 # Default: Developer ID for 88282K637B if installed

@@ -95,8 +95,14 @@ final class VirtualDisplayController: NSObject {
         case .none:
             break
         case .refreshCapture:
+            // Automatic wake recovery must never enter the permission flow or
+            // ScreenCaptureKit without a current grant.
             if let displayID = session.connectedDisplayID {
-                startCapture(for: displayID)
+                if ScreenRecordingPermissions.hasPermissions() {
+                    startCapture(for: displayID)
+                } else {
+                    ScreenRecordingPermissions.logDiagnostics(reason: "virtual display wake without grant")
+                }
             }
         case .recreate:
             adapter.disconnect()

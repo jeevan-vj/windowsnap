@@ -14,9 +14,11 @@ echo "========================"
 
 # One stable identity (SIGNING_IDENTITY, else Developer ID for team 88282K637B,
 # else Apple Development) so Screen Recording grants survive rebuilds.
-CODESIGN_ID=""
-if resolved_identity="$("$ROOT_DIR/scripts/resolve-local-signing-identity.sh")"; then
-    IFS=$'\t' read -r CODESIGN_ID resolved_team resolved_label <<<"$resolved_identity"
+CODESIGN_ID="${CODESIGN_ID:-}"
+if [[ -n "$CODESIGN_ID" ]]; then
+    echo "🔐 Using CODESIGN_ID: $CODESIGN_ID"
+elif resolved_identity="$("$ROOT_DIR/scripts/resolve-local-signing-identity.sh")"; then
+    IFS='|' read -r CODESIGN_ID resolved_team resolved_label <<<"$resolved_identity"
     echo "🔐 Using: $resolved_label (team ${resolved_team:-unknown})"
     if [[ -z "${TEAM_ID:-}" && -n "$resolved_team" ]]; then export TEAM_ID="$resolved_team"; fi
 fi
@@ -48,6 +50,7 @@ if [[ ! -d "$APP_DIR" ]]; then
         CODESIGN_ID="" ALLOW_ADHOC=1 bash "$ROOT_DIR/scripts/build_bundle.sh"
     else
         export CODESIGN_ID
+        export WINDOWSNAP_LOCAL_SIGNING=1
         bash "$ROOT_DIR/scripts/build_bundle.sh"
     fi
 else

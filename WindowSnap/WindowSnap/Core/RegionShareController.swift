@@ -264,6 +264,14 @@ final class RegionShareController: NSObject {
         guard wantsVirtualCameraCapture,
               let region = RegionShareManager.shared.currentRegion else { return }
 
+        // Wake is not a user action: never prompt or show permission UI here.
+        guard ScreenRecordingPermissions.hasPermissions() else {
+            ScreenRecordingPermissions.logDiagnostics(reason: "virtual camera wake without grant")
+            stopVirtualCameraShare()
+            RegionShareManager.shared.setState(.idle)
+            return
+        }
+
         if RegionShareManager.shared.isDisplayValid(region.displayID) {
             startVirtualCameraCapture(for: region)
         } else {
