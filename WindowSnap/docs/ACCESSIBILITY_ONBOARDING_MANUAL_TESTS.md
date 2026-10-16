@@ -24,7 +24,7 @@ Run this check with a Developer ID–signed build. Ad-hoc signing changes the co
 1. Focus another app (a normal window, and again a fullscreen app) so WindowSnap is not active.
 2. Launch WindowSnap with Accessibility not granted and onboarding incomplete.
 3. Confirm "Welcome to WindowSnap" is the frontmost window on the current Space and is key (Return activates Continue).
-4. Drag it aside, switch to System Settings, and confirm it stays available when you return. It must not hide behind the app that was focused at launch.
+4. Drag it aside. Open System Settings > Privacy & Security > Accessibility, then return. Repeat that trip once. The window stays visible while Settings is open (it must not hide on the way there) and is in front again when you come back, including during the space transition. Frontmost app may stay Safari; that is expected for an accessory app.
 
 Before the fix, the same launch left the window behind the frontmost app.
 
