@@ -21,6 +21,15 @@ final class AccessibilityOnboardingWindowController: NSWindowController, NSWindo
     private var didNotifyDismiss = false
     private var hasRequestedPermission = false
 
+    /// Floating, so onboarding sits above normal windows of the frontmost app.
+    static let presentationLevel: NSWindow.Level = .floating
+
+    /// Shows on the active Space, including over a fullscreen app.
+    static let presentationCollectionBehavior: NSWindow.CollectionBehavior = [
+        .moveToActiveSpace,
+        .fullScreenAuxiliary
+    ]
+
     init(model: AccessibilityOnboardingModel) {
         self.model = model
         let window = NSWindow(
@@ -58,10 +67,27 @@ final class AccessibilityOnboardingWindowController: NSWindowController, NSWindo
         didNotifyDismiss = false
         model.refreshPermissionStatus()
         render()
-        showWindow(nil)
-        window?.center()
-        window?.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        guard let window else { return }
+        window.center()
+        // Activate before ordering. `showWindow` / `makeKeyAndOrderFront` on an
+        // inactive accessory app does not raise the window, and a later
+        // `activate` does not reorder it.
+        Self.bringToFront(window)
+    }
+
+    /// Activates WindowSnap, then orders `window` front.
+    ///
+    /// `activate(ignoringOtherApps:)` returns before an accessory app is
+    /// actually active, so `makeKeyAndOrderFront` alone can still lose to
+    /// the frontmost app. `orderFrontRegardless` raises the window while
+    /// that request is in flight and does not clear the key-window request.
+    static func bringToFront(
+        _ window: NSWindow,
+        activate: () -> Void = { NSApp.activate(ignoringOtherApps: true) }
+    ) {
+        activate()
+        window.makeKeyAndOrderFront(nil)
+        window.orderFrontRegardless()
     }
 
     func refreshPermissionStatus() {
@@ -85,6 +111,8 @@ final class AccessibilityOnboardingWindowController: NSWindowController, NSWindo
         window.isRestorable = false
         window.delegate = self
         window.standardWindowButton(.zoomButton)?.isHidden = true
+        window.level = Self.presentationLevel
+        window.collectionBehavior = Self.presentationCollectionBehavior
     }
 
     private func buildContent() {
