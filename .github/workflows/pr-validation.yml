@@ -1,14 +1,27 @@
 name: PR Validation
 
+# No SwiftLint or swift-format config exists, so this workflow does not lint.
+
 on:
   pull_request:
     branches: [main, master]
   push:
     branches: [main, master]
 
+concurrency:
+  group: pr-validation-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: write
+
 jobs:
   build-and-test:
-    runs-on: macos-latest
+    runs-on: macos-26
+    timeout-minutes: 20
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
     defaults:
       run:
         working-directory: WindowSnap
@@ -17,8 +30,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode.app
+      - name: Select Xcode 26.6
+        run: |
+          set -euo pipefail
+          sudo xcode-select -s /Applications/Xcode_26.6.app
+          xcodebuild -version
+          swift --version
+          xcodebuild -version | grep -q '^Xcode 26.6$'
+
+      - name: Cache Swift PM build
+        uses: actions/cache@v4
+        with:
+          path: WindowSnap/.build
+          key: macos-26-xcode-26.6-spm-${{ hashFiles('WindowSnap/Package.swift', 'WindowSnap/**/*.swift', 'WindowSnap/**/*.m', 'WindowSnap/**/*.h') }}
+          restore-keys: |
+            macos-26-xcode-26.6-spm-
 
       - name: Build (debug)
         run: swift build
@@ -26,5 +52,8 @@ jobs:
       - name: Build (release)
         run: swift build -c release
 
+      # XCTest only. --parallel runs each test method in its own process.
+      # Temp directories and UserDefaults suites are UUID-scoped, and
+      # WindowActionHistory resets in setUp, so shared singletons stay isolated.
       - name: Test
-        run: swift test
+        run: swift test --parallel

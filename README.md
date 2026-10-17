@@ -1,5 +1,7 @@
 # WindowSnap
 
+[![PR Validation](https://github.com/jeevan-vj/windowsnap/actions/workflows/pr-validation.yml/badge.svg)](https://github.com/jeevan-vj/windowsnap/actions/workflows/pr-validation.yml)
+
 A native macOS window management application that allows you to quickly arrange application windows using keyboard shortcuts, similar to window management features in Alfred.
 
 ## Features
