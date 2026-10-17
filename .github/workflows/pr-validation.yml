@@ -34,9 +34,11 @@ jobs:
         run: |
           set -euo pipefail
           sudo xcode-select -s /Applications/Xcode_26.6.app
-          xcodebuild -version
+          # Capture first. Piping xcodebuild into grep -q SIGPIPEs it (exit 134).
+          version="$(xcodebuild -version)"
+          printf '%s\n' "$version"
           swift --version
-          xcodebuild -version | grep -q '^Xcode 26.6$'
+          [[ "${version%%$'\n'*}" == "Xcode 26.6" ]]
 
       - name: Cache Swift PM build
         uses: actions/cache@v4
